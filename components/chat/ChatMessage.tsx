@@ -34,9 +34,9 @@ export function ChatMessage({
             : "bg-[var(--surface)] text-[var(--foreground)]"
         }`}
       >
-        <div className="whitespace-pre-wrap break-words">
+        <div className="break-words">
           {isUser ? (
-            message.content
+            <div className="whitespace-pre-wrap">{message.content}</div>
           ) : (
             <MarkdownRenderer content={message.content} />
           )}

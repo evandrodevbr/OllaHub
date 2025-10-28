@@ -91,7 +91,9 @@ export async function ensureModelExists(
       } else if (chunk.status === "success") {
         console.log(`\n✅ Modelo ${modelName} baixado com sucesso!`);
         if (description) {
-          console.log(`🎯 ${description.replace("será usado", "agora funciona")}`);
+          console.log(
+            `🎯 ${description.replace("será usado", "agora funciona")}`
+          );
         }
         break;
       }

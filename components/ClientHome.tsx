@@ -62,6 +62,7 @@ export function ClientHome({ offline, models }: ClientHomeProps) {
             models={models}
             offline={offline}
             onConversationCreated={handleConversationCreated}
+            currentConversationId={currentConversationId}
           />
         </div>
       </main>

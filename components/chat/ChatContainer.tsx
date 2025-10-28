@@ -15,12 +15,14 @@ interface ChatContainerProps {
   models: ModelInfo[];
   offline: boolean;
   onConversationCreated?: () => void;
+  currentConversationId?: string | null;
 }
 
 export function ChatContainer({
   models,
   offline,
   onConversationCreated,
+  currentConversationId: propCurrentConversationId,
 }: ChatContainerProps) {
   const { prefs, ready, update } = useUserPrefs();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -41,6 +43,17 @@ export function ChatContainer({
       setSelectedModel(prefs.selectedModel);
     }
   }, [ready, prefs.selectedModel]);
+
+  // Carregar mensagens quando uma conversa é selecionada
+  useEffect(() => {
+    if (propCurrentConversationId) {
+      loadConversation(propCurrentConversationId);
+    } else {
+      // Limpar mensagens quando nenhuma conversa está selecionada
+      setMessages([]);
+      setConversationId(null);
+    }
+  }, [propCurrentConversationId]);
 
   // Salvar modelo quando selecionado
   const handleModelChange = (modelName: string) => {

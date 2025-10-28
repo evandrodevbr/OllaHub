@@ -131,7 +131,7 @@ export async function initializeEmbeddingModel(): Promise<void> {
   try {
     await ensureModelExists(
       "nomic-embed-text",
-      "Este modelo será usado para busca vetorial das mensagens"
+      "Este modelo será usado para busca vetorial das mensagens (274MB - 768 dimensões)"
     );
     console.log("✅ Modelo de embedding pronto!");
   } catch (error) {
