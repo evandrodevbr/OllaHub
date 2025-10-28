@@ -1,10 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { User, Bot, Send, Loader2 } from "lucide-react";
+import { User, Bot, Send, Loader2, Square } from "lucide-react";
 import { MarkdownRenderer } from "@/components/message/MarkdownRenderer";
 import { MessageActions } from "@/components/message/MessageActions";
-import { extractCodeBlocks } from "@/hooks/useMarkdown";
 import type { Message } from "@/lib/chat";
 import { formatTimestamp } from "@/lib/chat";
 
@@ -29,7 +28,7 @@ export function ChatMessage({
         </div>
       )}
       <div
-        className={`max-w-[80%] rounded-lg px-4 py-2 ${
+        className={`max-w-[80%] relative rounded-lg px-4 py-2 ${
           isUser
             ? "bg-[var(--accent)] text-white"
             : "bg-[var(--surface)] text-[var(--foreground)]"
@@ -44,11 +43,8 @@ export function ChatMessage({
         </div>
         {isStreaming && <span className="ml-1 animate-pulse">▊</span>}
         {!isUser && !isStreaming && (
-          <div className="mt-2">
-            <MessageActions
-              content={message.content}
-              extractCodeBlocks={extractCodeBlocks}
-            />
+          <div className="absolute bottom-2 right-2">
+            <MessageActions content={message.content} />
           </div>
         )}
         <div
@@ -71,13 +67,17 @@ export function ChatMessage({
 
 interface ChatInputProps {
   onSendMessage: (content: string) => void;
+  onStop?: () => void;
   disabled?: boolean;
+  isStreaming?: boolean;
   placeholder?: string;
 }
 
 export function ChatInput({
   onSendMessage,
+  onStop,
   disabled = false,
+  isStreaming = false,
   placeholder = "Type a message...",
 }: ChatInputProps) {
   const [content, setContent] = useState("");
@@ -125,11 +125,14 @@ export function ChatInput({
         maxLength={2000}
       />
       <button
-        type="submit"
-        disabled={!content.trim() || disabled}
+        type={isStreaming ? "button" : "submit"}
+        onClick={isStreaming ? onStop : undefined}
+        disabled={isStreaming ? false : !content.trim() || disabled}
         className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--accent)] text-white transition-colors hover:bg-[color-mix(in_oklab,var(--accent),black_10%)] disabled:opacity-50"
       >
-        {disabled ? (
+        {isStreaming ? (
+          <Square className="h-4 w-4" />
+        ) : disabled ? (
           <Loader2 className="h-4 w-4 animate-spin" />
         ) : (
           <Send className="h-4 w-4" />

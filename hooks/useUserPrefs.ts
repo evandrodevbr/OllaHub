@@ -5,20 +5,15 @@ import { useCallback, useEffect, useState } from "react";
 export type DevicePref = "auto" | "cpu" | "gpu";
 
 type Prefs = {
+  selectedModel: string | null; // NOVO
   systemPrompt: string;
   device: DevicePref;
-  gpuIndex: number; // main_gpu
-  numGpu: number; // num_gpu
+  gpuIndex: number;
+  numGpu: number;
 };
 
-const KEYS = {
-  systemPrompt: "ollahub-system-prompt",
-  device: "ollahub-device-pref",
-  gpuIndex: "ollahub-gpu-index",
-  numGpu: "ollahub-num-gpu",
-} as const;
-
 const defaultPrefs: Prefs = {
+  selectedModel: null, // NOVO
   systemPrompt: "",
   device: "auto",
   gpuIndex: 0,
@@ -29,32 +24,34 @@ export function useUserPrefs() {
   const [prefs, setPrefs] = useState<Prefs>(defaultPrefs);
   const [ready, setReady] = useState(false);
 
+  // Carregar do Redis
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const p: Prefs = {
-      systemPrompt:
-        localStorage.getItem(KEYS.systemPrompt) || defaultPrefs.systemPrompt,
-      device:
-        (localStorage.getItem(KEYS.device) as DevicePref) ||
-        defaultPrefs.device,
-      gpuIndex: Number(
-        localStorage.getItem(KEYS.gpuIndex) || defaultPrefs.gpuIndex
-      ),
-      numGpu: Number(localStorage.getItem(KEYS.numGpu) || defaultPrefs.numGpu),
-    };
-    setPrefs(p);
-    setReady(true);
+    fetch("/api/preferences")
+      .then((res) => res.json())
+      .then((data) => {
+        setPrefs(data);
+        setReady(true);
+      })
+      .catch((err) => {
+        console.error("Erro ao carregar preferências:", err);
+        setReady(true);
+      });
   }, []);
 
+  // Salvar no Redis
   const update = useCallback((next: Partial<Prefs>) => {
     setPrefs((prev) => {
       const merged: Prefs = { ...prev, ...next };
-      if (typeof window !== "undefined") {
-        localStorage.setItem(KEYS.systemPrompt, merged.systemPrompt);
-        localStorage.setItem(KEYS.device, merged.device);
-        localStorage.setItem(KEYS.gpuIndex, String(merged.gpuIndex));
-        localStorage.setItem(KEYS.numGpu, String(merged.numGpu));
-      }
+
+      // Salvar no Redis
+      fetch("/api/preferences", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(merged),
+      }).catch((err) =>
+        console.error("Erro ao salvar preferências:", err)
+      );
+
       return merged;
     });
   }, []);

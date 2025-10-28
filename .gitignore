@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# database
+database/*.db
+database/extensions/*.so
+database/extensions/*.dll
+database/extensions/*.dylib
+
+
+/.cursor

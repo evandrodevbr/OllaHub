@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ModeToggle } from "@/components/mode-toggle";
 import { ChatContainer } from "@/components/chat/ChatContainer";
+import { ConversationSidebar } from "@/components/chat/ConversationSidebar";
 import {
   SettingsButton,
   SettingsModal,
@@ -15,6 +16,23 @@ interface ClientHomeProps {
 
 export function ClientHome({ offline, models }: ClientHomeProps) {
   const [open, setOpen] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [currentConversationId, setCurrentConversationId] = useState<
+    string | null
+  >(null);
+
+  const handleConversationCreated = () => {
+    // Incrementar trigger para forçar atualização da sidebar
+    setRefreshTrigger((prev) => prev + 1);
+  };
+
+  const handleSelectConversation = (id: string) => {
+    setCurrentConversationId(id);
+  };
+
+  const handleNewConversation = () => {
+    setCurrentConversationId(null);
+  };
 
   return (
     <div className="h-screen flex flex-col bg-[var(--background)]">
@@ -33,7 +51,19 @@ export function ClientHome({ offline, models }: ClientHomeProps) {
         </div>
       </header>
       <main className="flex-1 overflow-hidden">
-        <ChatContainer models={models} offline={offline} />
+        <div className="flex h-full">
+          <ConversationSidebar
+            currentConversationId={currentConversationId}
+            onSelectConversation={handleSelectConversation}
+            onNewConversation={handleNewConversation}
+            refreshTrigger={refreshTrigger}
+          />
+          <ChatContainer
+            models={models}
+            offline={offline}
+            onConversationCreated={handleConversationCreated}
+          />
+        </div>
       </main>
       <SettingsModal isOpen={open} onClose={() => setOpen(false)} />
     </div>

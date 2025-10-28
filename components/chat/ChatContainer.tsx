@@ -3,8 +3,9 @@
 import { useState, useEffect, useRef } from "react";
 import { ModelDropdown } from "@/components/model/ModelDropdown";
 import { ModelPullDialog } from "@/components/model/ModelPullDialog";
-import { ChatMessage, ChatInput } from "@/components/chat/ChatMessage";
-import { SystemPrompt } from "@/components/chat/SystemPrompt";
+import { ChatMessage } from "@/components/chat/ChatMessage";
+import { SettingsModal } from "@/components/chat/SettingsModal";
+import { Send, Square } from "lucide-react";
 import type { ModelInfo } from "@/lib/models";
 import type { Message } from "@/lib/chat";
 import { createMessage } from "@/lib/chat";
@@ -13,19 +14,39 @@ import { useUserPrefs, buildOllamaOptions } from "@/hooks/useUserPrefs";
 interface ChatContainerProps {
   models: ModelInfo[];
   offline: boolean;
+  onConversationCreated?: () => void;
 }
 
-export function ChatContainer({ models, offline }: ChatContainerProps) {
-  const { prefs, ready } = useUserPrefs();
+export function ChatContainer({
+  models,
+  offline,
+  onConversationCreated,
+}: ChatContainerProps) {
+  const { prefs, ready, update } = useUserPrefs();
   const [messages, setMessages] = useState<Message[]>([]);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
+  const [inputContent, setInputContent] = useState("");
   const abortRef = useRef<AbortController | null>(null);
   const [showPullDialog, setShowPullDialog] = useState(false);
   const [modelToPull, setModelToPull] = useState<string>("");
   const [systemPrompt, setSystemPrompt] = useState<string>("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Carregar modelo salvo ao iniciar
+  useEffect(() => {
+    if (ready && prefs.selectedModel && !selectedModel) {
+      setSelectedModel(prefs.selectedModel);
+    }
+  }, [ready, prefs.selectedModel]);
+
+  // Salvar modelo quando selecionado
+  const handleModelChange = (modelName: string) => {
+    setSelectedModel(modelName);
+    update({ selectedModel: modelName }); // Salvar no Redis
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -35,8 +56,54 @@ export function ChatContainer({ models, offline }: ChatContainerProps) {
     scrollToBottom();
   }, [messages, streamingContent]);
 
+  const loadConversation = async (id: string) => {
+    try {
+      const response = await fetch(`/api/conversations/${id}`);
+      const data = await response.json();
+
+      if (data.conversation && data.messages) {
+        setConversationId(id);
+        setMessages(data.messages);
+        setSelectedModel(data.conversation.model);
+      }
+    } catch (error) {
+      console.error("Erro ao carregar conversa:", error);
+    }
+  };
+
+  const startNewConversation = () => {
+    setConversationId(null);
+    setMessages([]);
+  };
+
   const handleSendMessage = async (content: string) => {
     if (!selectedModel || isStreaming) return;
+
+    // Criar nova conversa se não existir (COM TÍTULO)
+    let currentConversationId = conversationId;
+    if (!currentConversationId) {
+      try {
+        const response = await fetch("/api/conversations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: selectedModel,
+            firstMessage: content, // Passar primeira mensagem
+          }),
+        });
+        const { id, title } = await response.json();
+        currentConversationId = id;
+        setConversationId(id);
+        console.log("✨ Chat criado:", title);
+
+        // Notificar sidebar para atualizar lista de conversas
+        if (onConversationCreated) {
+          onConversationCreated();
+        }
+      } catch (error) {
+        console.error("Erro ao criar conversa:", error);
+      }
+    }
 
     const userMessage = createMessage("user", content);
     const newMessages = [...messages, userMessage];
@@ -50,6 +117,19 @@ export function ChatContainer({ models, offline }: ChatContainerProps) {
     setMessages(newMessages);
     setIsStreaming(true);
     setStreamingContent("");
+
+    // Persistir mensagem do usuário
+    if (currentConversationId) {
+      try {
+        await fetch(`/api/conversations/${currentConversationId}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role: "user", content }),
+        });
+      } catch (error) {
+        console.error("Erro ao persistir mensagem:", error);
+      }
+    }
 
     try {
       const options = buildOllamaOptions(
@@ -105,6 +185,28 @@ export function ChatContainer({ models, offline }: ChatContainerProps) {
               );
               setMessages((prev) => [...prev, assistantMessage]);
               setStreamingContent("");
+
+              // Persistir mensagem do assistente
+              if (currentConversationId) {
+                try {
+                  await fetch(
+                    `/api/conversations/${currentConversationId}/messages`,
+                    {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        role: "assistant",
+                        content: assistantContent,
+                      }),
+                    }
+                  );
+                } catch (error) {
+                  console.error(
+                    "Erro ao persistir mensagem do assistente:",
+                    error
+                  );
+                }
+              }
             }
             if (data.error) {
               throw new Error(data.error);
@@ -128,16 +230,36 @@ export function ChatContainer({ models, offline }: ChatContainerProps) {
     }
   };
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (inputContent.trim() && !isStreaming) {
+      handleSendMessage(inputContent.trim());
+      setInputContent("");
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e);
+    }
+  };
+
   const handleStop = () => {
     if (abortRef.current && isStreaming) {
       abortRef.current.abort();
     }
   };
 
+  const handleSystemPromptChange = (prompt: string) => {
+    setSystemPrompt(prompt);
+    update({ systemPrompt: prompt }); // Salvar no SQLite
+  };
+
   const handleSelectModel = (modelId: string) => {
     const model = models.find((m) => m.id === modelId);
     if (model) {
-      setSelectedModel(modelId);
+      handleModelChange(modelId);
       // Optional: clear chat when switching models
       // setMessages([]);
     }
@@ -191,97 +313,98 @@ export function ChatContainer({ models, offline }: ChatContainerProps) {
   const selectedModelData = models.find((m) => m.id === selectedModel);
 
   return (
-    <div className="flex h-full bg-[var(--background)]">
-      {/* Sidebar */}
-      <div className="w-80 border-r border-[var(--border)] bg-[var(--surface)] p-4 overflow-y-auto">
-        <div className="mb-4">
-          <h2 className="text-sm font-medium text-[var(--foreground)]/80 mb-2">
-            Models
-          </h2>
-          <ModelDropdown
-            models={models}
-            selectedModel={selectedModel}
-            onSelectModel={handleSelectModel}
-            disabled={isStreaming}
-          />
-        </div>
-
-        {offline && (
-          <div className="rounded-lg border border-orange-200 bg-orange-50 p-3">
-            <p className="text-sm text-orange-800">
-              Ollama is offline. Using mock data.
-            </p>
-          </div>
-        )}
-
-        {selectedModelData && (
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
-            <h3 className="font-medium text-sm mb-2">Selected Model</h3>
-            <div className="space-y-1 text-xs text-[var(--foreground)]/80">
-              <div>Name: {selectedModelData.name}</div>
-              <div>Size: {selectedModelData.sizeGB} GB</div>
-              <div>Quantization: {selectedModelData.quantization}</div>
-              <div>Device: {selectedModelData.device}</div>
-            </div>
-          </div>
-        )}
-
-        <SystemPrompt onSystemPromptChange={setSystemPrompt} />
-      </div>
-
-      {/* Chat Area */}
-      <div className="flex-1 flex flex-col min-h-0">
-        {/* Chat Header */}
-        <div className="border-b border-[var(--border)] p-4 flex items-center justify-between gap-3">
+    <div className="flex-1 flex flex-col bg-[var(--background)] min-h-0">
+      {/* Chat Header */}
+      <div className="border-b border-[var(--border)] p-4 flex items-center justify-between gap-3 flex-shrink-0">
+        <div className="flex items-center gap-3">
           <h1 className="text-lg font-semibold">
             {selectedModelData
-              ? `Chat with ${selectedModelData.name}`
+              ? "Chat with"
               : "Select a model to start chatting"}
           </h1>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleStop}
-              disabled={!isStreaming}
-              className="rounded-md border border-[var(--border)] px-3 py-1 text-sm hover:bg-[var(--surface)] disabled:opacity-50"
-            >
-              Stop
-            </button>
-          </div>
-        </div>
-
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto min-h-0">
-          {messages.length === 0 ? (
-            <div className="flex h-full items-center justify-center">
-              <div className="text-center text-[var(--foreground)]/60">
-                <p className="text-lg mb-2">Welcome to Ollahub</p>
-                <p className="text-sm">Select a model and start chatting!</p>
-              </div>
-            </div>
-          ) : (
-            <>
-              {messages.map((message) => (
-                <ChatMessage key={message.id} message={message} />
-              ))}
-              {isStreaming && streamingContent && (
-                <ChatMessage
-                  message={createMessage("assistant", streamingContent)}
-                  isStreaming={true}
-                />
-              )}
-              <div ref={messagesEndRef} />
-            </>
+          {selectedModelData && (
+            <ModelDropdown
+              models={models}
+              selectedModel={selectedModel}
+              onSelectModel={handleSelectModel}
+              disabled={isStreaming}
+            />
           )}
         </div>
+        <div className="flex items-center gap-2">
+          <SettingsModal
+            systemPrompt={systemPrompt}
+            onSystemPromptChange={handleSystemPromptChange}
+            selectedModel={selectedModel}
+            models={models}
+          />
+          <button
+            onClick={handleStop}
+            disabled={!isStreaming}
+            className="rounded-md border border-[var(--border)] px-3 py-1 text-sm hover:bg-[var(--surface)] disabled:opacity-50"
+          >
+            Stop
+          </button>
+        </div>
+      </div>
 
-        {/* Input */}
-        <ChatInput
-          onSendMessage={handleSendMessage}
-          disabled={!selectedModel || isStreaming}
-          placeholder={
-            selectedModel ? "Type a message..." : "Select a model first..."
-          }
-        />
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto min-h-0">
+        {messages.length === 0 ? (
+          <div className="flex h-full items-center justify-center">
+            <div className="text-center text-[var(--foreground)]/60">
+              <p className="text-lg mb-2">Welcome to Ollahub</p>
+              <p className="text-sm">Select a model and start chatting!</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {messages.map((message) => (
+              <ChatMessage key={message.id} message={message} />
+            ))}
+            {isStreaming && streamingContent && (
+              <ChatMessage
+                message={createMessage("assistant", streamingContent)}
+                isStreaming={true}
+              />
+            )}
+            <div ref={messagesEndRef} />
+          </>
+        )}
+      </div>
+
+      {/* Input */}
+      <div className="flex-shrink-0 border-t border-[var(--border)] bg-[var(--background)]">
+        <form onSubmit={handleSubmit} className="p-4">
+          <div className="flex gap-2">
+            <textarea
+              value={inputContent}
+              onChange={(e) => setInputContent(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                selectedModel ? "Type a message..." : "Select a model first..."
+              }
+              disabled={!selectedModel || isStreaming}
+              className="flex-1 resize-none rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)] disabled:opacity-50"
+              rows={1}
+              maxLength={2000}
+            />
+            <button
+              type={isStreaming ? "button" : "submit"}
+              onClick={isStreaming ? handleStop : undefined}
+              disabled={
+                isStreaming ? false : !inputContent.trim() || !selectedModel
+              }
+              className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--accent)] text-white transition-colors hover:bg-[color-mix(in_oklab,var(--accent),black_10%)] disabled:opacity-50"
+            >
+              {isStreaming ? (
+                <Square className="h-4 w-4" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+            </button>
+          </div>
+        </form>
       </div>
 
       {/* Pull Dialog */}

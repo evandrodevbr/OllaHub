@@ -14,6 +14,30 @@ export async function POST(req: NextRequest) {
 
     const stream = new ReadableStream({
       async start(controller) {
+        let isClosed = false;
+
+        const safeEnqueue = (data: string) => {
+          if (!isClosed) {
+            try {
+              controller.enqueue(new TextEncoder().encode(data));
+            } catch (error) {
+              console.error("Error enqueuing data:", error);
+              isClosed = true;
+            }
+          }
+        };
+
+        const safeClose = () => {
+          if (!isClosed) {
+            try {
+              controller.close();
+              isClosed = true;
+            } catch (error) {
+              console.error("Error closing controller:", error);
+            }
+          }
+        };
+
         try {
           const ollamaMessages = convertToOllamaMessages(messages);
           const response = await chatWithStream(
@@ -26,24 +50,18 @@ export async function POST(req: NextRequest) {
           for await (const chunk of response) {
             const token = chunk.message?.content || "";
             if (token) {
-              controller.enqueue(
-                new TextEncoder().encode(JSON.stringify({ token }) + "\n")
-              );
+              safeEnqueue(JSON.stringify({ token }) + "\n");
             }
           }
 
-          controller.enqueue(
-            new TextEncoder().encode(JSON.stringify({ done: true }) + "\n")
-          );
-          controller.close();
+          safeEnqueue(JSON.stringify({ done: true }) + "\n");
+          safeClose();
         } catch (error) {
           console.error("Chat streaming error:", error);
-          controller.enqueue(
-            new TextEncoder().encode(
-              JSON.stringify({ error: "Failed to generate response" }) + "\n"
-            )
+          safeEnqueue(
+            JSON.stringify({ error: "Failed to generate response" }) + "\n"
           );
-          controller.close();
+          safeClose();
         }
       },
     });

@@ -1,16 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Copy, Edit3, RefreshCw, Check } from "lucide-react";
+import { Copy, Edit3, RefreshCw, Check, ChevronDown } from "lucide-react";
+import { useCopyPrefs } from "@/hooks/useCopyPrefs";
+import { stripMarkdown } from "@/hooks/useMarkdown";
 
 type MessageActionsProps = {
   content: string;
   disabled?: boolean;
   onEdit?: () => void;
   onRegenerate?: () => void;
-  extractCodeBlocks?: (
-    text: string
-  ) => Array<{ language: string; code: string }>;
 };
 
 export function MessageActions({
@@ -18,70 +17,69 @@ export function MessageActions({
   disabled,
   onEdit,
   onRegenerate,
-  extractCodeBlocks,
 }: MessageActionsProps) {
-  const [copied, setCopied] = useState<"none" | "markdown" | "text" | "code">(
-    "none"
-  );
+  const [copied, setCopied] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const { copyMode, setCopyMode } = useCopyPrefs();
 
-  const copy = async (text: string, flag: MessageActionsProps["content"]) => {
+  const copy = async (text: string) => {
     await navigator.clipboard.writeText(text);
-    setCopied(flag as any);
-    setTimeout(() => setCopied("none"), 1500);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
   };
 
-  const stripMarkdown = (md: string) =>
-    md
-      .replace(/```[\s\S]*?```/g, (block) =>
-        block.replace(/```[\s\S]*?\n/, "").replace(/```$/, "")
-      )
-      .replace(/[#*_>`~-]/g, "");
-  const codeBlocks = extractCodeBlocks ? extractCodeBlocks(content) : [];
+  const handleCopyDefault = () => {
+    const textToCopy =
+      copyMode === "markdown" ? content : stripMarkdown(content);
+    copy(textToCopy);
+  };
+
+  const handleModeSelect = (mode: "markdown" | "text") => {
+    setCopyMode(mode);
+    const textToCopy = mode === "markdown" ? content : stripMarkdown(content);
+    copy(textToCopy);
+    setDropdownOpen(false);
+  };
 
   return (
     <div className="flex items-center gap-1 opacity-70">
       <button
         className="rounded px-2 py-1 text-xs hover:bg-[var(--surface)]"
-        onClick={() => copy(content, "markdown")}
+        onClick={handleCopyDefault}
         disabled={disabled}
-        aria-label="Copy as markdown"
+        aria-label="Copiar"
       >
-        {copied === "markdown" ? (
-          <Check className="h-3 w-3" />
-        ) : (
-          <Copy className="h-3 w-3" />
-        )}{" "}
-        MD
+        {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
       </button>
-      <button
-        className="rounded px-2 py-1 text-xs hover:bg-[var(--surface)]"
-        onClick={() => copy(stripMarkdown(content), "text")}
-        disabled={disabled}
-        aria-label="Copy as plain text"
-      >
-        {copied === "text" ? (
-          <Check className="h-3 w-3" />
-        ) : (
-          <Copy className="h-3 w-3" />
-        )}{" "}
-        TXT
-      </button>
-      {codeBlocks.map((b, i) => (
+
+      <div className="relative">
         <button
-          key={`${b.language}-${i}`}
-          className="rounded px-2 py-1 text-xs hover:bg-[var(--surface)]"
-          onClick={() => copy(b.code, "code")}
+          className="rounded px-1 py-1 text-xs hover:bg-[var(--surface)]"
+          onClick={() => setDropdownOpen(!dropdownOpen)}
           disabled={disabled}
-          aria-label={`Copy ${b.language} code`}
+          aria-label="Selecionar formato"
         >
-          {copied === "code" ? (
-            <Check className="h-3 w-3" />
-          ) : (
-            <Copy className="h-3 w-3" />
-          )}{" "}
-          {b.language}
+          <ChevronDown className="h-3 w-3" />
         </button>
-      ))}
+
+        {dropdownOpen && (
+          <div className="absolute right-0 z-10 mt-1 rounded border border-[var(--border)] bg-[var(--background)] shadow-lg">
+            <button
+              className="block w-full px-3 py-2 text-left text-xs hover:bg-[var(--surface)]"
+              onClick={() => handleModeSelect("markdown")}
+            >
+              Markdown
+            </button>
+            <button
+              className="block w-full px-3 py-2 text-left text-xs hover:bg-[var(--surface)]"
+              onClick={() => handleModeSelect("text")}
+            >
+              Texto
+            </button>
+          </div>
+        )}
+      </div>
+
       {onEdit && (
         <button
           className="rounded px-2 py-1 text-xs hover:bg-[var(--surface)]"
