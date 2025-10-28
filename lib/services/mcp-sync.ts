@@ -1,4 +1,4 @@
-import { DeepNLPService } from "./deepnlp";
+import { PulseMCPService } from "./pulsemcp";
 import { MCPCacheRepository } from "@/database/repositories/mcp-cache";
 
 export interface SyncProgress {
@@ -131,143 +131,78 @@ export class MCPSyncService {
   }
 
   /**
-   * Download paginado de todas as páginas - SEM LIMITE ARTIFICIAL
+   * Download completo de todos os servidores PulseMCP (uma única chamada)
    */
   private static async downloadAllPages(
     onProgress?: (progress: SyncProgress) => void
   ): Promise<any[]> {
-    const allMCPs: any[] = [];
-    let page = 0;
-    let COUNT_PER_PAGE = 100; // Começar com 100
-    let totalHits = 0;
-    let consecutiveEmptyPages = 0; // Contador para páginas vazias consecutivas
+    try {
+      console.log("📡 Starting complete download from PulseMCP...");
 
-    console.log("📡 Starting unlimited paginated download...");
+      // Notificar início
+      this.currentProgress = {
+        current: 0,
+        total: 0,
+        page: 1,
+        totalPages: 1,
+      };
 
-    while (!this.abortController?.signal.aborted) {
-      try {
-        const params = {
-          mode: "list" as const,
-          page_id: page,
-          count_per_page: COUNT_PER_PAGE,
-        };
+      if (onProgress) {
+        onProgress(this.currentProgress);
+      }
+
+      // Fazer uma única chamada para buscar todos os servidores
+      const response = await PulseMCPService.getAllServers();
+
+      console.log(`📊 Total servers available: ${response.total_count}`);
+      console.log(`📥 Downloaded ${response.servers.length} servers`);
+
+      // Atualizar progresso
+      this.currentProgress = {
+        current: response.servers.length,
+        total: response.total_count,
+        page: 1,
+        totalPages: 1,
+      };
+
+      if (onProgress) {
+        onProgress(this.currentProgress);
+      }
+
+      // Salvar em batches de 500 para evitar bloqueio
+      const batchSize = 500;
+      const totalBatches = Math.ceil(response.servers.length / batchSize);
+
+      for (let i = 0; i < totalBatches; i++) {
+        const start = i * batchSize;
+        const end = Math.min(start + batchSize, response.servers.length);
+        const batch = response.servers.slice(start, end);
 
         console.log(
-          `📄 Downloading page ${
-            page + 1
-          } (${COUNT_PER_PAGE} items per page)...`
+          `💾 Saving batch ${i + 1}/${totalBatches} (${batch.length} items)...`
         );
+        MCPCacheRepository.saveBatch(batch);
 
-        const response = await DeepNLPService.searchMCPs(params);
-
-        // Se não há itens na resposta, incrementar contador de páginas vazias
-        if (!response.items || response.items.length === 0) {
-          consecutiveEmptyPages++;
-          console.log(
-            `⚠️ Empty page ${
-              page + 1
-            } (${consecutiveEmptyPages} consecutive empty pages)`
-          );
-
-          // Se temos 3 páginas vazias consecutivas, parar o download
-          if (consecutiveEmptyPages >= 3) {
-            console.log(
-              "🛑 Stopping download: 3 consecutive empty pages detected"
-            );
-            break;
-          }
-
-          page++;
-          continue;
-        }
-
-        // Reset contador de páginas vazias se encontramos dados
-        consecutiveEmptyPages = 0;
-        allMCPs.push(...response.items);
-
-        // Atualizar total hits na primeira página
-        if (page === 0) {
-          totalHits = response.total_hits;
-          console.log(`📊 Total MCPs available: ${totalHits}`);
-        }
-
-        // Notificar progresso
-        this.currentProgress = {
-          current: allMCPs.length,
-          total: totalHits,
-          page: page + 1,
-          totalPages:
-            totalHits > 0 ? Math.ceil(totalHits / COUNT_PER_PAGE) : page + 1,
-        };
-
-        if (onProgress) {
-          onProgress(this.currentProgress);
-        }
-
-        // Incrementar página
-        page++;
-
-        // Salvar em batch a cada 500 itens para evitar bloqueio
-        if (allMCPs.length % 500 === 0) {
-          console.log(`💾 Saving batch of 500 MCPs to database...`);
-          MCPCacheRepository.saveBatch(allMCPs.slice(-500));
-        }
-
-        // Pequena pausa entre requisições para não sobrecarregar a API
+        // Pequena pausa entre batches
         await new Promise((resolve) => setTimeout(resolve, 100));
-
-        // Aumentar tamanho da página progressivamente para otimizar
-        if (page === 5 && COUNT_PER_PAGE === 100) {
-          COUNT_PER_PAGE = 500;
-          console.log("🚀 Increasing page size to 500 for faster download");
-        } else if (page === 20 && COUNT_PER_PAGE === 500) {
-          COUNT_PER_PAGE = 1000;
-          console.log("🚀 Increasing page size to 1000 for maximum efficiency");
-        }
-
-        // Log de progresso a cada 10 páginas
-        if (page % 10 === 0) {
-          console.log(
-            `📈 Progress: ${allMCPs.length} MCPs downloaded (page ${page})`
-          );
-        }
-      } catch (error: any) {
-        console.error(`❌ Error downloading page ${page + 1}:`, error);
-
-        // Se for erro de abort, parar
-        if (this.abortController?.signal.aborted) {
-          console.log("🛑 Download cancelled");
-          break;
-        }
-
-        // Se for erro de rede, tentar continuar
-        if (
-          error.message.includes("fetch") ||
-          error.message.includes("network")
-        ) {
-          console.log("🔄 Network error, retrying in 2 seconds...");
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-          continue;
-        }
-
-        // Para outros erros, parar
-        throw error;
       }
-    }
 
-    // Salvar último batch se houver
-    if (allMCPs.length > 0) {
-      const remainingItems = allMCPs.length % 500;
-      if (remainingItems > 0) {
-        console.log(`💾 Saving final batch of ${remainingItems} MCPs...`);
-        MCPCacheRepository.saveBatch(allMCPs.slice(-remainingItems));
+      console.log(
+        `✅ Download completed: ${response.servers.length} total MCPs downloaded from PulseMCP`
+      );
+      return response.servers;
+    } catch (error: any) {
+      console.error(`❌ Error downloading from PulseMCP:`, error);
+
+      // Se for erro de abort, parar
+      if (this.abortController?.signal.aborted) {
+        console.log("🛑 Download cancelled");
+        return [];
       }
-    }
 
-    console.log(
-      `✅ Download completed: ${allMCPs.length} total MCPs downloaded`
-    );
-    return allMCPs;
+      // Para outros erros, lançar
+      throw error;
+    }
   }
 
   /**

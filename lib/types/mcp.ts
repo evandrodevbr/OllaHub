@@ -18,10 +18,6 @@ export interface MCPProvider {
   tags: string[]; // mapeado de content_tag_list
   rating: number; // já existe na API
   totalRatings: number; // mapeado de review_cnt
-  downloads: number; // opcional, calcular baseado em reviews
-  iconUrl?: string; // mapeado de thumbnail_picture
-  screenshotUrls?: string[];
-  capabilities: string[]; // mapeado de ext_info.tools
   repository?: string; // mapeado de website
   homepage?: string;
   installed: boolean; // verificar localmente
@@ -81,14 +77,48 @@ export interface MCPServerConfig {
 export interface MCPSearchParams {
   category?: string;
   search?: string;
-  sort?:
-    | "rating"
-    | "downloads"
-    | "name"
-    | "recent"
-    | "total_ratings"
-    | "updated_at";
+  sort?: "rating" | "name" | "recent" | "total_ratings" | "updated_at";
   order?: "asc" | "desc";
   limit?: number;
   offset?: number;
+}
+
+// PulseMCP API Types
+export interface PulseMCPSearchParams {
+  query?: string;
+  integrations?: string[];
+  count_per_page?: number;
+  offset?: number;
+}
+
+export interface PulseMCPResponse {
+  servers: MCPServerMetadata[];
+  next?: string;
+  total_count: number;
+}
+
+export interface MCPServerMetadata {
+  name: string;
+  url: string;
+  external_url?: string;
+  short_description: string;
+  source_code_url: string;
+  github_stars?: number;
+  package_registry: "npm" | "pypi" | "cargo";
+  package_name: string;
+  package_download_count?: number;
+  EXPERIMENTAL_ai_generated_description?: string;
+  _meta: {
+    "com.pulsemcp": {
+      estimated_downloads_all_time: number;
+      estimated_downloads_last_30_days: number;
+      estimated_downloads_last_7_days: number;
+      standardized_name: string;
+      standardized_description: string;
+      standardized_provider_name: string;
+      standardized_provider_url: string;
+      estimated_released_on: string;
+      is_official: boolean;
+    };
+  };
 }

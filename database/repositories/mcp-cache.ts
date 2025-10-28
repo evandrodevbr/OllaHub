@@ -1,4 +1,5 @@
 import { getDatabase } from "@/database/database";
+import { PulseMCPService } from "@/lib/services/pulsemcp";
 
 const db = getDatabase();
 
@@ -99,25 +100,42 @@ export class MCPCacheRepository {
 
       const now = Date.now();
 
-      for (const mcp of mcps) {
-        const [owner, repo] = (mcp.id || "").split("/");
+      for (const pulseMCPItem of mcps) {
+        // Transformar dados PulseMCP para formato interno
+        const mcpProvider =
+          PulseMCPService.transformToMCPProvider(pulseMCPItem);
+
+        // Extrair owner/repo do package_name ou usar name como fallback
+        const packageName = pulseMCPItem.package_name || pulseMCPItem.name;
+        const [owner, repo] = packageName.includes("/")
+          ? packageName.split("/")
+          : ["", packageName];
+
         stmt.run(
-          mcp.id || "",
-          owner || "",
-          repo || "",
-          mcp.content_name || "",
-          mcp.publisher_id || "",
-          mcp.description || null,
-          mcp.category || null,
-          mcp.subfield || null,
-          mcp.field || null,
-          parseFloat(mcp.rating || "0"),
-          parseInt(mcp.review_cnt || "0"),
-          mcp.content_tag_list || null,
-          mcp.thumbnail_picture || null,
-          mcp.website || null,
-          mcp.detail_url || null,
-          mcp.ext_info ? JSON.stringify(mcp.ext_info) : null,
+          mcpProvider.id,
+          owner,
+          repo,
+          mcpProvider.name,
+          mcpProvider.author,
+          mcpProvider.description,
+          mcpProvider.category,
+          mcpProvider.subfield,
+          mcpProvider.field,
+          mcpProvider.rating,
+          mcpProvider.totalRatings,
+          mcpProvider.tags.join(","),
+          null, // Não temos ícones disponíveis
+          mcpProvider.homepage || null,
+          pulseMCPItem.source_code_url || null,
+          JSON.stringify({
+            package_registry: pulseMCPItem.package_registry,
+            package_name: pulseMCPItem.package_name,
+            github_stars: pulseMCPItem.github_stars,
+            package_download_count: pulseMCPItem.package_download_count,
+            config: mcpProvider.config,
+            tools: mcpProvider.tools,
+            pulseMCP_meta: pulseMCPItem._meta,
+          }),
           now,
           now
         );

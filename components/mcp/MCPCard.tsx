@@ -1,6 +1,13 @@
 "use client";
 
-import { Package, Star, Download, Eye, ExternalLink, CheckCircle, Zap } from "lucide-react";
+import {
+  Package,
+  Star,
+  Eye,
+  ExternalLink,
+  CheckCircle,
+  Zap,
+} from "lucide-react";
 import { MCPProvider } from "@/lib/types/mcp";
 
 interface MCPCardProps {
@@ -10,19 +17,34 @@ interface MCPCardProps {
   onViewDetails: () => void;
 }
 
-export function MCPCard({ mcp, onInstall, onUninstall, onViewDetails }: MCPCardProps) {
+export function MCPCard({
+  mcp,
+  onInstall,
+  onUninstall,
+  onViewDetails,
+}: MCPCardProps) {
   const getCategoryColor = (category: string) => {
     switch (category) {
-      case "map": return "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200";
-      case "browser": return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200";
-      case "office": return "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200";
-      case "search": return "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200";
-      case "database": return "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200";
-      case "finance": return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200";
-      case "code": return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200";
-      case "chart": return "bg-pink-100 text-pink-800 dark:bg-pink-900 dark:text-pink-200";
-      case "payment": return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200";
-      default: return "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200";
+      case "map":
+        return "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200";
+      case "browser":
+        return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200";
+      case "office":
+        return "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200";
+      case "search":
+        return "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200";
+      case "database":
+        return "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200";
+      case "finance":
+        return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200";
+      case "code":
+        return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200";
+      case "chart":
+        return "bg-pink-100 text-pink-800 dark:bg-pink-900 dark:text-pink-200";
+      case "payment":
+        return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200";
+      default:
+        return "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200";
     }
   };
 
@@ -32,39 +54,32 @@ export function MCPCard({ mcp, onInstall, onUninstall, onViewDetails }: MCPCardP
     return downloads.toString();
   };
 
-  const isOfficial = mcp.tags?.includes('official') || false;
-  const toolCount = mcp.tools?.length || mcp.capabilities?.length || 0;
+  const isOfficial = mcp.tags?.includes("official") || false;
+  const toolCount = mcp.tools?.length || 0;
 
   return (
     <div className="bg-[var(--surface)] border border-[var(--border)] rounded-lg p-4 hover:shadow-md transition-all duration-200 hover:border-[var(--primary)]/50 mcp-card">
       {/* Header */}
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
-          {mcp.iconUrl ? (
-            <img 
-              src={mcp.iconUrl} 
-              alt={mcp.name}
-              className="h-8 w-8 rounded-md object-cover"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-                e.currentTarget.nextElementSibling?.classList.remove('hidden');
-              }}
-            />
-          ) : null}
-          <div className={`p-2 bg-[var(--primary)]/10 rounded-md ${mcp.iconUrl ? 'hidden' : ''}`}>
+          <div className="p-2 bg-[var(--primary)]/10 rounded-md">
             <Package className="h-4 w-4 text-[var(--primary)]" />
           </div>
           <div>
             <div className="flex items-center gap-2">
               <h3 className="font-semibold text-sm">{mcp.name}</h3>
-              {isOfficial && (
-                <CheckCircle className="h-3 w-3 text-green-500" />
-              )}
+              {isOfficial && <CheckCircle className="h-3 w-3 text-green-500" />}
             </div>
-            <p className="text-xs text-[var(--muted-foreground)]">by {mcp.author}</p>
+            <p className="text-xs text-[var(--muted-foreground)]">
+              by {mcp.author}
+            </p>
           </div>
         </div>
-        <span className={`px-2 py-1 rounded-full text-xs font-medium mcp-category-badge ${getCategoryColor(mcp.category)}`}>
+        <span
+          className={`px-2 py-1 rounded-full text-xs font-medium mcp-category-badge ${getCategoryColor(
+            mcp.category
+          )}`}
+        >
           {mcp.category}
         </span>
       </div>
@@ -80,10 +95,6 @@ export function MCPCard({ mcp, onInstall, onUninstall, onViewDetails }: MCPCardP
           <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
           <span>{mcp.rating}</span>
           <span>({mcp.totalRatings})</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <Download className="h-3 w-3" />
-          <span>{formatDownloads(mcp.downloads)}</span>
         </div>
         {toolCount > 0 && (
           <div className="flex items-center gap-1">
@@ -122,7 +133,7 @@ export function MCPCard({ mcp, onInstall, onUninstall, onViewDetails }: MCPCardP
           <Eye className="h-4 w-4" />
           Details
         </button>
-        
+
         {mcp.installed ? (
           <button
             onClick={onUninstall}

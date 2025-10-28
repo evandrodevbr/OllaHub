@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { X, Search, Filter, Package, Star, Download, Eye } from "lucide-react";
+import { X, Search, Filter, Package, Star, Eye } from "lucide-react";
 import { MCPProvider } from "@/lib/types/mcp";
 import { MCPCard } from "./MCPCard";
 import { MCPCategoryFilter } from "./MCPCategoryFilter";
@@ -22,7 +22,7 @@ export function MCPMarketplaceModal({
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState<
-    "rating" | "downloads" | "name" | "recent" | "total_ratings" | "updated_at"
+    "rating" | "name" | "recent" | "total_ratings" | "updated_at"
   >("rating");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [selectedMCP, setSelectedMCP] = useState<MCPProvider | null>(null);
@@ -283,7 +283,6 @@ export function MCPMarketplaceModal({
                     className="px-3 py-2 bg-[var(--surface)] border border-[var(--border)] rounded-md text-sm"
                   >
                     <option value="rating">Por Avaliação</option>
-                    <option value="downloads">Por Downloads</option>
                     <option value="name">Por Nome</option>
                     <option value="recent">Mais Recentes</option>
                     <option value="total_ratings">Por Nº de Reviews</option>

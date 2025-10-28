@@ -2,12 +2,14 @@ import { NextResponse } from "next/server";
 import {
   MCPProvider,
   MCPSearchParams,
-  DeepNLPSearchParams,
+  PulseMCPSearchParams,
 } from "@/lib/types/mcp";
-import { DeepNLPService } from "@/lib/services/deepnlp";
+import { PulseMCPService } from "@/lib/services/pulsemcp";
 import { MCPRepository } from "@/database/repositories/mcp";
 import { MCPCacheRepository } from "@/database/repositories/mcp-cache";
 import { MCPSyncService } from "@/lib/services/mcp-sync";
+
+const PULSEMCP_API_BASE = "https://api.pulsemcp.com/v0beta";
 
 export const dynamic = "force-dynamic";
 
@@ -55,10 +57,25 @@ export async function GET(request: Request) {
     if (cachedMcps.length > 0 || cacheValid) {
       console.log(`Found ${cachedMcps.length} MCPs in cache`);
 
-      // Transformar para formato interno
-      const mcps = cachedMcps.map((item) =>
-        DeepNLPService.transformToMCPProvider(item)
-      );
+      // Os dados já estão no formato interno após transformação no saveBatch
+      const mcps = cachedMcps.map((item) => ({
+        id: item.id,
+        name: item.content_name,
+        author: item.publisher_id,
+        description: item.description || "",
+        version: "1.0.0",
+        category: item.category as MCPProvider["category"],
+        tags: item.content_tag_list ? item.content_tag_list.split(",") : [],
+        rating: item.rating,
+        totalRatings: item.review_cnt,
+        repository: item.detail_url || "",
+        homepage: item.website || "",
+        installed: false, // Será definido abaixo
+        subfield: item.subfield || "",
+        field: item.field || "",
+        config: [],
+        tools: [],
+      }));
 
       // Adicionar status de instalação
       const installedMCPs = MCPRepository.listInstalled();
@@ -81,32 +98,46 @@ export async function GET(request: Request) {
       });
     }
 
-    // 3. Fallback: buscar da API se cache vazio
-    console.log("Cache empty, falling back to DeepNLP API");
+    // 3. Fallback: buscar da API PulseMCP se cache vazio
+    console.log("Cache empty, falling back to PulseMCP API");
 
-    const deepnlpCategory =
-      category && category !== "all"
-        ? DeepNLPService.getCategoryMapping(category)
-        : undefined;
-
-    const deepnlpParams: DeepNLPSearchParams = {
+    const pulseMCPParams: PulseMCPSearchParams = {
       query: search,
-      category: deepnlpCategory,
-      page_id: page,
       count_per_page: limit,
-      mode: "list",
+      offset: page * limit,
     };
 
-    console.log("Calling DeepNLP API with params:", deepnlpParams);
+    console.log("Calling PulseMCP API with params:", pulseMCPParams);
 
-    const response = await DeepNLPService.searchMCPs(deepnlpParams);
-    const mcps = response.items.map((item) =>
-      DeepNLPService.transformToMCPProvider(item)
+    const response = await fetch(
+      `${PULSEMCP_API_BASE}/servers?${new URLSearchParams({
+        ...(search && { query: search }),
+        count_per_page: limit.toString(),
+        offset: (page * limit).toString(),
+      })}`,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "Ollahub-MCP-Client/1.0 (https://ollahub.com)",
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `PulseMCP API error: ${response.status} ${response.statusText}`
+      );
+    }
+
+    const data = await response.json();
+    const mcps = data.servers.map((item: any) =>
+      PulseMCPService.transformToMCPProvider(item)
     );
 
     // Adicionar status de instalação
     const installedMCPs = MCPRepository.listInstalled();
-    const mcpsWithStatus = mcps.map((mcp) => ({
+    const mcpsWithStatus = mcps.map((mcp: MCPProvider) => ({
       ...mcp,
       installed: installedMCPs.includes(mcp.id),
     }));
@@ -114,12 +145,12 @@ export async function GET(request: Request) {
     return NextResponse.json({
       success: true,
       mcps: mcpsWithStatus,
-      total: response.total_hits,
-      hasMore: response.total_hits > (page + 1) * limit,
+      total: data.total_count,
+      hasMore: data.total_count > (page + 1) * limit,
       cached: false,
     });
   } catch (error: any) {
-    console.error("Error fetching MCPs from DeepNLP:", error);
+    console.error("Error fetching MCPs from PulseMCP:", error);
 
     // Fallback para dados mock em caso de erro
     console.log("Falling back to mock data due to API error");
@@ -136,13 +167,13 @@ export async function GET(request: Request) {
         tags: ["maps", "location", "directions"],
         rating: 4.5,
         totalRatings: 2,
-        downloads: 20,
-        capabilities: ["geocoding", "directions", "places"],
         repository:
           "https://github.com/modelcontextprotocol/servers/tree/main/src/google-maps",
         installed: false,
         subfield: "MAP",
         field: "MCP SERVER",
+        config: [],
+        tools: [],
       },
     ];
 
