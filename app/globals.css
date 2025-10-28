@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #0b0c0f;
+  --accent: #2563eb; /* blue-600 */
+  --accent-foreground: #ffffff;
+  --border: #e5e7ef;
+  --surface: #f6f7fb;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-accent: var(--accent);
+  --color-border: var(--border);
+  --font-sans: var(--font-inter);
+}
+
+.dark {
+  --background: #0b0c0f;
+  --foreground: #e6e8ef;
+  --accent: #3b82f6; /* blue-500 */
+  --accent-foreground: #0b0c0f;
+  --border: #2a2f3a;
+  --surface: #12141a;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter), ui-sans-serif, system-ui;
+}
