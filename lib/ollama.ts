@@ -102,3 +102,72 @@ export async function ensureModelExists(
     console.log(`✅ Modelo ${modelName} já está disponível`);
   }
 }
+
+export async function deleteModel(modelName: string): Promise<void> {
+  const client = new Ollama({ host: OLLAMA_HOST });
+  await client.delete({ model: modelName });
+}
+
+export async function searchRemoteModels(query?: string): Promise<any[]> {
+  try {
+    // Ollama não tem API oficial para buscar modelos remotos
+    // Vamos usar uma lista conhecida de modelos populares
+    const popularModels = [
+      "llama3.2:1b",
+      "llama3.2:3b",
+      "llama3.2:11b",
+      "llama3.2:70b",
+      "llama3.1:8b",
+      "llama3.1:70b",
+      "llama3.1:405b",
+      "qwen2.5:1.5b",
+      "qwen2.5:3b",
+      "qwen2.5:7b",
+      "qwen2.5:14b",
+      "qwen2.5:32b",
+      "qwen2.5:72b",
+      "qwen2:0.5b",
+      "qwen2:1.5b",
+      "qwen2:3b",
+      "qwen2:7b",
+      "qwen2:14b",
+      "qwen2:32b",
+      "qwen2:72b",
+      "mistral:7b",
+      "mixtral:8x7b",
+      "mixtral:8x22b",
+      "phi3:mini",
+      "phi3:medium",
+      "phi3:large",
+      "gemma2:2b",
+      "gemma2:9b",
+      "gemma2:27b",
+      "codellama:7b",
+      "codellama:13b",
+      "codellama:34b",
+      "deepseek-coder:1.3b",
+      "deepseek-coder:6.7b",
+      "deepseek-coder:33b",
+    ];
+
+    // Filtrar por query se fornecida
+    const filteredModels = query
+      ? popularModels.filter((model) =>
+          model.toLowerCase().includes(query.toLowerCase())
+        )
+      : popularModels;
+
+    // Verificar quais já estão instalados
+    const installedModels = await listModelsViaSdk();
+    const installedNames = installedModels.map((m) => m.name);
+
+    return filteredModels.map((modelName) => ({
+      name: modelName,
+      installed: installedNames.includes(modelName),
+      remote: true,
+    }));
+  } catch (error) {
+    console.error("Erro ao buscar modelos remotos:", error);
+    return [];
+  }
+}

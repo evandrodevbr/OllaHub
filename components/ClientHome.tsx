@@ -8,6 +8,8 @@ import {
   SettingsButton,
   SettingsModal,
 } from "@/components/settings/SettingsModal";
+import { MCPMarketplaceModal } from "@/components/mcp/MCPMarketplaceModal";
+import { Store } from "lucide-react";
 
 interface ClientHomeProps {
   offline: boolean;
@@ -20,6 +22,7 @@ export function ClientHome({ offline, models }: ClientHomeProps) {
   const [currentConversationId, setCurrentConversationId] = useState<
     string | null
   >(null);
+  const [showMCPMarketplace, setShowMCPMarketplace] = useState(false);
 
   const handleConversationCreated = () => {
     // Incrementar trigger para forçar atualização da sidebar
@@ -45,6 +48,13 @@ export function ClientHome({ offline, models }: ClientHomeProps) {
                 Ollama offline
               </span>
             )}
+            <button
+              onClick={() => setShowMCPMarketplace(true)}
+              className="flex items-center gap-2 px-3 py-2 bg-[var(--surface)] border border-[var(--border)] rounded-md hover:bg-[var(--background)] transition-colors text-sm"
+            >
+              <Store className="h-4 w-4" />
+              MCP Marketplace
+            </button>
             <SettingsButton onOpen={() => setOpen(true)} />
             <ModeToggle />
           </div>
@@ -67,6 +77,10 @@ export function ClientHome({ offline, models }: ClientHomeProps) {
         </div>
       </main>
       <SettingsModal isOpen={open} onClose={() => setOpen(false)} />
+      <MCPMarketplaceModal
+        isOpen={showMCPMarketplace}
+        onClose={() => setShowMCPMarketplace(false)}
+      />
     </div>
   );
 }

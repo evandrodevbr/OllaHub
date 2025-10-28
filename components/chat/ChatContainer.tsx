@@ -278,6 +278,26 @@ export function ChatContainer({
     }
   };
 
+  const handleDeleteModel = async (modelId: string) => {
+    try {
+      const response = await fetch("/api/ollama/delete", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ modelName: modelId }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to delete model");
+      }
+
+      // Atualizar lista de modelos após exclusão
+      // Aqui você pode recarregar a lista ou remover o modelo da lista local
+      console.log(`Model ${modelId} deleted successfully`);
+    } catch (error) {
+      console.error("Error deleting model:", error);
+    }
+  };
+
   const handlePullModel = async (modelName: string) => {
     try {
       const response = await fetch("/api/ollama/pull", {
@@ -340,6 +360,8 @@ export function ChatContainer({
               models={models}
               selectedModel={selectedModel}
               onSelectModel={handleSelectModel}
+              onDeleteModel={handleDeleteModel}
+              onPullModel={handlePullModel}
               disabled={isStreaming}
             />
           )}

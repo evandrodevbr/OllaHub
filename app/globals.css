@@ -31,3 +31,134 @@ body {
   color: var(--foreground);
   font-family: var(--font-inter), ui-sans-serif, system-ui;
 }
+
+/* Custom scrollbar para o seletor de modelos */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--foreground);
+  opacity: 0.3;
+}
+
+/* MCP Marketplace Styles */
+.mcp-card {
+  transition: all 0.2s ease-in-out;
+}
+
+.mcp-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+}
+
+.mcp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem;
+}
+
+@media (max-width: 768px) {
+  .mcp-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mcp-modal {
+  backdrop-filter: blur(8px);
+}
+
+.mcp-category-badge {
+  transition: all 0.2s ease-in-out;
+}
+
+.mcp-category-badge:hover {
+  transform: scale(1.05);
+}
+
+.mcp-rating-star {
+  transition: color 0.2s ease-in-out;
+}
+
+.mcp-rating-star:hover {
+  color: #fbbf24;
+}
+
+.mcp-install-button {
+  transition: all 0.2s ease-in-out;
+}
+
+.mcp-install-button:hover {
+  transform: scale(1.02);
+}
+
+.mcp-install-button:active {
+  transform: scale(0.98);
+}
+
+/* Loading animation for MCP cards */
+.mcp-loading {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* MCP detail modal animations */
+.mcp-detail-modal {
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* MCP search bar focus effects */
+.mcp-search-input:focus {
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* MCP category filter active state */
+.mcp-category-active {
+  background: linear-gradient(135deg, var(--primary), var(--primary));
+  color: var(--primary-foreground);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+/* MCP tag hover effects */
+.mcp-tag {
+  transition: all 0.2s ease-in-out;
+}
+
+.mcp-tag:hover {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  transform: translateY(-1px);
+}
