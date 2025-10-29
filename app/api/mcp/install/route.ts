@@ -3,8 +3,6 @@ import { MCPRepository } from "@/database/repositories/mcp";
 import { MCPInstallerService } from "@/lib/services/mcp-installer";
 import { MCPValidatorService } from "@/lib/services/mcp-validator";
 import { DeepNLPService } from "@/lib/services/deepnlp";
-import { PulseMCPService } from "@/lib/services/pulsemcp";
-import { MCPCacheRepository } from "@/database/repositories/mcp-cache";
 import type {
   InstallationConfig,
   InstallationProgress,
@@ -69,17 +67,6 @@ export async function POST(request: Request) {
         }
       } catch (error) {
         console.log(`DeepNLP config not found, trying cache...`);
-      }
-
-      // Se não encontrou, tentar cache PulseMCP
-      if (!serverConfig) {
-        const cachedMCP = MCPCacheRepository.findById(mcpId);
-        if (cachedMCP) {
-          serverConfig = PulseMCPService.transformToMCPProvider(cachedMCP);
-          packageName = cachedMCP.package_name || mcpId;
-          packageRegistry = cachedMCP.package_registry;
-          repositoryUrl = cachedMCP.source_code_url;
-        }
       }
 
       if (!serverConfig) {

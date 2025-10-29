@@ -54,51 +54,7 @@ export interface MCPTool {
   };
 }
 
-export interface DeepNLPSearchParams {
-  query?: string;
-  category?: string;
-  id?: string;
-  page_id?: number;
-  count_per_page?: number;
-  offset?: number;
-  mode?: "list" | "dict";
-}
-
-export interface DeepNLPResponse {
-  query?: string;
-  items: any[];
-  count: number;
-  total_hits: number;
-}
-
-export interface MCPServerConfig {
-  total_hits: number;
-  id: string;
-  items: any[];
-}
-
-export interface MCPSearchParams {
-  category?: string;
-  search?: string;
-  sort?: "rating" | "name" | "recent" | "total_ratings" | "updated_at";
-  order?: "asc" | "desc";
-  limit?: number;
-  offset?: number;
-}
-
-// PulseMCP API Types
-export interface PulseMCPSearchParams {
-  query?: string;
-  integrations?: string[];
-  count_per_page?: number;
-  offset?: number;
-}
-
-export interface PulseMCPResponse {
-  servers: MCPServerMetadata[];
-  next?: string;
-  total_count: number;
-}
+// Tipos relacionados a busca/marketplace foram removidos
 
 export interface MCPTestResult {
   success: boolean;
@@ -113,28 +69,4 @@ export interface MCPTestRequest {
   mcpId: string;
 }
 
-export interface MCPServerMetadata {
-  name: string;
-  url: string;
-  external_url?: string;
-  short_description: string;
-  source_code_url: string;
-  github_stars?: number;
-  package_registry: "npm" | "pypi" | "cargo";
-  package_name: string;
-  package_download_count?: number;
-  EXPERIMENTAL_ai_generated_description?: string;
-  _meta: {
-    "com.pulsemcp": {
-      estimated_downloads_all_time: number;
-      estimated_downloads_last_30_days: number;
-      estimated_downloads_last_7_days: number;
-      standardized_name: string;
-      standardized_description: string;
-      standardized_provider_name: string;
-      standardized_provider_url: string;
-      estimated_released_on: string;
-      is_official: boolean;
-    };
-  };
-}
+// Metadados específicos de PulseMCP removidos

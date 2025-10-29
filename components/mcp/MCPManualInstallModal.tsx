@@ -154,9 +154,9 @@ export function MCPManualInstallModal({
               How to use
             </h3>
             <p className="text-sm text-blue-700 dark:text-blue-300 mb-3">
-              Paste your MCP server configuration in Claude Desktop format
-              (claude_desktop_config.json). You can install custom MCPs or MCPs
-              not available in the marketplace.
+              Cole a configuração do servidor MCP no formato do Claude Desktop
+              (claude_desktop_config.json). Apenas instalação manual é suportada
+              neste projeto.
             </p>
             <button
               onClick={handlePasteExample}
@@ -273,7 +273,7 @@ export function MCPManualInstallModal({
           {error && (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
               <div className="flex items-start gap-2">
-                <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+                <AlertCircle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
                 <div className="flex-1">
                   <h4 className="font-medium text-red-900 dark:text-red-100">
                     Installation Error

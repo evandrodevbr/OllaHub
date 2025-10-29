@@ -150,11 +150,40 @@ export function extractToolCallFromResponse(response: string): {
 
     const parsed = JSON.parse(jsonText.trim());
 
+    // Formato atual suportado pelo prompt engineering
     if (parsed.tool_call && parsed.tool_call.name) {
       return {
         name: parsed.tool_call.name,
         parameters: parsed.tool_call.parameters || {},
       };
+    }
+
+    // Formato OpenAI-like: { type: 'function', function: { name, parameters|arguments } }
+    // Algumas implementações usam `arguments` como string JSON
+    if (parsed.type === "function" && parsed.function && parsed.function.name) {
+      const fn = parsed.function;
+      let params: any = fn.parameters ?? fn.arguments ?? {};
+      if (typeof params === "string") {
+        try {
+          params = JSON.parse(params);
+        } catch {
+          // se não for JSON válido, mantém string (executor fará fallback)
+        }
+      }
+      return { name: fn.name, parameters: params || {} };
+    }
+
+    // Formato simples: { name: "tool", parameters: {...} }
+    if (parsed.name && (parsed.parameters || parsed.arguments)) {
+      let params: any = parsed.parameters ?? parsed.arguments ?? {};
+      if (typeof params === "string") {
+        try {
+          params = JSON.parse(params);
+        } catch {
+          // mantém string se não for JSON válido
+        }
+      }
+      return { name: parsed.name, parameters: params || {} };
     }
 
     return null;
@@ -163,8 +192,26 @@ export function extractToolCallFromResponse(response: string): {
     const nameMatch = response.match(/"name":\s*"([^"]+)"/);
     if (nameMatch) {
       const name = nameMatch[1];
-      const paramsMatch = response.match(/"parameters":\s*({[^}]+})/);
-      const parameters = paramsMatch ? JSON.parse(paramsMatch[1]) : {};
+      // Captura tanto parameters quanto arguments
+      const paramsMatch =
+        response.match(/"parameters"\s*:\s*({[\s\S]*?})/) ||
+        response.match(/"arguments"\s*:\s*("[\s\S]*?"|{[\s\S]*?})/);
+      let parameters: any = {};
+      if (paramsMatch) {
+        const raw = paramsMatch[1];
+        try {
+          parameters = JSON.parse(raw);
+        } catch {
+          // caso venha como string com JSON dentro de aspas
+          if (raw.startsWith('"') && raw.endsWith('"')) {
+            try {
+              parameters = JSON.parse(raw.slice(1, -1));
+            } catch {
+              parameters = {};
+            }
+          }
+        }
+      }
 
       return { name, parameters };
     }

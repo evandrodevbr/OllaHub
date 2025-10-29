@@ -15,7 +15,7 @@ export async function GET() {
     const allMcps = MCPRepository.getAllInstalled();
 
     const availableMcps = allMcps
-      .filter((mcp: any) => mcp.status === "ready")
+      .filter((mcp: any) => !mcp.status || mcp.status === "ready")
       .map((mcp: any) => {
         const tools = MCPExecutor.getAvailableTools(mcp.id);
 

@@ -92,56 +92,7 @@ function runMigrations(db: Database.Database): void {
     console.log("✅ Migração 002_mcp_installations aplicada");
   }
 
-  // Aplicar migração para tabela MCP marketplace cache se não foi aplicada
-  if (!appliedNames.has("003_mcp_marketplace_cache")) {
-    console.log("📋 Aplicando migração: 003_mcp_marketplace_cache");
-
-    db.exec(`
-      -- Tabela principal de cache
-      CREATE TABLE IF NOT EXISTS mcp_marketplace_cache (
-        id TEXT PRIMARY KEY,
-        owner TEXT NOT NULL,
-        repo TEXT NOT NULL,
-        content_name TEXT NOT NULL,
-        publisher_id TEXT NOT NULL,
-        description TEXT,
-        category TEXT,
-        subfield TEXT,
-        field TEXT,
-        rating REAL DEFAULT 0,
-        review_cnt INTEGER DEFAULT 0,
-        content_tag_list TEXT,
-        thumbnail_picture TEXT,
-        website TEXT,
-        detail_url TEXT,
-        ext_info JSON,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-
-      -- Metadados
-      CREATE TABLE IF NOT EXISTS mcp_cache_metadata (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-
-      -- Índices
-      CREATE INDEX IF NOT EXISTS idx_mcp_cache_category ON mcp_marketplace_cache(category);
-      CREATE INDEX IF NOT EXISTS idx_mcp_cache_subfield ON mcp_marketplace_cache(subfield);
-      CREATE INDEX IF NOT EXISTS idx_mcp_cache_rating ON mcp_marketplace_cache(rating DESC);
-      CREATE INDEX IF NOT EXISTS idx_mcp_cache_owner_repo ON mcp_marketplace_cache(owner, repo);
-      CREATE INDEX IF NOT EXISTS idx_mcp_cache_search ON mcp_marketplace_cache(content_name, description);
-    `);
-
-    // Registrar migração
-    db.prepare("INSERT INTO _migrations (name, applied_at) VALUES (?, ?)").run(
-      "003_mcp_marketplace_cache",
-      Date.now()
-    );
-
-    console.log("✅ Migração 003_mcp_marketplace_cache aplicada");
-  }
+  // Migração de marketplace removida
 
   // Inicializar extensão vetorial se disponível
   try {
@@ -231,22 +182,6 @@ if (require.main === module) {
   ])
     .then(async () => {
       console.log("🎉 Inicialização concluída");
-      
-      // Iniciar sincronização do marketplace se necessário
-      try {
-        const { MCPSyncService } = await import("@/lib/services/mcp-sync");
-        const { MCPCacheRepository } = await import("@/database/repositories/mcp-cache");
-        
-        if (MCPCacheRepository.needsSync()) {
-          console.log("🔄 Iniciando sincronização inicial do marketplace...");
-          MCPSyncService.backgroundSync();
-        } else {
-          console.log("✅ Cache do marketplace já está atualizado");
-        }
-      } catch (error) {
-        console.log("⚠️  Não foi possível inicializar sincronização do marketplace:", error);
-      }
-      
       process.exit(0);
     })
     .catch((error) => {

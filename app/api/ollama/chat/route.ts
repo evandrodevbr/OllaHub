@@ -70,6 +70,9 @@ export async function POST(req: NextRequest) {
       async start(controller) {
         let isClosed = false;
         let accumulatedResponse = "";
+        let toolExecuted = false;
+        let lastExtractedToolCall: { name: string; parameters: any } | null =
+          null;
 
         const safeEnqueue = (data: string) => {
           if (!isClosed) {
@@ -95,14 +98,24 @@ export async function POST(req: NextRequest) {
 
         try {
           const ollamaMessages = convertToOllamaMessages(messages);
+          console.log("🗣️  [CHAT] Messages ->", ollamaMessages);
 
           // Merge system prompt com tools prompt
           const finalSystemPrompt = toolsPrompt
             ? `${system || ""}\n\n${toolsPrompt}`
             : system;
+          if (toolsPrompt) console.log("🧩 [CHAT] Tools prompt injected");
 
           // Preparar parâmetros para chat
           const chatParams = capabilities.supportsNativeTools ? { tools } : {};
+          if (capabilities.supportsNativeTools) {
+            console.log(
+              "🧰 [CHAT] Native tools enabled:",
+              tools?.map((t: any) => t.function?.name)
+            );
+          } else {
+            console.log("🧰 [CHAT] Prompt-engineering tools mode");
+          }
 
           const response = await chatWithStream(
             model,
@@ -111,28 +124,72 @@ export async function POST(req: NextRequest) {
             finalSystemPrompt,
             capabilities.supportsNativeTools ? tools : undefined
           );
+          console.log("🌊 [CHAT] Streaming started for model:", model);
+
+          const normalizeParameters = (params: any) => {
+            try {
+              if (typeof params === "string") {
+                params = JSON.parse(params);
+              }
+            } catch {
+              // ignora erro de parse e mantém original
+            }
+            if (params && typeof params === "object") {
+              const cleaned: Record<string, any> = {};
+              for (const [k, v] of Object.entries(params)) {
+                if (v && typeof v === "object" && Object.keys(v).length === 0) {
+                  // remove objetos vazios que costumam vir de UIs (ex.: count: {})
+                  continue;
+                }
+                cleaned[k] = v;
+              }
+              return cleaned;
+            }
+            return params ?? {};
+          };
 
           for await (const chunk of response) {
+            console.log("📦 [CHAT stream chunk]", JSON.stringify(chunk));
             // Verificar se há tool calls (modelos com suporte nativo)
             if (
-              chunk.message?.tool_calls &&
-              chunk.message.tool_calls.length > 0
+              (chunk.message?.tool_calls &&
+                chunk.message.tool_calls.length > 0) ||
+              (Array.isArray((chunk as any).tool_calls) &&
+                (chunk as any).tool_calls.length > 0)
             ) {
               console.log("🔧 Model requested tool calls (native)");
 
-              for (const toolCall of chunk.message.tool_calls) {
+              const nativeCalls =
+                chunk.message?.tool_calls || (chunk as any).tool_calls || [];
+              for (const toolCall of nativeCalls) {
                 const toolKey = toolCall.function.name;
                 const toolInfo = mcpToolsMap.get(toolKey);
+                console.log(
+                  "🧭 [CHAT] Native tool call:",
+                  toolKey,
+                  "->",
+                  toolInfo
+                );
 
                 if (toolInfo) {
                   // Executar tool
                   const result = await MCPExecutor.executeMCPTool(
                     toolInfo.mcpId,
                     toolInfo.toolName,
-                    toolCall.function.arguments || {}
+                    normalizeParameters(
+                      toolCall.function.arguments ||
+                        toolCall.function.parameters ||
+                        {}
+                    )
                   );
 
                   if (result.success) {
+                    toolExecuted = true;
+                    console.log("✅ [CHAT] Tool executed successfully", {
+                      mcpId: toolInfo.mcpId,
+                      toolName: toolInfo.toolName,
+                      executionTime: result.executionTime,
+                    });
                     // Enviar indicador de execução de tool
                     safeEnqueue(
                       JSON.stringify({
@@ -148,6 +205,10 @@ export async function POST(req: NextRequest) {
                     const resultMessage = formatToolResultForContext(
                       toolInfo.toolName,
                       result.result
+                    );
+                    console.log(
+                      "🧩 [CHAT] Injecting tool result into context (length)",
+                      String(resultMessage).length
                     );
 
                     // Fazer nova chamada ao modelo com o resultado
@@ -189,13 +250,23 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // Se não há suporte nativo, verificar se resposta contém tool call via prompt engineering
-          if (!capabilities.supportsNativeTools && accumulatedResponse) {
+          // Verificar se resposta contém tool call via prompt engineering (fallback também para nativo)
+          if (accumulatedResponse) {
+            console.log(
+              "🧾 [CHAT] Accumulated response length:",
+              accumulatedResponse.length
+            );
+            console.log(
+              "🧾 [CHAT] Accumulated preview:",
+              accumulatedResponse.slice(0, 400)
+            );
             const extractedToolCall =
               extractToolCallFromResponse(accumulatedResponse);
 
             if (extractedToolCall) {
               console.log("🔧 Model requested tool call (prompt engineering)");
+              lastExtractedToolCall = extractedToolCall;
+              console.log("🧭 [CHAT] Extracted tool call:", extractedToolCall);
 
               // Encontrar MCP e tool
               let foundToolInfo: { mcpId: string; toolName: string } | null =
@@ -216,10 +287,11 @@ export async function POST(req: NextRequest) {
                 const result = await MCPExecutor.executeMCPTool(
                   foundToolInfo.mcpId,
                   foundToolInfo.toolName,
-                  extractedToolCall.parameters
+                  normalizeParameters(extractedToolCall.parameters)
                 );
 
                 if (result.success) {
+                  toolExecuted = true;
                   // Limpar resposta anterior (que continha o JSON)
                   safeEnqueue(JSON.stringify({ clearPrevious: true }) + "\n");
 
@@ -266,6 +338,10 @@ export async function POST(req: NextRequest) {
                   }
                 }
               }
+            } else {
+              console.log(
+                "🕵️  [CHAT] No tool call extracted from accumulated response"
+              );
             }
           }
 

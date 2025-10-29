@@ -31,16 +31,31 @@ export class MCPExecutor {
       }
 
       // Verificar se está pronto
-      if (mcpData.status !== "ready") {
+      // Se status é undefined/null, considerar como "ready" (MCPs instalados antes da implementação de status)
+      if (mcpData.status && mcpData.status !== "ready") {
         throw new Error(
           `MCP ${mcpId} is not ready (status: ${mcpData.status})`
         );
       }
 
       // Obter comando executável
-      const config = JSON.parse(mcpData.config);
-      const command = config.command || mcpData.executable_command;
-      const args = config.args || [];
+      // mcpData.config já vem parseado do repositório, mas pode ser string em casos legados
+      const config =
+        typeof mcpData.config === "string"
+          ? JSON.parse(mcpData.config)
+          : mcpData.config || {};
+      const commandFromConfig = config.command;
+      const argsFromConfig = Array.isArray(config.args) ? config.args : [];
+
+      let command = commandFromConfig;
+      let args = argsFromConfig;
+
+      // Se não houver command em config, reconstruir a partir de executable_command (se existir)
+      if (!command && mcpData.executable_command) {
+        const parts = String(mcpData.executable_command).trim().split(/\s+/);
+        command = parts[0];
+        args = parts.slice(1);
+      }
 
       if (!command) {
         throw new Error(`No executable command found for MCP ${mcpId}`);
@@ -100,14 +115,14 @@ export class MCPExecutor {
   ): Promise<any> {
     return new Promise((resolve, reject) => {
       const env = {
-        ...process.env,
+        ...globalThis.process.env,
         ...(environmentPath && {
-          PATH: `${environmentPath}/node_modules/.bin:${process.env.PATH}`,
+          PATH: `${environmentPath}/node_modules/.bin:${globalThis.process.env.PATH}`,
         }),
       };
 
-      const process = spawn(command, args, {
-        cwd: environmentPath || process.cwd(),
+      const childProcess = spawn(command, args, {
+        cwd: environmentPath || globalThis.process.cwd(),
         env,
         stdio: ["pipe", "pipe", "pipe"],
       });
@@ -119,26 +134,35 @@ export class MCPExecutor {
       // Timeout
       const timeout = setTimeout(() => {
         if (!responseReceived) {
-          process.kill();
+          childProcess.kill();
           reject(new Error(`Execution timeout after ${EXECUTION_TIMEOUT}ms`));
         }
       }, EXECUTION_TIMEOUT);
 
       // Capturar stdout
-      process.stdout?.on("data", (data) => {
+      childProcess.stdout?.on("data", (data) => {
         stdout += data.toString();
+        // Loga por linhas para diagnóstico
+        const printedLines = data
+          .toString()
+          .split("\n")
+          .filter((l: string) => l.trim().length > 0);
+        for (const l of printedLines) {
+          console.log(`📥 [MCP stdout] ${l}`);
+        }
 
         // Tentar parsear respostas JSON-RPC
-        const lines = stdout.split("\n");
-        for (const line of lines) {
+        const parsedLines = stdout.split("\n");
+        for (const line of parsedLines) {
           if (line.trim()) {
             try {
               const parsed = JSON.parse(line);
+              console.log("🔎 [MCP stdout parsed]", parsed);
               if (parsed.id === 2 && parsed.result) {
                 // Resposta do tools/call
                 clearTimeout(timeout);
                 responseReceived = true;
-                process.kill();
+                childProcess.kill();
                 resolve(parsed.result);
               }
             } catch (e) {
@@ -149,18 +173,25 @@ export class MCPExecutor {
       });
 
       // Capturar stderr
-      process.stderr?.on("data", (data) => {
+      childProcess.stderr?.on("data", (data) => {
         stderr += data.toString();
+        const errLines = data
+          .toString()
+          .split("\n")
+          .filter((l: string) => l.trim().length > 0);
+        for (const l of errLines) {
+          console.warn(`⚠️  [MCP stderr] ${l}`);
+        }
       });
 
       // Erro de processo
-      process.on("error", (error) => {
+      childProcess.on("error", (error) => {
         clearTimeout(timeout);
         reject(new Error(`Process error: ${error.message}`));
       });
 
       // Processo encerrou
-      process.on("close", (code) => {
+      childProcess.on("close", (code) => {
         clearTimeout(timeout);
         if (!responseReceived) {
           if (code !== 0) {
@@ -186,7 +217,8 @@ export class MCPExecutor {
           },
           id: 1,
         };
-        process.stdin?.write(JSON.stringify(initRequest) + "\n");
+        console.log("📤 [MCP send] initialize", initRequest);
+        childProcess.stdin?.write(JSON.stringify(initRequest) + "\n");
 
         // Aguardar um pouco antes de enviar tool call
         setTimeout(() => {
@@ -200,12 +232,13 @@ export class MCPExecutor {
             },
             id: 2,
           };
-          process.stdin?.write(JSON.stringify(toolCallRequest) + "\n");
-          process.stdin?.end();
+          console.log("📤 [MCP send] tools/call", toolCallRequest);
+          childProcess.stdin?.write(JSON.stringify(toolCallRequest) + "\n");
+          childProcess.stdin?.end();
         }, 500);
       } catch (error: any) {
         clearTimeout(timeout);
-        process.kill();
+        childProcess.kill();
         reject(new Error(`Failed to send JSON-RPC request: ${error.message}`));
       }
     });
@@ -274,6 +307,16 @@ export class MCPExecutor {
 
           if (expectedType) {
             const actualType = typeof value;
+            // Tratar objeto vazio como "ausente" quando tipo esperado não é object
+            if (
+              value &&
+              actualType === "object" &&
+              !Array.isArray(value) &&
+              Object.keys(value).length === 0 &&
+              expectedType !== "object"
+            ) {
+              continue;
+            }
             const valid =
               (expectedType === "string" && actualType === "string") ||
               (expectedType === "number" && actualType === "number") ||

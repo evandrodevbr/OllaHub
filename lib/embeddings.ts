@@ -9,20 +9,49 @@ export async function generateEmbedding(
   model: string = "nomic-embed-text"
 ): Promise<Float32Array> {
   try {
+    // Verificar se deve forçar uso de CPU (útil quando GPU tem problemas de memória)
+    const forceCpu =
+      process.env.OLLAMA_NO_GPU === "1" || process.env.OLLAMA_NUM_GPU === "0";
+
     const response = await ollama.embeddings({
       model,
       prompt: text,
+      options: forceCpu ? { num_gpu: 0 } : undefined,
     });
 
     return new Float32Array(response.embedding);
-  } catch (error) {
+  } catch (error: any) {
     console.error("Erro ao gerar embedding:", error);
+
+    // Se erro de GPU e ainda não tentou CPU, tentar forçar CPU
+    const isGpuError =
+      error?.message?.includes("CUDA") ||
+      error?.message?.includes("unable to allocate") ||
+      error?.status_code === 500;
+
+    if (
+      isGpuError &&
+      process.env.OLLAMA_NO_GPU !== "1" &&
+      process.env.OLLAMA_NUM_GPU !== "0"
+    ) {
+      console.warn("Erro de GPU detectado, tentando usar CPU...");
+      try {
+        const response = await ollama.embeddings({
+          model,
+          prompt: text,
+          options: { num_gpu: 0 },
+        });
+        return new Float32Array(response.embedding);
+      } catch (cpuError) {
+        console.error("Erro mesmo usando CPU:", cpuError);
+      }
+    }
 
     // Fallback: retornar vetor zero se modelo não estiver disponível
     console.warn(
       `Modelo ${model} não disponível, usando vetor zero como fallback`
     );
-    return new Float32Array(384); // 384 dimensões padrão
+    return new Float32Array(768); // 768 dimensões para nomic-embed-text
   }
 }
 
