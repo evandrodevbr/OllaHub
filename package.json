@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "predev": "tsx scripts/init-db.ts",
+    "predev": "powershell -ExecutionPolicy Bypass -File scripts/ensure-ollama.ps1 && tsx scripts/init-db.ts",
     "prebuild": "tsx scripts/init-db.ts",
     "dev": "next dev",
     "build": "next build",

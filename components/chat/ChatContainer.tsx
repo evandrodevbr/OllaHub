@@ -435,20 +435,16 @@ export function ChatContainer({
       <div className="border-b border-[var(--border)] p-4 flex items-center justify-between gap-3 flex-shrink-0">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-semibold">
-            {selectedModelData
-              ? "Chat with"
-              : "Select a model to start chatting"}
+            {selectedModelData ? "Chat with" : "Select a model to start chatting"}
           </h1>
-          {selectedModelData && (
-            <ModelDropdown
-              models={models}
-              selectedModel={selectedModel}
-              onSelectModel={handleSelectModel}
-              onDeleteModel={handleDeleteModel}
-              onPullModel={handlePullModel}
-              disabled={isStreaming}
-            />
-          )}
+          <ModelDropdown
+            models={models}
+            selectedModel={selectedModel}
+            onSelectModel={handleSelectModel}
+            onDeleteModel={handleDeleteModel}
+            onPullModel={handlePullModel}
+            disabled={isStreaming}
+          />
         </div>
         <div className="flex items-center gap-2">
           <SettingsModal

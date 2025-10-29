@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listModelsViaSdk, listModelsViaHttp } from "@/lib/ollama";
+import { listModelsViaSdk, listModelsViaHttp, ensureOllamaAvailable } from "@/lib/ollama";
 import {
   estimateCpuVram,
   inferDevice,
@@ -31,6 +31,8 @@ function normalizeModel(model: any): ModelInfo {
 export async function GET() {
   try {
     let models: any[] = [];
+    // Tentar garantir disponibilidade rapidamente (não bloquear longamente a UI)
+    await ensureOllamaAvailable({ timeoutMs: 3000 }).catch(() => {});
     try {
       models = await listModelsViaSdk();
     } catch {

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { pullModel } from "@/lib/ollama";
+import { pullModel, ensureOllamaAvailable } from "@/lib/ollama";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +14,18 @@ export async function POST(req: NextRequest) {
     const stream = new ReadableStream({
       async start(controller) {
         try {
+          // Garantir que o servidor esteja disponível antes do pull
+          const ok = await ensureOllamaAvailable({ timeoutMs: 20000 });
+          if (!ok) {
+            controller.enqueue(
+              new TextEncoder().encode(
+                JSON.stringify({ error: "Ollama indisponível" }) + "\n",
+              ),
+            );
+            controller.close();
+            return;
+          }
+
           const response = await pullModel(model);
 
           for await (const chunk of response) {

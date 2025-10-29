@@ -1,4 +1,6 @@
 import { Ollama } from "ollama";
+import os from "node:os";
+import { spawn } from "node:child_process";
 
 export const OLLAMA_HOST = process.env.OLLAMA_HOST || "http://localhost:11434";
 
@@ -18,6 +20,51 @@ export async function listModelsViaHttp() {
   if (!res.ok) throw new Error(`Ollama HTTP error ${res.status}`);
   const data = await res.json();
   return data?.models ?? [];
+}
+
+async function isOllamaHealthy(): Promise<boolean> {
+  try {
+    await listModelsViaHttp();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitUntilHealthy(timeoutMs: number, intervalMs = 800): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await isOllamaHealthy()) return true;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return false;
+}
+
+export async function ensureOllamaAvailable(options?: { timeoutMs?: number }): Promise<boolean> {
+  const timeoutMs = options?.timeoutMs ?? 20000;
+  if (await isOllamaHealthy()) return true;
+
+  // Windows: tentar iniciar via PowerShell script (WSL-first fallback Windows)
+  if (os.platform() === "win32") {
+    try {
+      const child = spawn(
+        "powershell",
+        [
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "scripts/ensure-ollama.ps1",
+        ],
+        { stdio: "ignore", detached: true }
+      );
+      child.unref();
+    } catch (e) {
+      // Ignorar, tentaremos apenas aguardar
+    }
+  }
+
+  // Aguardar saúde
+  return await waitUntilHealthy(timeoutMs);
 }
 
 export async function chatWithStream(
