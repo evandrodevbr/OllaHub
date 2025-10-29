@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { chatWithStream } from "@/lib/ollama";
+import { chatWithStream, ensureOllamaAvailable } from "@/lib/ollama";
 import { convertToOllamaMessages } from "@/lib/chat";
 import { detectModelCapabilities } from "@/lib/services/model-capabilities";
 import { MCPExecutor } from "@/lib/services/mcp-executor";
@@ -97,24 +97,30 @@ export async function POST(req: NextRequest) {
         };
 
         try {
+          // Garantir disponibilidade com timeout curto (não bloquear)
+          ensureOllamaAvailable({ timeoutMs: 2000 }).catch(() => {});
           const ollamaMessages = convertToOllamaMessages(messages);
-          console.log("🗣️  [CHAT] Messages ->", ollamaMessages);
+          if (process.env.NODE_ENV !== "production") {
+            console.log("🗣️  [CHAT] Messages ->", ollamaMessages);
+          }
 
           // Merge system prompt com tools prompt
           const finalSystemPrompt = toolsPrompt
             ? `${system || ""}\n\n${toolsPrompt}`
             : system;
-          if (toolsPrompt) console.log("🧩 [CHAT] Tools prompt injected");
+          if (toolsPrompt && process.env.NODE_ENV !== "production") console.log("🧩 [CHAT] Tools prompt injected");
 
           // Preparar parâmetros para chat
           const chatParams = capabilities.supportsNativeTools ? { tools } : {};
-          if (capabilities.supportsNativeTools) {
-            console.log(
-              "🧰 [CHAT] Native tools enabled:",
-              tools?.map((t: any) => t.function?.name)
-            );
-          } else {
-            console.log("🧰 [CHAT] Prompt-engineering tools mode");
+          if (process.env.NODE_ENV !== "production") {
+            if (capabilities.supportsNativeTools) {
+              console.log(
+                "🧰 [CHAT] Native tools enabled:",
+                tools?.map((t: any) => t.function?.name)
+              );
+            } else {
+              console.log("🧰 [CHAT] Prompt-engineering tools mode");
+            }
           }
 
           const response = await chatWithStream(
@@ -124,7 +130,7 @@ export async function POST(req: NextRequest) {
             finalSystemPrompt,
             capabilities.supportsNativeTools ? tools : undefined
           );
-          console.log("🌊 [CHAT] Streaming started for model:", model);
+          if (process.env.NODE_ENV !== "production") console.log("🌊 [CHAT] Streaming started for model:", model);
 
           const normalizeParameters = (params: any) => {
             try {
@@ -149,7 +155,7 @@ export async function POST(req: NextRequest) {
           };
 
           for await (const chunk of response) {
-            console.log("📦 [CHAT stream chunk]", JSON.stringify(chunk));
+            if (process.env.NODE_ENV !== "production") console.log("📦 [CHAT stream chunk]", JSON.stringify(chunk));
             // Verificar se há tool calls (modelos com suporte nativo)
             if (
               (chunk.message?.tool_calls &&
@@ -157,19 +163,16 @@ export async function POST(req: NextRequest) {
               (Array.isArray((chunk as any).tool_calls) &&
                 (chunk as any).tool_calls.length > 0)
             ) {
-              console.log("🔧 Model requested tool calls (native)");
+              if (process.env.NODE_ENV !== "production") console.log("🔧 Model requested tool calls (native)");
 
               const nativeCalls =
                 chunk.message?.tool_calls || (chunk as any).tool_calls || [];
               for (const toolCall of nativeCalls) {
                 const toolKey = toolCall.function.name;
                 const toolInfo = mcpToolsMap.get(toolKey);
-                console.log(
-                  "🧭 [CHAT] Native tool call:",
-                  toolKey,
-                  "->",
-                  toolInfo
-                );
+                if (process.env.NODE_ENV !== "production") {
+                  console.log("🧭 [CHAT] Native tool call:", toolKey, "->", toolInfo);
+                }
 
                 if (toolInfo) {
                   // Executar tool
@@ -185,11 +188,13 @@ export async function POST(req: NextRequest) {
 
                   if (result.success) {
                     toolExecuted = true;
-                    console.log("✅ [CHAT] Tool executed successfully", {
-                      mcpId: toolInfo.mcpId,
-                      toolName: toolInfo.toolName,
-                      executionTime: result.executionTime,
-                    });
+                    if (process.env.NODE_ENV !== "production") {
+                      console.log("✅ [CHAT] Tool executed successfully", {
+                        mcpId: toolInfo.mcpId,
+                        toolName: toolInfo.toolName,
+                        executionTime: result.executionTime,
+                      });
+                    }
                     // Enviar indicador de execução de tool
                     safeEnqueue(
                       JSON.stringify({
@@ -206,10 +211,12 @@ export async function POST(req: NextRequest) {
                       toolInfo.toolName,
                       result.result
                     );
-                    console.log(
-                      "🧩 [CHAT] Injecting tool result into context (length)",
-                      String(resultMessage).length
-                    );
+                    if (process.env.NODE_ENV !== "production") {
+                      console.log(
+                        "🧩 [CHAT] Injecting tool result into context (length)",
+                        String(resultMessage).length
+                      );
+                    }
 
                     // Fazer nova chamada ao modelo com o resultado
                     const updatedMessages = [
@@ -264,9 +271,9 @@ export async function POST(req: NextRequest) {
               extractToolCallFromResponse(accumulatedResponse);
 
             if (extractedToolCall) {
-              console.log("🔧 Model requested tool call (prompt engineering)");
+              if (process.env.NODE_ENV !== "production") console.log("🔧 Model requested tool call (prompt engineering)");
               lastExtractedToolCall = extractedToolCall;
-              console.log("🧭 [CHAT] Extracted tool call:", extractedToolCall);
+              if (process.env.NODE_ENV !== "production") console.log("🧭 [CHAT] Extracted tool call:", extractedToolCall);
 
               // Encontrar MCP e tool
               let foundToolInfo: { mcpId: string; toolName: string } | null =
@@ -339,9 +346,8 @@ export async function POST(req: NextRequest) {
                 }
               }
             } else {
-              console.log(
-                "🕵️  [CHAT] No tool call extracted from accumulated response"
-              );
+              if (process.env.NODE_ENV !== "production")
+                console.log("🕵️  [CHAT] No tool call extracted from accumulated response");
             }
           }
 

@@ -46,6 +46,8 @@ export function ChatContainer({
   useEffect(() => {
     if (ready && prefs.selectedModel && !selectedModel) {
       setSelectedModel(prefs.selectedModel);
+      // Warmup do modelo em background
+      fetch(`/api/ollama/warmup?model=${encodeURIComponent(prefs.selectedModel)}`).catch(() => {});
     }
   }, [ready, prefs.selectedModel]);
 
@@ -64,6 +66,8 @@ export function ChatContainer({
   const handleModelChange = (modelName: string) => {
     setSelectedModel(modelName);
     update({ selectedModel: modelName }); // Salvar no Redis
+    // Disparar warmup em background
+    fetch(`/api/ollama/warmup?model=${encodeURIComponent(modelName)}`).catch(() => {});
   };
 
   // Carregar MCPs ativos do localStorage

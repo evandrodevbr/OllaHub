@@ -10,12 +10,21 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+    const url = new URL(request.url);
+    const limitParam = url.searchParams.get("limit");
+    const beforeParam = url.searchParams.get("before");
+
+    const limit = Math.min(Math.max(Number(limitParam) || 0, 1), 200) || 50;
+    const beforeTs = beforeParam ? Number(beforeParam) : undefined;
+
     const db = getDatabase();
     const messageRepo = new MessageRepository(db);
 
-    const messages = messageRepo.findByConversation(id);
+    const messages = messageRepo.findByConversationPaged(id, limit, beforeTs);
+    const hasMore = messages.length === limit;
+    const cursor = messages.length > 0 ? messages[0].timestamp : null;
 
-    return NextResponse.json(messages);
+    return NextResponse.json({ messages, hasMore, cursor });
   } catch (error) {
     console.error("Erro ao buscar mensagens:", error);
     return NextResponse.json(

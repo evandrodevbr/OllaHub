@@ -83,7 +83,7 @@ export async function chatWithStream(
       ? [{ role: "system", content: system }, ...messages]
       : messages,
     stream: true,
-    options,
+    options: { ...(options || {}), keep_alive: "5m" },
   };
 
   // Adicionar tools se fornecidos

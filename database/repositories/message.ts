@@ -39,6 +39,21 @@ export class MessageRepository {
       .all(conversationId) as Message[];
   }
 
+  findByConversationPaged(
+    conversationId: string,
+    limit: number,
+    beforeTs?: number
+  ): Message[] {
+    const sql = beforeTs
+      ? `SELECT * FROM messages WHERE conversation_id = ? AND timestamp < ? ORDER BY timestamp DESC LIMIT ?`
+      : `SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp DESC LIMIT ?`;
+    const rows = beforeTs
+      ? (this.db.prepare(sql).all(conversationId, beforeTs, limit) as Message[])
+      : (this.db.prepare(sql).all(conversationId, limit) as Message[]);
+    // Reverter para ascendente no retorno
+    return rows.reverse();
+  }
+
   findById(id: string): Message | null {
     return this.db
       .prepare(
