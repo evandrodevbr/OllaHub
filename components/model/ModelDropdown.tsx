@@ -247,6 +247,16 @@ export function ModelDropdown({
                   <option value="CPU">CPU Only</option>
                   <option value="GPU">GPU Only</option>
                 </select>
+                {/* Instalar por referência */}
+                {onPullModel && (
+                  <button
+                    onClick={() => handlePullModel("")}
+                    className="rounded-md bg-[var(--accent)] text-white px-2 py-1 text-xs hover:bg-[color-mix(in_oklab,var(--accent),black_10%)]"
+                    title="Instalar por referência (ex.: owner/model:tag)"
+                  >
+                    Install by ref
+                  </button>
+                )}
               </div>
             </div>
 

@@ -46,6 +46,7 @@ export class MCPValidatorService {
           cwd: environment.path, // Executar do diretório de instalação
           env,
           stdio: ["pipe", "pipe", "pipe"],
+          shell: process.platform === "win32", // Workaround para *.cmd no Windows
         });
 
         let stdout = "";
@@ -250,6 +251,7 @@ export class MCPValidatorService {
           cwd: environment.path, // Executar do diretório de instalação
           env,
           stdio: ["pipe", "pipe", "pipe"],
+          shell: process.platform === "win32",
         });
 
         let hasResolved = false;

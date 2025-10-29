@@ -8,6 +8,11 @@ type SettingsModalProps = {
   onSystemPromptChange: (prompt: string) => void;
   selectedModel: string | null;
   models: Array<{ id: string; name: string; device: string }>;
+  design?: {
+    chatLayout: "compact" | "edge";
+    bubbleSize: "sm" | "md" | "lg";
+    onChange: (next: Partial<{ chatLayout: "compact" | "edge"; bubbleSize: "sm" | "md" | "lg" }>) => void;
+  };
 };
 
 export function SettingsModal({
@@ -15,14 +20,20 @@ export function SettingsModal({
   onSystemPromptChange,
   selectedModel,
   models,
+  design,
 }: SettingsModalProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [tempPrompt, setTempPrompt] = useState(systemPrompt);
+  const [tempChatLayout, setTempChatLayout] = useState<"compact" | "edge">(design?.chatLayout ?? "compact");
+  const [tempBubbleSize, setTempBubbleSize] = useState<"sm" | "md" | "lg">(design?.bubbleSize ?? "md");
 
   const selectedModelData = models.find((m) => m.id === selectedModel);
 
   const handleSave = () => {
     onSystemPromptChange(tempPrompt);
+    if (design?.onChange) {
+      design.onChange({ chatLayout: tempChatLayout, bubbleSize: tempBubbleSize });
+    }
     setIsOpen(false);
   };
 
@@ -94,6 +105,38 @@ export function SettingsModal({
                   <p className="text-xs text-[var(--foreground)]/60">
                     Este prompt será usado como contexto para todas as mensagens desta conversa.
                   </p>
+                </div>
+              </div>
+
+              {/* Preferências de Design */}
+              <div className="space-y-3">
+                <h3 className="font-medium">Preferências de Design</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <label className="text-sm text-[var(--foreground)]/80">Layout do Chat</label>
+                    <select
+                      value={tempChatLayout}
+                      onChange={(e) => setTempChatLayout(e.target.value as any)}
+                      className="w-full p-2 rounded-lg border border-[var(--border)] bg-[var(--background)]"
+                    >
+                      <option value="compact">Compacto (centralizado)</option>
+                      <option value="edge">Até as bordas (edge-to-edge)</option>
+                    </select>
+                    <p className="text-xs text-[var(--foreground)]/60">Controla se o conteúdo do chat é centralizado com largura máxima ou ocupa toda a largura.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm text-[var(--foreground)]/80">Tamanho da Bolha</label>
+                    <select
+                      value={tempBubbleSize}
+                      onChange={(e) => setTempBubbleSize(e.target.value as any)}
+                      className="w-full p-2 rounded-lg border border-[var(--border)] bg-[var(--background)]"
+                    >
+                      <option value="sm">Pequena</option>
+                      <option value="md">Média</option>
+                      <option value="lg">Grande</option>
+                    </select>
+                    <p className="text-xs text-[var(--foreground)]/60">Ajusta paddings e tipografia das bolhas de mensagem.</p>
+                  </div>
                 </div>
               </div>
             </div>

@@ -25,6 +25,8 @@ export function ConversationSidebar({
 }: ConversationSidebarProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     loadConversations();
@@ -66,21 +68,74 @@ export function ConversationSidebar({
     }
   };
 
+  const filteredConversations = conversations.filter((c) =>
+    c.title.toLowerCase().includes(query.toLowerCase())
+  );
+
   return (
-    <div className="w-64 h-full bg-[var(--surface)] border-r border-[var(--border)] flex flex-col">
+    <div className="w-64 lg:w-72 h-full bg-[var(--surface)] border-r border-[var(--border)] flex flex-col">
       {/* Header */}
-      <div className="p-4 border-b border-[var(--border)]">
+      <div className="p-4 border-b border-[var(--border)] sticky top-0 z-10 bg-[color-mix(in_oklab,var(--surface),black_2%)]/90 backdrop-blur supports-[backdrop-filter]:bg-[color-mix(in_oklab,var(--surface),black_2%)]/70">
         <button
-          onClick={onNewConversation}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[var(--accent)] text-white rounded-lg hover:opacity-90 transition-opacity"
+          onClick={async () => {
+            if (creating) return;
+            setCreating(true);
+            try {
+              // Buscar modelo selecionado nas preferências
+              const prefsRes = await fetch("/api/preferences");
+              const prefs = await prefsRes.json();
+              const model = prefs?.selectedModel;
+              if (!model) {
+                alert("Selecione um modelo antes de criar uma conversa.");
+                return;
+              }
+
+              // Criar conversa vazia (título padrão gerado no backend)
+              const res = await fetch("/api/conversations", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ model }),
+              });
+              if (!res.ok) throw new Error("Falha ao criar conversa");
+              const { id, title } = await res.json();
+
+              // Inserir no topo da lista e selecionar
+              const newConv: Conversation = {
+                id,
+                title,
+                model,
+                updated_at: Date.now(),
+              };
+              setConversations((prev) => [newConv, ...prev]);
+              onSelectConversation(id);
+
+              // Notificar container para possíveis efeitos colaterais
+              onNewConversation();
+            } catch (e) {
+              console.error(e);
+              alert("Não foi possível criar a conversa.");
+            } finally {
+              setCreating(false);
+            }
+          }}
+          disabled={creating}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[var(--accent)] text-white rounded-lg hover:opacity-90 transition-opacity disabled:opacity-60"
         >
           <Plus className="h-4 w-4" />
-          Nova Conversa
+          {creating ? "Criando..." : "Nova Conversa"}
         </button>
+        <div className="mt-3">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar conversa..."
+            className="w-full px-3 py-2 text-sm rounded-md bg-[var(--background)] border border-[var(--border)] outline-none focus:border-[var(--accent)] transition-colors"
+          />
+        </div>
       </div>
 
       {/* Lista de Conversas */}
-      <div className="flex-1 overflow-y-auto p-2">
+      <div className="flex-1 overflow-y-auto p-2 custom-scrollbar">
         {loading ? (
           <div className="text-center p-4 text-sm text-[var(--foreground)]/60">
             Carregando...
@@ -89,15 +144,19 @@ export function ConversationSidebar({
           <div className="text-center p-4 text-sm text-[var(--foreground)]/60">
             Nenhuma conversa ainda
           </div>
+        ) : filteredConversations.length === 0 ? (
+          <div className="text-center p-4 text-sm text-[var(--foreground)]/60">
+            Nenhum resultado para "{query}"
+          </div>
         ) : (
-          conversations.map((conv) => (
+          filteredConversations.map((conv) => (
             <div
               key={conv.id}
               onClick={() => onSelectConversation(conv.id)}
               className={`w-full flex items-center gap-2 p-3 rounded-lg mb-1 text-left transition-colors group cursor-pointer ${
                 currentConversationId === conv.id
-                  ? "bg-[var(--accent)]/10 text-[var(--accent)]"
-                  : "hover:bg-[var(--background)]"
+                  ? "bg-[var(--accent)]/12 text-[var(--accent)] ring-1 ring-[var(--accent)]/30"
+                  : "hover:bg-[color-mix(in_oklab,var(--surface),black_6%)]"
               }`}
             >
               <MessageSquare className="h-4 w-4 flex-shrink-0" />

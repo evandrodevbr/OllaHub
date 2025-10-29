@@ -10,6 +10,9 @@ type Prefs = {
   device: DevicePref;
   gpuIndex: number;
   numGpu: number;
+  // Preferências de design
+  chatLayout?: "compact" | "edge"; // compact = centralizado com max-width; edge = até as bordas
+  bubbleSize?: "sm" | "md" | "lg"; // tamanhos de bolha
 };
 
 const defaultPrefs: Prefs = {
@@ -18,6 +21,8 @@ const defaultPrefs: Prefs = {
   device: "auto",
   gpuIndex: 0,
   numGpu: 1,
+  chatLayout: "compact",
+  bubbleSize: "md",
 };
 
 export function useUserPrefs() {

@@ -188,6 +188,8 @@ export async function searchRemoteModels(query?: string): Promise<any[]> {
     return filtered.map((m) => ({
       name: m.name,
       description: m.description,
+      url: m.url,
+      tags_count: m.tags_count,
       installed: installedNames.has(m.name),
       remote: true,
     }));

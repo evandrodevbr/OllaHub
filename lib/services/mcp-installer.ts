@@ -127,8 +127,9 @@ export class MCPInstallerService {
     const logs: string[] = [];
 
     try {
+      const npmBin = process.platform === "win32" ? "npm.cmd" : "npm";
       const result = await spawnWithProgress(
-        "npm",
+        npmBin,
         ["install", packageName, "--prefix", npmDir],
         {
           cwd: npmDir,
@@ -171,15 +172,34 @@ export class MCPInstallerService {
 
       // Construir ambiente
       // Para NPM, executar npx do diretório onde foi instalado (não usa --prefix que não funciona)
+      const npxBin = process.platform === "win32" ? "npx.cmd" : "npx";
       const environment: MCPEnvironment = {
         type: "npm",
         path: npmDir,
-        executable: "npx",
-        args: [packageName],
+        executable: npxBin,
+        args: ["-y", packageName],
       };
 
       return environment;
     } catch (error: any) {
+      const msg = String(error?.message || "");
+      if (msg.includes("spawn EINVAL") || msg.includes("Failed to spawn process") || msg.includes("ENOENT")) {
+        const npxBin = process.platform === "win32" ? "npx.cmd" : "npx";
+        onProgress({
+          status: "installing" as MCPInstallationStatus,
+          message: "Falling back to npx runtime execution (no preinstall)",
+          percentage: 60,
+          logs: config.enableLogs ? [msg] : undefined,
+        });
+
+        const environment: MCPEnvironment = {
+          type: "npm",
+          path: npmDir,
+          executable: npxBin,
+          args: ["-y", packageName],
+        };
+        return environment;
+      }
       throw new Error(`NPM installation failed: ${error.message}`);
     }
   }

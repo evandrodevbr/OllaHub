@@ -14,16 +14,19 @@ interface MCPSelectorProps {
   activeMcps: string[];
   onToggleMCP: (mcpId: string) => void;
   onClearAll: () => void;
+  onOpenInstallModal?: () => void;
 }
 
 export function MCPSelector({
   activeMcps,
   onToggleMCP,
   onClearAll,
+  onOpenInstallModal,
 }: MCPSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [availableMcps, setAvailableMcps] = useState<MCPForChat[]>([]);
   const [loading, setLoading] = useState(false);
+  const [query, setQuery] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Carregar MCPs disponíveis
@@ -79,6 +82,19 @@ export function MCPSelector({
     onToggleMCP(mcpId);
   };
 
+  const filtered = availableMcps.filter((mcp) => {
+    if (!query.trim()) return true;
+    const q = query.toLowerCase();
+    return (
+      mcp.name.toLowerCase().includes(q) ||
+      mcp.tools.some(
+        (t) =>
+          t.name.toLowerCase().includes(q) ||
+          (t.description || "").toLowerCase().includes(q)
+      )
+    );
+  });
+
   return (
     <div className="relative" ref={dropdownRef}>
       {/* Button */}
@@ -89,7 +105,7 @@ export function MCPSelector({
       >
         <Plug className="h-4 w-4" />
         {activeMcps.length > 0 && (
-          <span className="flex items-center justify-center h-5 min-w-[20px] px-1.5 bg-[var(--primary)] text-[var(--primary-foreground)] text-xs font-medium rounded-full">
+          <span className="flex items-center justify-center h-5 min-w-[20px] px-1.5 bg-[var(--accent)] text-[var(--accent-foreground)] text-xs font-medium rounded-full">
             {activeMcps.length}
           </span>
         )}
@@ -102,36 +118,60 @@ export function MCPSelector({
 
       {/* Dropdown */}
       {isOpen && (
-        <div className="absolute bottom-full left-0 mb-2 w-80 bg-[var(--background)] border border-[var(--border)] rounded-lg shadow-lg z-50 max-h-96 overflow-hidden flex flex-col">
+        <div className="absolute bottom-full left-0 mb-2 w-96 bg-[var(--background)] border border-[var(--border)] rounded-lg shadow-lg z-50 max-h-[28rem] overflow-hidden flex flex-col">
           {/* Header */}
-          <div className="p-3 border-b border-[var(--border)] flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Plug className="h-4 w-4" />
-              <span className="font-semibold text-sm">MCP Tools</span>
+          <div className="p-3 border-b border-[var(--border)] sticky top-0 bg-[color-mix(in_oklab,var(--background),black_2%)]/90 backdrop-blur supports-[backdrop-filter]:bg-[color-mix(in_oklab,var(--background),black_2%)]/70">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Plug className="h-4 w-4" />
+                <span className="font-semibold text-sm">MCP Tools</span>
+              </div>
+              {activeMcps.length > 0 && (
+                <button
+                  onClick={onClearAll}
+                  className="text-xs px-2 py-1 rounded-md border border-[var(--border)] hover:bg-[var(--surface)]"
+                >
+                  Limpar tudo
+                </button>
+              )}
             </div>
-            {activeMcps.length > 0 && (
-              <button
-                onClick={onClearAll}
-                className="text-xs text-red-500 hover:text-red-600 font-medium"
-              >
-                Clear All
-              </button>
-            )}
+            <div className="mt-2">
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Buscar por servidor ou ferramenta..."
+                className="w-full px-3 py-2 text-sm rounded-md bg-[var(--background)] border border-[var(--border)] outline-none focus:border-[var(--accent)] transition-colors"
+              />
+            </div>
           </div>
 
           {/* Content */}
           <div className="overflow-y-auto flex-1">
             {loading ? (
-              <div className="p-4 text-center text-sm text-[var(--muted-foreground)]">
-                Loading MCPs...
+              <div className="p-4 text-center text-sm text-[var(--foreground)]/60">
+                Carregando MCPs...
               </div>
             ) : availableMcps.length === 0 ? (
-              <div className="p-4 text-center text-sm text-[var(--muted-foreground)]">
-                No MCPs installed
+              <div className="p-4 text-center text-sm text-[var(--foreground)]/60">
+                Nenhum MCP instalado
+                {onOpenInstallModal && (
+                  <div className="mt-2">
+                    <button
+                      onClick={onOpenInstallModal}
+                      className="text-[var(--accent)] hover:underline"
+                    >
+                      Instalar manualmente
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="p-4 text-center text-sm text-[var(--foreground)]/60">
+                Nenhum resultado para "{query}"
               </div>
             ) : (
               <div className="p-2">
-                {availableMcps.map((mcp) => {
+                {filtered.map((mcp) => {
                   const isActive = activeMcps.includes(mcp.mcpId);
 
                   return (
@@ -139,7 +179,7 @@ export function MCPSelector({
                       key={mcp.mcpId}
                       className={`p-3 rounded-md mb-2 cursor-pointer transition-colors ${
                         isActive
-                          ? "bg-[var(--primary)]/10 border border-[var(--primary)]/30"
+                          ? "bg-[var(--accent)]/10 border border-[var(--accent)]/30"
                           : "hover:bg-[var(--surface)]"
                       }`}
                       onClick={() => handleToggle(mcp.mcpId)}
@@ -157,9 +197,9 @@ export function MCPSelector({
                               {mcp.name}
                             </span>
                           </div>
-                          <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)] ml-6">
+                          <div className="flex items-center gap-2 text-xs text-[var(--foreground)]/60 ml-6">
                             <Zap className="h-3 w-3" />
-                            <span>{mcp.toolCount} tools available</span>
+                            <span>{mcp.toolCount} ferramentas disponíveis</span>
                           </div>
                           {isActive && mcp.tools.length > 0 && (
                             <div className="mt-2 ml-6">
@@ -167,7 +207,7 @@ export function MCPSelector({
                                 {mcp.tools.slice(0, 3).map((tool, idx) => (
                                   <span
                                     key={idx}
-                                    className="text-[10px] px-1.5 py-0.5 bg-[var(--primary)]/20 text-[var(--primary)] rounded"
+                                    className="text-[10px] px-1.5 py-0.5 bg-[var(--accent)]/20 text-[var(--accent)] rounded"
                                     title={tool.description}
                                   >
                                     {tool.name}
@@ -191,14 +231,21 @@ export function MCPSelector({
           </div>
 
           {/* Footer info */}
-          {activeMcps.length > 0 && (
-            <div className="p-3 border-t border-[var(--border)] bg-[var(--surface)]/50">
-              <p className="text-xs text-[var(--muted-foreground)]">
-                AI can use {activeMcps.length} MCP
-                {activeMcps.length > 1 ? "s" : ""} to help answer your questions
-              </p>
-            </div>
-          )}
+          <div className="p-3 border-t border-[var(--border)] bg-[var(--surface)]/50 flex items-center justify-between">
+            <p className="text-xs text-[var(--foreground)]/60">
+              {activeMcps.length > 0
+                ? `${activeMcps.length} MCPs ativos para enriquecer as respostas`
+                : "Nenhum MCP ativo"}
+            </p>
+            {onOpenInstallModal && (
+              <button
+                onClick={onOpenInstallModal}
+                className="text-xs px-2 py-1 rounded-md border border-[var(--border)] hover:bg-[var(--surface)]"
+              >
+                Instalar MCP manualmente
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>

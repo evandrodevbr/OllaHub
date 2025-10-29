@@ -42,8 +42,9 @@ export function MessageActions({
   };
 
   return (
-    <div className="flex items-center gap-1 opacity-70">
+    <div className="flex items-center gap-1 opacity-70 pointer-events-auto">
       <button
+        type="button"
         className="rounded px-2 py-1 text-xs hover:bg-[var(--surface)]"
         onClick={handleCopyDefault}
         disabled={disabled}
@@ -54,6 +55,7 @@ export function MessageActions({
 
       <div className="relative">
         <button
+          type="button"
           className="rounded px-1 py-1 text-xs hover:bg-[var(--surface)]"
           onClick={() => setDropdownOpen(!dropdownOpen)}
           disabled={disabled}
@@ -65,12 +67,14 @@ export function MessageActions({
         {dropdownOpen && (
           <div className="absolute right-0 z-10 mt-1 rounded border border-[var(--border)] bg-[var(--background)] shadow-lg">
             <button
+              type="button"
               className="block w-full px-3 py-2 text-left text-xs hover:bg-[var(--surface)]"
               onClick={() => handleModeSelect("markdown")}
             >
               Markdown
             </button>
             <button
+              type="button"
               className="block w-full px-3 py-2 text-left text-xs hover:bg-[var(--surface)]"
               onClick={() => handleModeSelect("text")}
             >
@@ -82,6 +86,7 @@ export function MessageActions({
 
       {onEdit && (
         <button
+          type="button"
           className="rounded px-2 py-1 text-xs hover:bg-[var(--surface)]"
           onClick={onEdit}
           disabled={disabled}
@@ -92,6 +97,7 @@ export function MessageActions({
       )}
       {onRegenerate && (
         <button
+          type="button"
           className="rounded px-2 py-1 text-xs hover:bg-[var(--surface)]"
           onClick={onRegenerate}
           disabled={disabled}

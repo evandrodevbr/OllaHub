@@ -10,13 +10,21 @@ import { formatTimestamp } from "@/lib/chat";
 interface ChatMessageProps {
   message: Message;
   isStreaming?: boolean;
+  bubbleSize?: "sm" | "md" | "lg";
 }
 
 export function ChatMessage({
   message,
   isStreaming = false,
+  bubbleSize = "md",
 }: ChatMessageProps) {
   const isUser = message.role === "user";
+  const sizeClass =
+    bubbleSize === "sm"
+      ? "px-3 py-1.5 text-sm"
+      : bubbleSize === "lg"
+      ? "px-5 py-3 text-base"
+      : "px-4 py-2 text-sm";
 
   return (
     <div
@@ -28,7 +36,7 @@ export function ChatMessage({
         </div>
       )}
       <div
-        className={`max-w-[80%] relative rounded-lg px-4 py-2 ${
+        className={`max-w-[85%] md:max-w-[80%] relative rounded-lg ${sizeClass} shadow-sm ${
           isUser
             ? "bg-[var(--accent)] text-white"
             : "bg-[var(--surface)] text-[var(--foreground)]"
@@ -43,7 +51,7 @@ export function ChatMessage({
         </div>
         {isStreaming && <span className="ml-1 animate-pulse">▊</span>}
         {!isUser && !isStreaming && (
-          <div className="absolute bottom-2 right-2">
+          <div className="absolute bottom-2 right-2 z-10 pointer-events-auto">
             <MessageActions content={message.content} />
           </div>
         )}
@@ -122,7 +130,7 @@ export function ChatInput({
         disabled={disabled}
         className="flex-1 resize-none rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)] disabled:opacity-50"
         rows={1}
-        maxLength={2000}
+        
       />
       <button
         type={isStreaming ? "button" : "submit"}

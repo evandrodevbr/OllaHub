@@ -24,7 +24,10 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
       rehypePlugins={[rehypeRaw, rehypeHighlight]}
       components={{
         code({ inline, className, children, ...props }: any) {
-          const text = String(children || "");
+          // Garantir extração correta do texto do bloco, mesmo com quebras/indentação
+          const node: any = (props as any).node;
+          const rawChild = node?.children?.[0]?.value ?? children;
+          const text = String(rawChild ?? "");
 
           if (inline) {
             return (
@@ -34,19 +37,20 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
             );
           }
 
+          const cleaned = text.replace(/^\n+|\n+$/g, "");
           return (
             <div className="relative my-4 rounded-lg border border-[var(--border)] bg-[var(--background)]">
               <button
                 type="button"
                 className="absolute right-2 top-2 rounded px-2 py-1 text-xs bg-[var(--surface)]/70 hover:bg-[var(--surface)] transition-colors"
-                onClick={() => navigator.clipboard.writeText(text)}
+                onClick={() => navigator.clipboard.writeText(cleaned)}
                 aria-label="Copiar código"
               >
                 <Copy className="h-3 w-3" />
               </button>
               <pre className="overflow-auto p-3">
-                <code className={className} {...props}>
-                  {children}
+                <code className={`${className || ""} font-mono text-[var(--foreground)] whitespace-pre`} {...props}>
+                  {cleaned}
                 </code>
               </pre>
             </div>
