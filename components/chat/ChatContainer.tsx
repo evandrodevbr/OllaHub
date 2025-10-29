@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { ModelDropdown } from "@/components/model/ModelDropdown";
 import { ModelPullDialog } from "@/components/model/ModelPullDialog";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SettingsModal } from "@/components/chat/SettingsModal";
+import { MCPSelector, ActiveMCPBadges } from "@/components/chat/MCPSelector";
 import { Send, Square } from "lucide-react";
 import type { ModelInfo } from "@/lib/models";
 import type { Message } from "@/lib/chat";
@@ -37,6 +38,10 @@ export function ChatContainer({
   const [systemPrompt, setSystemPrompt] = useState<string>("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Estado para MCPs ativos
+  const [activeMcps, setActiveMcps] = useState<string[]>([]);
+  const [mcpNames, setMcpNames] = useState<Map<string, string>>(new Map());
+
   // Carregar modelo salvo ao iniciar
   useEffect(() => {
     if (ready && prefs.selectedModel && !selectedModel) {
@@ -60,6 +65,69 @@ export function ChatContainer({
     setSelectedModel(modelName);
     update({ selectedModel: modelName }); // Salvar no Redis
   };
+
+  // Carregar MCPs ativos do localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem("ollahub-active-mcps");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setActiveMcps(parsed.mcps || []);
+        setMcpNames(new Map(parsed.names || []));
+      } catch (e) {
+        console.error("Error loading active MCPs:", e);
+      }
+    }
+  }, []);
+
+  // Salvar MCPs ativos no localStorage quando mudarem
+  useEffect(() => {
+    if (activeMcps.length > 0 || mcpNames.size > 0) {
+      localStorage.setItem(
+        "ollahub-active-mcps",
+        JSON.stringify({
+          mcps: activeMcps,
+          names: Array.from(mcpNames.entries()),
+        })
+      );
+    }
+  }, [activeMcps, mcpNames]);
+
+  // Handlers para MCP Selector
+  const handleToggleMCP = useCallback(
+    async (mcpId: string) => {
+      setActiveMcps((prev) => {
+        if (prev.includes(mcpId)) {
+          return prev.filter((id) => id !== mcpId);
+        } else {
+          // Buscar nome do MCP se ainda não temos
+          if (!mcpNames.has(mcpId)) {
+            fetch("/api/mcp/available-for-chat")
+              .then((res) => res.json())
+              .then((data) => {
+                if (data.success) {
+                  const mcp = data.mcps.find((m: any) => m.mcpId === mcpId);
+                  if (mcp) {
+                    setMcpNames((prev) => new Map(prev).set(mcpId, mcp.name));
+                  }
+                }
+              })
+              .catch(console.error);
+          }
+          return [...prev, mcpId];
+        }
+      });
+    },
+    [mcpNames]
+  );
+
+  const handleClearAllMCPs = useCallback(() => {
+    setActiveMcps([]);
+  }, []);
+
+  const handleRemoveMCP = useCallback((mcpId: string) => {
+    setActiveMcps((prev) => prev.filter((id) => id !== mcpId));
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -159,6 +227,7 @@ export function ChatContainer({
           messages: messagesToSend,
           options,
           system: systemPrompt || undefined,
+          activeMcps: activeMcps.length > 0 ? activeMcps : undefined,
         }),
         signal: abortRef.current.signal,
       });
@@ -187,6 +256,21 @@ export function ChatContainer({
 
           try {
             const data = JSON.parse(line);
+
+            // Tool execution indicator
+            if (data.toolExecution) {
+              console.log(
+                `🔧 MCP Tool executed: ${data.toolExecution.mcpId}.${data.toolExecution.toolName}`
+              );
+              // Opcional: Mostrar indicador visual
+            }
+
+            // Clear previous response (para prompt engineering)
+            if (data.clearPrevious) {
+              assistantContent = "";
+              setStreamingContent("");
+            }
+
             if (data.token) {
               assistantContent += data.token;
               setStreamingContent(assistantContent);
@@ -411,7 +495,21 @@ export function ChatContainer({
       {/* Input */}
       <div className="flex-shrink-0 border-t border-[var(--border)] bg-[var(--background)]">
         <form onSubmit={handleSubmit} className="p-4">
+          {/* Active MCP Badges */}
+          <ActiveMCPBadges
+            activeMcps={activeMcps}
+            mcpNames={mcpNames}
+            onRemove={handleRemoveMCP}
+          />
+
           <div className="flex gap-2">
+            {/* MCP Selector */}
+            <MCPSelector
+              activeMcps={activeMcps}
+              onToggleMCP={handleToggleMCP}
+              onClearAll={handleClearAllMCPs}
+            />
+
             <textarea
               value={inputContent}
               onChange={(e) => setInputContent(e.target.value)}

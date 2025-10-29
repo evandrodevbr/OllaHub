@@ -73,6 +73,20 @@ CREATE TABLE IF NOT EXISTS mcp_cache_metadata (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Tabela para rastrear MCPs ativos por conversa
+CREATE TABLE IF NOT EXISTS active_mcps (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conversation_id TEXT NOT NULL,
+  mcp_id TEXT NOT NULL,
+  enabled INTEGER DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+  UNIQUE(conversation_id, mcp_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_active_mcps_conversation ON active_mcps(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_active_mcps_mcp ON active_mcps(mcp_id);
+
 -- Índices para performance
 CREATE INDEX idx_messages_conversation ON messages(conversation_id, timestamp);
 CREATE INDEX idx_conversations_updated ON conversations(updated_at DESC);

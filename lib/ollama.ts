@@ -24,17 +24,26 @@ export async function chatWithStream(
   model: string,
   messages: Array<{ role: string; content: string }>,
   options?: Record<string, unknown>,
-  system?: string
+  system?: string,
+  tools?: Array<any>
 ) {
   const client = new Ollama({ host: OLLAMA_HOST });
-  return client.chat({
+
+  const chatOptions: any = {
     model,
     messages: system
-      ? [...messages, { role: "system", content: system }]
+      ? [{ role: "system", content: system }, ...messages]
       : messages,
     stream: true,
     options,
-  });
+  };
+
+  // Adicionar tools se fornecidos
+  if (tools && tools.length > 0) {
+    chatOptions.tools = tools;
+  }
+
+  return client.chat(chatOptions);
 }
 
 export async function pullModel(model: string) {

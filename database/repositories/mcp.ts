@@ -183,6 +183,38 @@ export class MCPRepository {
   }
 
   /**
+   * Obter todos os MCPs instalados com informações completas (incluindo status, environment, etc)
+   */
+  static getAllInstalled(): any[] {
+    try {
+      const stmt = db.prepare(`
+        SELECT 
+          id, owner, repo, name, config, tools, 
+          status, status_message, 
+          environment_path, executable_command,
+          validation_result, install_logs,
+          installed_at, updated_at 
+        FROM mcp_installations 
+        ORDER BY installed_at DESC
+      `);
+      const results = stmt.all() as any[];
+
+      return results.map((row) => ({
+        ...row,
+        config: row.config ? JSON.parse(row.config) : null,
+        tools: row.tools ? JSON.parse(row.tools) : [],
+        validation_result: row.validation_result
+          ? JSON.parse(row.validation_result)
+          : null,
+        install_logs: row.install_logs ? JSON.parse(row.install_logs) : [],
+      }));
+    } catch (error) {
+      console.error("Error getting all installed MCPs:", error);
+      return [];
+    }
+  }
+
+  /**
    * Atualizar timestamp de um MCP instalado
    */
   static updateTimestamp(mcpId: string): void {
