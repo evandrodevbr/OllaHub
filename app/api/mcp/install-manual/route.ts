@@ -144,14 +144,25 @@ function detectPackageInfo(serverConfig: any): {
   if (command === "npx" || command === "npm") {
     // npx @mcpcentral/mcp-time
     // npx -y @modelcontextprotocol/server-filesystem
+    // npx -y github:user/repo
     const packageArg = args.find(
-      (arg: string) => arg.startsWith("@") || !arg.startsWith("-")
+      (arg: string) =>
+        arg.startsWith("@") || arg.startsWith("github:") || !arg.startsWith("-")
     );
-    const packageName = packageArg || firstArg || "unknown-npm-package";
+    let packageName = packageArg || firstArg || "unknown-npm-package";
+    packageName = packageName.replace(/^-y\s*/, "").trim();
+
+    // Converter github:user/repo para git+https://github.com/user/repo.git
+    // Isso evita problemas com SSH e funciona melhor com npm install
+    if (packageName.startsWith("github:")) {
+      const repoPath = packageName.replace("github:", "");
+      packageName = `git+https://github.com/${repoPath}.git`;
+      console.log(`Converted github: format to: ${packageName}`);
+    }
 
     return {
       packageRegistry: "npm",
-      packageName: packageName.replace(/^-y\s*/, "").trim(),
+      packageName,
     };
   }
 

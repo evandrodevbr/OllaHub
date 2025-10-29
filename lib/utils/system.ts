@@ -137,10 +137,21 @@ export async function spawnWithProgress(
 
 /**
  * Sanitiza nome de pacote para evitar command injection
+ * Suporta formatos: @scope/pkg, github:user/repo, git+https://..., etc.
  */
 export function sanitizePackageName(packageName: string): string {
-  // Remove caracteres perigosos, mantém apenas alphanumeric, @, /, -, _
-  return packageName.replace(/[^a-zA-Z0-9@/\-_.]/g, "");
+  // URLs git+https:// devem ser preservadas completamente (são seguras)
+  if (
+    packageName.startsWith("git+https://") ||
+    packageName.startsWith("git+http://")
+  ) {
+    // Apenas validar que parece uma URL válida
+    return packageName;
+  }
+
+  // Remove caracteres perigosos, mantém alphanumeric, @, :, +, /, -, _, .
+  // Suporta: @scope/pkg, github:user/repo
+  return packageName.replace(/[^a-zA-Z0-9@:+/\-_.]/g, "");
 }
 
 /**

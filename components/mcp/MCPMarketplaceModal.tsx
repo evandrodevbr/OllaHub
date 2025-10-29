@@ -38,7 +38,6 @@ export function MCPMarketplaceModal({
     "rating" | "name" | "recent" | "total_ratings" | "updated_at"
   >("rating");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
-  const [selectedMCP, setSelectedMCP] = useState<MCPProvider | null>(null);
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [selectedConfigMCP, setSelectedConfigMCP] =
     useState<MCPProvider | null>(null);
@@ -170,6 +169,32 @@ export function MCPMarketplaceModal({
       if (data.success) {
         setInstalledMcps(data.mcps);
         console.log("📦 Installed MCPs loaded:", data.mcps.length);
+
+        // Atualizar MCPs do marketplace para marcar como instalados
+        setMcps((prevMcps) =>
+          prevMcps.map((mcp) => {
+            const installedMatch = data.mcps.find(
+              (installed: any) =>
+                installed.id === mcp.id ||
+                installed.repo === mcp.repo ||
+                installed.name === mcp.name
+            );
+
+            if (installedMatch) {
+              return {
+                ...mcp,
+                installed: true,
+                tools: installedMatch.tools || mcp.tools, // Atualizar tools também
+              };
+            }
+
+            return { ...mcp, installed: false };
+          })
+        );
+
+        console.log(
+          `📊 Marketplace updated: ${data.mcps.length} MCPs marked as installed`
+        );
       } else {
         console.error("Failed to fetch installed MCPs:", data.error);
       }
@@ -385,6 +410,8 @@ export function MCPMarketplaceModal({
 
         const data = await response.json();
         if (data.success) {
+          console.log(`✅ Installation started for ${finalId}`);
+
           // Adicionar ao tracking de instalação
           setInstallingMcps((prev) => {
             const next = new Map(prev);
@@ -396,20 +423,24 @@ export function MCPMarketplaceModal({
             return next;
           });
 
-          // Atualizar estado local
+          // Marcar como "instalando" no marketplace (não como instalado ainda)
+          // O polling vai atualizar para installed: true quando status === "ready"
           setMcps((prev) =>
-            prev.map((mcp) =>
-              mcp.id === selectedConfigMCP.id
-                ? { ...mcp, installed: true }
-                : mcp
-            )
+            prev.map((mcp) => {
+              // Verificar se é o mesmo MCP (por ID ou repo)
+              const isSameMcp =
+                mcp.id === selectedConfigMCP.id ||
+                mcp.id === finalId ||
+                mcp.repo === selectedConfigMCP.repo;
+
+              return isSameMcp ? { ...mcp, installed: false } : mcp;
+            })
           );
+
           // Fechar modal
           setConfigModalOpen(false);
           setSelectedConfigMCP(null);
           setMcpConfig(null);
-
-          console.log(`✅ Installation started for ${finalId}`);
         } else {
           console.error("Error installing MCP:", data.error);
         }
@@ -429,20 +460,34 @@ export function MCPMarketplaceModal({
 
       const data = await response.json();
       if (data.success) {
-        // Atualizar estado local
+        console.log(`✅ MCP ${mcpId} uninstalled successfully`);
+
+        // Remover do tracking de instalação (se estiver lá)
+        setInstallingMcps((prev) => {
+          const next = new Map(prev);
+          next.delete(mcpId);
+          return next;
+        });
+
+        // Atualizar marketplace: marcar como não instalado
         setMcps((prev) =>
           prev.map((mcp) =>
-            mcp.id === mcpId ? { ...mcp, installed: false } : mcp
+            mcp.id === mcpId || mcp.repo === mcpId
+              ? { ...mcp, installed: false }
+              : mcp
           )
         );
+
+        // Recarregar lista de instalados para sincronizar
+        await fetchInstalledMCPs();
+
+        console.log(`📦 Lists updated after uninstalling ${mcpId}`);
+      } else {
+        console.error("Failed to uninstall MCP:", data.error);
       }
     } catch (error) {
       console.error("Error uninstalling MCP:", error);
     }
-  };
-
-  const handleViewDetails = (mcp: MCPProvider) => {
-    setSelectedMCP(mcp);
   };
 
   // Carregar MCPs e categorias quando o modal abrir
@@ -454,11 +499,51 @@ export function MCPMarketplaceModal({
   }, [isOpen]); // Removido fetchMCPs das dependências
 
   // Carregar MCPs instalados quando aba "installed" for ativada
+  // Carregar MCPs instalados sempre que o modal abrir (não apenas na aba instalados)
   useEffect(() => {
-    if (isOpen && activeTab === "installed") {
+    if (isOpen) {
       fetchInstalledMCPs();
+
+      // Limpar MCPs órfãos no tracking (que estão instalados mas ainda no Map)
+      // Isso previne polling infinito de MCPs que já completaram instalação
+      setTimeout(async () => {
+        if (installingMcps.size > 0) {
+          console.log(
+            `🔍 Checking for orphaned installations: ${installingMcps.size} tracked`
+          );
+
+          const installedResponse = await fetch("/api/mcp/installed");
+          const installedData = await installedResponse.json();
+
+          if (installedData.success) {
+            const installedIds = new Set(
+              installedData.mcps.map((m: any) => m.id)
+            );
+
+            setInstallingMcps((prev) => {
+              const next = new Map(prev);
+              let removed = 0;
+
+              for (const mcpId of prev.keys()) {
+                // Se já está instalado, remover do tracking
+                if (installedIds.has(mcpId)) {
+                  next.delete(mcpId);
+                  removed++;
+                  console.log(`🧹 Removed orphaned tracking for ${mcpId}`);
+                }
+              }
+
+              if (removed > 0) {
+                console.log(`✅ Cleaned ${removed} orphaned installations`);
+              }
+
+              return next;
+            });
+          }
+        }
+      }, 1000); // Aguardar 1 segundo após abrir modal
     }
-  }, [isOpen, activeTab]);
+  }, [isOpen, fetchInstalledMCPs]);
 
   // Debounce para searchTerm
   useEffect(() => {
@@ -503,6 +588,10 @@ export function MCPMarketplaceModal({
             const isComplete = status === "ready" || status === "failed";
 
             if (isComplete) {
+              console.log(
+                `🎉 Installation ${status} for ${mcpId}, updating lists...`
+              );
+
               // Remover do tracking
               setInstallingMcps((prev) => {
                 const next = new Map(prev);
@@ -510,11 +599,30 @@ export function MCPMarketplaceModal({
                 return next;
               });
 
-              // Atualizar lista de MCPs
-              await fetchMCPs();
-              if (activeTab === "installed") {
-                await fetchInstalledMCPs();
+              // Se instalação foi bem-sucedida, marcar como instalado imediatamente
+              if (status === "ready") {
+                const toolsCount = data.validationResult?.tools?.length || 0;
+                console.log(
+                  `✨ Marking ${mcpId} as installed with ${toolsCount} tools`
+                );
+
+                setMcps((prev) =>
+                  prev.map((mcp) =>
+                    mcp.id === mcpId || mcp.repo === mcpId || mcp.name === mcpId
+                      ? {
+                          ...mcp,
+                          installed: true,
+                          tools: data.validationResult?.tools || mcp.tools,
+                        }
+                      : mcp
+                  )
+                );
               }
+
+              // Recarregar lista de instalados sempre (não apenas na aba)
+              await fetchInstalledMCPs();
+
+              console.log(`✅ Lists synchronized after ${status} for ${mcpId}`);
             } else {
               // Atualizar progresso
               setInstallingMcps((prev) => {
@@ -527,9 +635,26 @@ export function MCPMarketplaceModal({
                 return next;
               });
             }
+          } else {
+            // MCP não encontrado ou erro no servidor
+            console.warn(`⚠️ MCP ${mcpId} not found or error: ${data.error}`);
+
+            // Remover do tracking após erro (evita polling infinito)
+            setInstallingMcps((prev) => {
+              const next = new Map(prev);
+              next.delete(mcpId);
+              return next;
+            });
           }
         } catch (error) {
-          console.error(`Error polling status for ${mcpId}:`, error);
+          console.error(`❌ Error polling status for ${mcpId}:`, error);
+
+          // Remover do tracking após erro de rede (evita polling infinito)
+          setInstallingMcps((prev) => {
+            const next = new Map(prev);
+            next.delete(mcpId);
+            return next;
+          });
         }
       }
     }, 2000); // Poll a cada 2 segundos
@@ -734,7 +859,6 @@ export function MCPMarketplaceModal({
                           mcp={mcp}
                           onInstall={() => handleInstall(mcp.id)}
                           onUninstall={() => handleUninstall(mcp.id)}
-                          onViewDetails={() => handleViewDetails(mcp)}
                           installingStatus={installingMcps.get(mcp.id)}
                         />
                       ))}
@@ -787,25 +911,6 @@ export function MCPMarketplaceModal({
                           onTestServer={() => handleTestServer(mcp.id)}
                           isTesting={testingMCP === mcp.id}
                           onUninstall={() => handleUninstall(mcp.id)}
-                          onViewDetails={() =>
-                            handleViewDetails({
-                              id: mcp.id,
-                              name: mcp.name,
-                              author: mcp.author || mcp.owner || "Unknown",
-                              description:
-                                mcp.description || `MCP instalado: ${mcp.name}`,
-                              version: "1.0.0",
-                              category: mcp.category || "other",
-                              tags: mcp.tags || [],
-                              rating: mcp.rating || 0,
-                              totalRatings: mcp.totalRatings || 0,
-                              installed: true,
-                              repository: mcp.repository || "",
-                              homepage: mcp.homepage || "",
-                              config: mcp.config,
-                              tools: mcp.tools,
-                            })
-                          }
                           installingStatus={installingMcps.get(mcp.id)}
                         />
                       ))}

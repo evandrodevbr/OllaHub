@@ -170,11 +170,12 @@ export class MCPInstallerService {
       });
 
       // Construir ambiente
+      // Para NPM, executar npx do diretório onde foi instalado (não usa --prefix que não funciona)
       const environment: MCPEnvironment = {
         type: "npm",
         path: npmDir,
         executable: "npx",
-        args: ["--prefix", npmDir, packageName],
+        args: [packageName],
       };
 
       return environment;

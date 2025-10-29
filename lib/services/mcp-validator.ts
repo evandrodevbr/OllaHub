@@ -32,11 +32,18 @@ export class MCPValidatorService {
         ...(config.env || {}),
       };
 
+      // Para NPM, adicionar node_modules/.bin ao PATH para encontrar binários locais
+      if (environment.type === "npm" && environment.path) {
+        const nodeBinPath = `${environment.path}/node_modules/.bin`;
+        env.PATH = `${nodeBinPath}:${env.PATH || process.env.PATH}`;
+      }
+
       console.log(`🧪 Testing MCP server: ${command} ${args.join(" ")}`);
 
       try {
         // Spawnar processo do servidor MCP
         const serverProcess = spawn(command, args, {
+          cwd: environment.path, // Executar do diretório de instalação
           env,
           stdio: ["pipe", "pipe", "pipe"],
         });
@@ -232,8 +239,15 @@ export class MCPValidatorService {
         ...(config.env || {}),
       };
 
+      // Para NPM, adicionar node_modules/.bin ao PATH para encontrar binários locais
+      if (environment.type === "npm" && environment.path) {
+        const nodeBinPath = `${environment.path}/node_modules/.bin`;
+        env.PATH = `${nodeBinPath}:${env.PATH || process.env.PATH}`;
+      }
+
       try {
         const serverProcess = spawn(command, args, {
+          cwd: environment.path, // Executar do diretório de instalação
           env,
           stdio: ["pipe", "pipe", "pipe"],
         });

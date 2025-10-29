@@ -18,7 +18,6 @@ interface MCPCardProps {
   mcp: MCPProvider;
   onInstall: () => void;
   onUninstall: () => void;
-  onViewDetails: () => void;
   mode?: "marketplace" | "installed";
   onEditConfig?: () => void;
   onTestServer?: () => void;
@@ -35,7 +34,6 @@ export const MCPCard = memo(
     mcp,
     onInstall,
     onUninstall,
-    onViewDetails,
     mode = "marketplace",
     onEditConfig,
     onTestServer,
@@ -145,6 +143,41 @@ export const MCPCard = memo(
           )}
         </div>
 
+        {/* Tools Badges */}
+        {mcp.tools && Array.isArray(mcp.tools) && mcp.tools.length > 0 && (
+          <div className="mb-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5">
+                <Zap className="h-4 w-4 text-purple-500 dark:text-purple-400" />
+                <span className="text-xs font-semibold text-purple-600 dark:text-purple-400">
+                  {mcp.tools.length} {mcp.tools.length === 1 ? "Tool" : "Tools"}
+                </span>
+              </div>
+              {mcp.tools.length > 6 && (
+                <span className="text-[10px] text-gray-500 dark:text-gray-400">
+                  Showing 6 of {mcp.tools.length}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5 max-h-[60px] overflow-hidden">
+              {mcp.tools.slice(0, 6).map((tool: any, index: number) => (
+                <span
+                  key={index}
+                  className="inline-flex items-center px-2.5 py-1 bg-gradient-to-r from-purple-50 to-purple-100 dark:from-purple-950/40 dark:to-purple-900/30 text-purple-700 dark:text-purple-300 text-[11px] font-medium rounded-md border border-purple-200/60 dark:border-purple-800/60 hover:border-purple-300 dark:hover:border-purple-700 transition-colors cursor-default shadow-sm"
+                  title={tool.description || tool.name}
+                >
+                  {tool.name}
+                </span>
+              ))}
+              {mcp.tools.length > 6 && (
+                <span className="inline-flex items-center px-2.5 py-1 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-900/40 dark:to-gray-800/30 text-gray-600 dark:text-gray-400 text-[11px] font-medium rounded-md border border-gray-200/60 dark:border-gray-700/60 shadow-sm">
+                  +{mcp.tools.length - 6}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Installation Progress */}
         {installingStatus && (
           <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
@@ -168,14 +201,6 @@ export const MCPCard = memo(
 
         {/* Actions */}
         <div className="flex gap-2">
-          <button
-            onClick={onViewDetails}
-            className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-[var(--background)] border border-[var(--border)] rounded-md hover:bg-[var(--surface)] transition-colors text-sm"
-          >
-            <Eye className="h-4 w-4" />
-            Details
-          </button>
-
           {mode === "installed" && onEditConfig ? (
             <>
               <button
@@ -210,14 +235,14 @@ export const MCPCard = memo(
           ) : mcp.installed ? (
             <button
               onClick={onUninstall}
-              className="px-3 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors text-sm mcp-install-button"
+              className="w-full px-3 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors text-sm mcp-install-button font-medium"
             >
               Uninstall
             </button>
           ) : (
             <button
               onClick={onInstall}
-              className="px-3 py-2 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-md hover:bg-[var(--primary)]/90 transition-colors text-sm mcp-install-button"
+              className="w-full px-3 py-2 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-md hover:bg-[var(--primary)]/90 transition-colors text-sm mcp-install-button font-medium"
             >
               Install
             </button>
