@@ -36,6 +36,67 @@ export function runMigrations(db: Database.Database): void {
     console.log("✅ Migração 001_initial_schema aplicada");
   }
 
+  // Migration 002: Campos de instalação real MCP
+  if (!appliedNames.has("002_mcp_installation_fields")) {
+    console.log("📋 Aplicando migração: 002_mcp_installation_fields");
+
+    try {
+      db.exec(`
+        ALTER TABLE mcp_installations ADD COLUMN status TEXT DEFAULT 'pending';
+      `);
+    } catch (e) {
+      // Coluna já existe, ignorar
+    }
+
+    try {
+      db.exec(`
+        ALTER TABLE mcp_installations ADD COLUMN status_message TEXT;
+      `);
+    } catch (e) {
+      // Coluna já existe, ignorar
+    }
+
+    try {
+      db.exec(`
+        ALTER TABLE mcp_installations ADD COLUMN environment_path TEXT;
+      `);
+    } catch (e) {
+      // Coluna já existe, ignorar
+    }
+
+    try {
+      db.exec(`
+        ALTER TABLE mcp_installations ADD COLUMN executable_command TEXT;
+      `);
+    } catch (e) {
+      // Coluna já existe, ignorar
+    }
+
+    try {
+      db.exec(`
+        ALTER TABLE mcp_installations ADD COLUMN validation_result TEXT;
+      `);
+    } catch (e) {
+      // Coluna já existe, ignorar
+    }
+
+    try {
+      db.exec(`
+        ALTER TABLE mcp_installations ADD COLUMN install_logs TEXT;
+      `);
+    } catch (e) {
+      // Coluna já existe, ignorar
+    }
+
+    // Registrar migração
+    db.prepare("INSERT INTO _migrations (name, applied_at) VALUES (?, ?)").run(
+      "002_mcp_installation_fields",
+      Date.now()
+    );
+
+    console.log("✅ Migração 002_mcp_installation_fields aplicada");
+  }
+
   // Inicializar extensão vetorial se disponível
   try {
     const extPath = path.join(

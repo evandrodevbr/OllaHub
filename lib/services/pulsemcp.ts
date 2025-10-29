@@ -61,10 +61,20 @@ export class PulseMCPService {
 
   /**
    * Buscar todos os servidores MCP na API PulseMCP (sem parâmetros)
+   * Com retry automático e backoff exponencial para rate limiting
    */
-  static async getAllServers(): Promise<PulseMCPResponse> {
+  static async getAllServers(retryCount = 0): Promise<PulseMCPResponse> {
+    const maxRetries = 3;
+    const baseDelay = 2000; // 2 segundos base
+
     try {
-      console.log("📡 Fetching all servers from PulseMCP API...");
+      if (retryCount > 0) {
+        console.log(
+          `📡 Retry ${retryCount}/${maxRetries} - Fetching from PulseMCP API...`
+        );
+      } else {
+        console.log("📡 Fetching all servers from PulseMCP API...");
+      }
 
       const response = await fetch(`${PULSEMCP_API_BASE}/servers`, {
         method: "GET",
@@ -77,6 +87,19 @@ export class PulseMCPService {
       });
 
       if (!response.ok) {
+        // Se for 429 (Too Many Requests), tentar novamente com backoff
+        if (response.status === 429 && retryCount < maxRetries) {
+          const delay = baseDelay * Math.pow(2, retryCount); // Backoff exponencial
+          console.warn(
+            `⚠️ Rate limit hit (429). Waiting ${delay}ms before retry ${
+              retryCount + 1
+            }/${maxRetries}...`
+          );
+
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          return this.getAllServers(retryCount + 1);
+        }
+
         throw new Error(
           `PulseMCP API error: ${response.status} ${response.statusText}`
         );
@@ -89,9 +112,26 @@ export class PulseMCPService {
 
       return data;
     } catch (error) {
+      // Se for erro de rate limit e ainda temos retries, tentar novamente
+      if (
+        error instanceof Error &&
+        error.message.includes("429") &&
+        retryCount < maxRetries
+      ) {
+        const delay = baseDelay * Math.pow(2, retryCount);
+        console.warn(
+          `⚠️ Rate limit error. Waiting ${delay}ms before retry ${
+            retryCount + 1
+          }/${maxRetries}...`
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        return this.getAllServers(retryCount + 1);
+      }
+
       console.error("❌ Error calling PulseMCP API:", error);
       throw new Error(
-        `Failed to fetch MCPs: ${
+        `Failed to fetch MCPs after ${retryCount + 1} attempts: ${
           error instanceof Error ? error.message : "Unknown error"
         }`
       );

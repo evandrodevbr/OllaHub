@@ -46,5 +46,7 @@ database/extensions/*.so
 database/extensions/*.dll
 database/extensions/*.dylib
 
+# mcp servers installation directory
+/mcp-servers/
 
 /.cursor

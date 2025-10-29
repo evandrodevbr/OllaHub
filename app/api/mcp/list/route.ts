@@ -58,24 +58,36 @@ export async function GET(request: Request) {
       console.log(`Found ${cachedMcps.length} MCPs in cache`);
 
       // Os dados já estão no formato interno após transformação no saveBatch
-      const mcps = cachedMcps.map((item) => ({
-        id: item.id,
-        name: item.content_name,
-        author: item.publisher_id,
-        description: item.description || "",
-        version: "1.0.0",
-        category: item.category as MCPProvider["category"],
-        tags: item.content_tag_list ? item.content_tag_list.split(",") : [],
-        rating: item.rating,
-        totalRatings: item.review_cnt,
-        repository: item.detail_url || "",
-        homepage: item.website || "",
-        installed: false, // Será definido abaixo
-        subfield: item.subfield || "",
-        field: item.field || "",
-        config: [],
-        tools: [],
-      }));
+      const mcps = cachedMcps.map((item) => {
+        // Construir ID no formato owner/repo a partir dos campos do cache
+        // Se owner estiver vazio, usar apenas o repo
+        const correctId =
+          item.owner && item.owner.trim() !== ""
+            ? `${item.owner}/${item.repo}`
+            : item.repo;
+
+        return {
+          id: correctId, // Usar owner/repo como ID principal ou apenas repo se owner vazio
+          originalId: item.id, // Manter ID original para referência
+          owner: item.owner || "",
+          repo: item.repo,
+          name: item.content_name,
+          author: item.publisher_id,
+          description: item.description || "",
+          version: "1.0.0",
+          category: item.category as MCPProvider["category"],
+          tags: item.content_tag_list ? item.content_tag_list.split(",") : [],
+          rating: item.rating,
+          totalRatings: item.review_cnt,
+          repository: item.detail_url || "",
+          homepage: item.website || "",
+          installed: false, // Será definido abaixo
+          subfield: item.subfield || "",
+          field: item.field || "",
+          config: [],
+          tools: [],
+        };
+      });
 
       // Adicionar status de instalação
       const installedMCPs = MCPRepository.listInstalled();

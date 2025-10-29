@@ -1,5 +1,8 @@
 export interface MCPProvider {
   id: string; // formato: "owner/repo"
+  originalId?: string; // ID original do cache antes de transformar para owner/repo
+  owner?: string; // Owner do repositório
+  repo?: string; // Nome do repositório
   name: string; // mapeado de content_name
   author: string; // mapeado de publisher_id
   description: string;
@@ -95,6 +98,19 @@ export interface PulseMCPResponse {
   servers: MCPServerMetadata[];
   next?: string;
   total_count: number;
+}
+
+export interface MCPTestResult {
+  success: boolean;
+  message: string;
+  responseTime?: number; // em ms
+  serverVersion?: string;
+  availableTools?: number;
+  error?: string;
+}
+
+export interface MCPTestRequest {
+  mcpId: string;
 }
 
 export interface MCPServerMetadata {

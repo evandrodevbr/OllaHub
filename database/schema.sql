@@ -34,6 +34,12 @@ CREATE TABLE IF NOT EXISTS mcp_installations (
   name TEXT NOT NULL,
   config JSON NOT NULL,
   tools JSON,
+  status TEXT DEFAULT 'pending',
+  status_message TEXT,
+  environment_path TEXT,
+  executable_command TEXT,
+  validation_result TEXT,
+  install_logs TEXT,
   installed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

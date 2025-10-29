@@ -167,61 +167,72 @@ export class MCPCacheRepository {
    */
   static search(params: MCPSearchParams): MCPCacheItem[] {
     try {
-      let query = "SELECT * FROM mcp_marketplace_cache WHERE 1=1";
+      let query: string;
       const queryParams: any[] = [];
 
-      // Filtro por categoria
-      if (params.category) {
-        query += " AND (category = ? OR subfield = ?)";
-        queryParams.push(params.category, params.category);
-      }
-
-      // Filtro por busca textual
       if (params.query) {
-        query +=
-          " AND (content_name LIKE ? OR description LIKE ? OR content_tag_list LIKE ?)";
-        const searchTerm = `%${params.query}%`;
-        queryParams.push(searchTerm, searchTerm, searchTerm);
+        // Usar FTS5 para busca textual
+        query = `
+          SELECT c.* FROM mcp_marketplace_cache c
+          INNER JOIN mcp_search_fts f ON c.rowid = f.rowid
+          WHERE mcp_search_fts MATCH ?
+        `;
+
+        // Escapar caracteres especiais e adicionar wildcard
+        const searchTerm = params.query.replace(/[^a-zA-Z0-9\s]/g, " ").trim();
+        queryParams.push(`${searchTerm}*`); // Prefix search
+
+        // Filtro de categoria (se houver)
+        if (params.category) {
+          query += " AND (c.category = ? OR c.subfield = ?)";
+          queryParams.push(params.category, params.category);
+        }
+
+        // Ordenar por relevância FTS + rating
+        query += " ORDER BY f.rank, c.rating DESC";
+      } else {
+        // Query sem busca textual (usar índices normais)
+        query = "SELECT * FROM mcp_marketplace_cache WHERE 1=1";
+
+        if (params.category) {
+          query += " AND (category = ? OR subfield = ?)";
+          queryParams.push(params.category, params.category);
+        }
+
+        // Ordenação por índice apropriado
+        const order = params.order || "desc";
+        let orderClause = "";
+
+        switch (params.sortBy) {
+          case "rating":
+            orderClause = `ORDER BY rating ${order.toUpperCase()}`;
+            break;
+          case "downloads":
+            orderClause = `ORDER BY review_cnt ${order.toUpperCase()}`;
+            break;
+          case "name":
+            orderClause = `ORDER BY content_name ${order.toUpperCase()}`;
+            break;
+          case "recent":
+            orderClause = `ORDER BY updated_at ${order.toUpperCase()}`;
+            break;
+          case "total_ratings":
+            orderClause = `ORDER BY review_cnt ${order.toUpperCase()}`;
+            break;
+          case "updated_at":
+            orderClause = `ORDER BY updated_at ${order.toUpperCase()}`;
+            break;
+          default:
+            orderClause = `ORDER BY rating DESC`; // Padrão
+        }
+
+        query += ` ${orderClause}`;
       }
-
-      // Ordenação dinâmica
-      const order = params.order || "desc"; // Padrão descrescente
-      let orderClause = "";
-
-      switch (params.sortBy) {
-        case "rating":
-          orderClause = `ORDER BY rating ${order.toUpperCase()}`;
-          break;
-        case "downloads":
-          orderClause = `ORDER BY review_cnt ${order.toUpperCase()}`;
-          break;
-        case "name":
-          orderClause = `ORDER BY content_name ${order.toUpperCase()}`;
-          break;
-        case "recent":
-          orderClause = `ORDER BY updated_at ${order.toUpperCase()}`;
-          break;
-        case "total_ratings":
-          orderClause = `ORDER BY review_cnt ${order.toUpperCase()}`;
-          break;
-        case "updated_at":
-          orderClause = `ORDER BY updated_at ${order.toUpperCase()}`;
-          break;
-        default:
-          orderClause = `ORDER BY rating DESC`; // Padrão
-      }
-
-      query += ` ${orderClause}`;
 
       // Paginação
       if (params.limit) {
-        query += " LIMIT ?";
-        queryParams.push(params.limit);
-
-        if (params.offset) {
-          query += " OFFSET ?";
-          queryParams.push(params.offset);
-        }
+        query += " LIMIT ? OFFSET ?";
+        queryParams.push(params.limit, params.offset || 0);
       }
 
       const stmt = db.prepare(query);
@@ -477,6 +488,57 @@ export class MCPCacheRepository {
         totalMCPs: 0,
         categoryBreakdown: {},
       };
+    }
+  }
+
+  /**
+   * Buscar MCP por owner e repo
+   */
+  static findByOwnerRepo(owner: string, repo: string): MCPCacheItem | null {
+    try {
+      const stmt = db.prepare(`
+        SELECT * FROM mcp_marketplace_cache 
+        WHERE owner = ? AND repo = ?
+      `);
+      const result = stmt.get(owner, repo) as MCPCacheItem | undefined;
+      return result || null;
+    } catch (error) {
+      console.error("Error finding MCP by owner/repo:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Buscar MCP por nome
+   */
+  static findByName(name: string): MCPCacheItem | null {
+    try {
+      const stmt = db.prepare(`
+        SELECT * FROM mcp_marketplace_cache 
+        WHERE content_name = ? OR repo = ?
+      `);
+      const result = stmt.get(name, name) as MCPCacheItem | undefined;
+      return result || null;
+    } catch (error) {
+      console.error("Error finding MCP by name:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Buscar MCP por ID
+   */
+  static findById(id: string): MCPCacheItem | null {
+    try {
+      const stmt = db.prepare(`
+        SELECT * FROM mcp_marketplace_cache 
+        WHERE id = ?
+      `);
+      const result = stmt.get(id) as MCPCacheItem | undefined;
+      return result || null;
+    } catch (error) {
+      console.error("Error finding MCP by ID:", error);
+      return null;
     }
   }
 }

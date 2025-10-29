@@ -17,6 +17,7 @@ export interface SyncResult {
 
 export class MCPSyncService {
   private static isSyncingFlag = false;
+  private static syncPromise: Promise<SyncResult> | null = null;
   private static abortController: AbortController | null = null;
   private static currentProgress: SyncProgress | null = null;
 
@@ -26,63 +27,75 @@ export class MCPSyncService {
   static async syncAll(
     onProgress?: (progress: SyncProgress) => void
   ): Promise<SyncResult> {
+    // Se já existe um sync em andamento, retornar a promise existente
+    if (this.syncPromise) {
+      console.log("⏳ Sync already in progress, waiting for completion...");
+      return this.syncPromise;
+    }
+
     const startTime = Date.now();
     const errors: string[] = [];
     let totalDownloaded = 0;
 
-    try {
-      if (this.isSyncingFlag) {
-        throw new Error("Sync already in progress");
+    // Criar a promise de sync e armazená-la
+    this.syncPromise = (async () => {
+      try {
+        if (this.isSyncingFlag) {
+          throw new Error("Sync already in progress");
+        }
+
+        this.isSyncingFlag = true;
+        this.abortController = new AbortController();
+
+        console.log("🔄 Starting MCP marketplace sync...");
+
+        // Limpar cache antigo antes de começar
+        MCPCacheRepository.clearCache();
+
+        const allMCPs = await this.downloadAllPages(onProgress);
+        totalDownloaded = allMCPs.length;
+
+        // Salvar todos os MCPs no banco
+        if (allMCPs.length > 0) {
+          MCPCacheRepository.saveBatch(allMCPs);
+
+          // Atualizar metadados
+          MCPCacheRepository.updateMetadata("last_sync", Date.now().toString());
+          MCPCacheRepository.updateMetadata(
+            "total_items",
+            allMCPs.length.toString()
+          );
+
+          console.log(`✅ Sync completed: ${totalDownloaded} MCPs downloaded`);
+        }
+
+        const duration = Date.now() - startTime;
+        return {
+          success: true,
+          totalDownloaded,
+          errors,
+          duration,
+        };
+      } catch (error: any) {
+        console.error("❌ Sync failed:", error);
+        errors.push(error.message);
+
+        const duration = Date.now() - startTime;
+        return {
+          success: false,
+          totalDownloaded,
+          errors,
+          duration,
+        };
+      } finally {
+        this.isSyncingFlag = false;
+        this.abortController = null;
+        this.currentProgress = null;
+        this.syncPromise = null; // Limpar a promise compartilhada
       }
+    })();
 
-      this.isSyncingFlag = true;
-      this.abortController = new AbortController();
-
-      console.log("🔄 Starting MCP marketplace sync...");
-
-      // Limpar cache antigo antes de começar
-      MCPCacheRepository.clearCache();
-
-      const allMCPs = await this.downloadAllPages(onProgress);
-      totalDownloaded = allMCPs.length;
-
-      // Salvar todos os MCPs no banco
-      if (allMCPs.length > 0) {
-        MCPCacheRepository.saveBatch(allMCPs);
-
-        // Atualizar metadados
-        MCPCacheRepository.updateMetadata("last_sync", Date.now().toString());
-        MCPCacheRepository.updateMetadata(
-          "total_items",
-          allMCPs.length.toString()
-        );
-
-        console.log(`✅ Sync completed: ${totalDownloaded} MCPs downloaded`);
-      }
-
-      const duration = Date.now() - startTime;
-      return {
-        success: true,
-        totalDownloaded,
-        errors,
-        duration,
-      };
-    } catch (error: any) {
-      console.error("❌ Sync failed:", error);
-      errors.push(error.message);
-
-      const duration = Date.now() - startTime;
-      return {
-        success: false,
-        totalDownloaded,
-        errors,
-        duration,
-      };
-    } finally {
-      this.isSyncingFlag = false;
-      this.abortController = null;
-      this.currentProgress = null;
-    }
+    return this.syncPromise;
   }
 
   /**
