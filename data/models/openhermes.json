@@ -1,0 +1,218 @@
+{
+  "model": "openhermes",
+  "url": "https://ollama.com/library/openhermes",
+  "description": "OpenHermes 2.5 is a 7B model fine-tuned by Teknium on Mistral with fully open datasets.",
+  "variantsCount": 35,
+  "variants": [
+    {
+      "name": "openhermes:latest",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:v2",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:v2.5",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2-q2_K",
+      "size": "3.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2-q3_K_S",
+      "size": "3.2GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2-q3_K_M",
+      "size": "3.5GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2-q3_K_L",
+      "size": "3.8GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2-q4_0",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2-q4_1",
+      "size": "4.6GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2-q4_K_S",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2-q4_K_M",
+      "size": "4.4GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2-q5_0",
+      "size": "5.0GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2-q5_1",
+      "size": "5.4GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2-q5_K_S",
+      "size": "5.0GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2-q5_K_M",
+      "size": "5.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2-q6_K",
+      "size": "5.9GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2-q8_0",
+      "size": "7.7GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2-fp16",
+      "size": "14GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2.5-q2_K",
+      "size": "3.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2.5-q3_K_S",
+      "size": "3.2GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2.5-q3_K_M",
+      "size": "3.5GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2.5-q3_K_L",
+      "size": "3.8GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2.5-q4_0",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2.5-q4_1",
+      "size": "4.6GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2.5-q4_K_S",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2.5-q4_K_M",
+      "size": "4.4GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2.5-q5_0",
+      "size": "5.0GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2.5-q5_1",
+      "size": "5.4GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2.5-q5_K_S",
+      "size": "5.0GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2.5-q5_K_M",
+      "size": "5.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2.5-q6_K",
+      "size": "5.9GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2.5-q8_0",
+      "size": "7.7GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-mistral-v2.5-fp16",
+      "size": "14GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-v2",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openhermes:7b-v2.5",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

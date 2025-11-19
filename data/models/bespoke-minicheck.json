@@ -1,0 +1,20 @@
+{
+  "model": "bespoke-minicheck",
+  "url": "https://ollama.com/library/bespoke-minicheck",
+  "description": "A state-of-the-art fact-checking model developed by Bespoke Labs.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "bespoke-minicheck:latest",
+      "size": "4.7GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "bespoke-minicheck:7b",
+      "size": "4.7GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

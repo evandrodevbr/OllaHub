@@ -1,0 +1,26 @@
+{
+  "model": "aya",
+  "url": "https://ollama.com/library/aya",
+  "description": "Aya 23, released by Cohere, is a new family of state-of-the-art, multilingual models that support 23 languages. ",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "aya:latest",
+      "size": "4.8GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "aya:8b",
+      "size": "4.8GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "aya:35b",
+      "size": "20GB",
+      "context": "8K",
+      "inputType": "Text"
+    }
+  ]
+}

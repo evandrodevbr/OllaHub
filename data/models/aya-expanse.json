@@ -1,0 +1,26 @@
+{
+  "model": "aya-expanse",
+  "url": "https://ollama.com/library/aya-expanse",
+  "description": "Cohere For AI's language models trained to perform well across 23 different languages.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "aya-expanse:latest",
+      "size": "5.1GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "aya-expanse:8b",
+      "size": "5.1GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "aya-expanse:32b",
+      "size": "20GB",
+      "context": "8K",
+      "inputType": "Text"
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "model": "qwen3-vl",
+  "url": "https://ollama.com/library/qwen3-vl",
+  "description": "The most powerful vision-language model in the Qwen model family to date. ",
+  "variantsCount": 9,
+  "variants": [
+    {
+      "name": "qwen3-vl:latest",
+      "size": "6.1GB",
+      "context": "256K",
+      "inputType": "Text, Image"
+    },
+    {
+      "name": "qwen3-vl:2b",
+      "size": "1.9GB",
+      "context": "256K",
+      "inputType": "Text, Image"
+    },
+    {
+      "name": "qwen3-vl:4b",
+      "size": "3.3GB",
+      "context": "256K",
+      "inputType": "Text, Image"
+    },
+    {
+      "name": "qwen3-vl:8b",
+      "size": "6.1GB",
+      "context": "256K",
+      "inputType": "Text, Image"
+    },
+    {
+      "name": "qwen3-vl:30b",
+      "size": "20GB",
+      "context": "256K",
+      "inputType": "Text, Image"
+    },
+    {
+      "name": "qwen3-vl:32b",
+      "size": "21GB",
+      "context": "256K",
+      "inputType": "Text, Image"
+    },
+    {
+      "name": "qwen3-vl:235b",
+      "size": "143GB",
+      "context": "256K",
+      "inputType": "Text, Image"
+    },
+    {
+      "name": "qwen3-vl:235b-cloud",
+      "size": "-",
+      "context": "256K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen3-vl:235b-instruct-cloud",
+      "size": "-",
+      "context": "256K",
+      "inputType": "Text"
+    }
+  ]
+}

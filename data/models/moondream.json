@@ -1,0 +1,20 @@
+{
+  "model": "moondream",
+  "url": "https://ollama.com/library/moondream",
+  "description": "moondream2 is a small vision language model designed to run efficiently on edge devices.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "moondream:latest",
+      "size": "1.7GB",
+      "context": "2K",
+      "inputType": "Text, Image"
+    },
+    {
+      "name": "moondream:1.8b",
+      "size": "1.7GB",
+      "context": "2K",
+      "inputType": "Text, Image"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "model": "gemma3n",
+  "url": "https://ollama.com/library/gemma3n",
+  "description": "Gemma 3n models are designed for efficient execution on everyday devices such as laptops, tablets or phones. ",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "gemma3n:latest",
+      "size": "7.5GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "gemma3n:e2b",
+      "size": "5.6GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "gemma3n:e4b",
+      "size": "7.5GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

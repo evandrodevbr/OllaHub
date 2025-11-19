@@ -1,0 +1,38 @@
+{
+  "model": "starcoder",
+  "url": "https://ollama.com/library/starcoder",
+  "description": "StarCoder is a code generation model trained on 80+ programming languages.",
+  "variantsCount": 5,
+  "variants": [
+    {
+      "name": "starcoder:latest",
+      "size": "1.8GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "starcoder:1b",
+      "size": "726MB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "starcoder:3b",
+      "size": "1.8GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "starcoder:7b",
+      "size": "4.3GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "starcoder:15b",
+      "size": "9.0GB",
+      "context": "8K",
+      "inputType": "Text"
+    }
+  ]
+}

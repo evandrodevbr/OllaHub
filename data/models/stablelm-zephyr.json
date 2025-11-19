@@ -1,0 +1,20 @@
+{
+  "model": "stablelm-zephyr",
+  "url": "https://ollama.com/library/stablelm-zephyr",
+  "description": "A lightweight chat model allowing accurate, and responsive output without requiring high-end hardware.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "stablelm-zephyr:latest",
+      "size": "1.6GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "stablelm-zephyr:3b",
+      "size": "1.6GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

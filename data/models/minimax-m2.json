@@ -1,0 +1,14 @@
+{
+  "model": "minimax-m2",
+  "url": "https://ollama.com/library/minimax-m2",
+  "description": "MiniMax M2 is a high-efficiency large language model built for coding and agentic workflows.",
+  "variantsCount": 1,
+  "variants": [
+    {
+      "name": "minimax-m2:cloud",
+      "size": "-",
+      "context": "200K",
+      "inputType": "Text"
+    }
+  ]
+}

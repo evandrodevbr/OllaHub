@@ -1,0 +1,26 @@
+{
+  "model": "llama2-uncensored",
+  "url": "https://ollama.com/library/llama2-uncensored",
+  "description": "Uncensored Llama 2 model by George Sung and Jarrad Hope.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "llama2-uncensored:latest",
+      "size": "3.8GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama2-uncensored:7b",
+      "size": "3.8GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama2-uncensored:70b",
+      "size": "39GB",
+      "context": "2K",
+      "inputType": "Text"
+    }
+  ]
+}

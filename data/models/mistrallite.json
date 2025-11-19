@@ -1,0 +1,20 @@
+{
+  "model": "mistrallite",
+  "url": "https://ollama.com/library/mistrallite",
+  "description": "MistralLite is a fine-tuned model based on Mistral with enhanced capabilities of processing long contexts.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "mistrallite:latest",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "mistrallite:7b",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

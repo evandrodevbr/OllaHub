@@ -1,0 +1,20 @@
+{
+  "model": "athene-v2",
+  "url": "https://ollama.com/library/athene-v2",
+  "description": "Athene-V2 is a 72B parameter model which excels at code completion, mathematics, and log extraction tasks.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "athene-v2:latest",
+      "size": "47GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "athene-v2:72b",
+      "size": "47GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

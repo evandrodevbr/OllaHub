@@ -1,0 +1,26 @@
+{
+  "model": "deepseek-llm",
+  "url": "https://ollama.com/library/deepseek-llm",
+  "description": "An advanced language model crafted with 2 trillion bilingual tokens.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "deepseek-llm:latest",
+      "size": "4.0GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "deepseek-llm:7b",
+      "size": "4.0GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "deepseek-llm:67b",
+      "size": "38GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "model": "qwen2.5-coder",
+  "url": "https://ollama.com/library/qwen2.5-coder",
+  "description": "The latest series of Code-Specific Qwen models, with significant improvements in code generation, code reasoning, and code fixing.",
+  "variantsCount": 7,
+  "variants": [
+    {
+      "name": "qwen2.5-coder:latest",
+      "size": "4.7GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen2.5-coder:0.5b",
+      "size": "398MB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen2.5-coder:1.5b",
+      "size": "986MB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen2.5-coder:3b",
+      "size": "1.9GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen2.5-coder:7b",
+      "size": "4.7GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen2.5-coder:14b",
+      "size": "9.0GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen2.5-coder:32b",
+      "size": "20GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

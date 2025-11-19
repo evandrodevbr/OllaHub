@@ -1,0 +1,20 @@
+{
+  "model": "codestral",
+  "url": "https://ollama.com/library/codestral",
+  "description": "Codestral is Mistral AI’s first-ever code model designed for code generation tasks.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "codestral:latest",
+      "size": "13GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "codestral:22b",
+      "size": "13GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

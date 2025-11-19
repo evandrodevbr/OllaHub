@@ -1,0 +1,26 @@
+{
+  "model": "reader-lm",
+  "url": "https://ollama.com/library/reader-lm",
+  "description": "A series of models that convert HTML content to Markdown content, which is useful for content conversion tasks.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "reader-lm:latest",
+      "size": "935MB",
+      "context": "250K",
+      "inputType": "Text"
+    },
+    {
+      "name": "reader-lm:0.5b",
+      "size": "352MB",
+      "context": "250K",
+      "inputType": "Text"
+    },
+    {
+      "name": "reader-lm:1.5b",
+      "size": "935MB",
+      "context": "250K",
+      "inputType": "Text"
+    }
+  ]
+}

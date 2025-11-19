@@ -1,0 +1,26 @@
+{
+  "model": "orca2",
+  "url": "https://ollama.com/library/orca2",
+  "description": "Orca 2 is built by Microsoft research, and are a fine-tuned version of Meta's Llama 2 models.  The model is designed to excel particularly in reasoning.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "orca2:latest",
+      "size": "3.8GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "orca2:7b",
+      "size": "3.8GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "orca2:13b",
+      "size": "7.4GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

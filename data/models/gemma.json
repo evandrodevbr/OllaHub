@@ -1,0 +1,26 @@
+{
+  "model": "gemma",
+  "url": "https://ollama.com/library/gemma",
+  "description": "Gemma is a family of lightweight, state-of-the-art open models built by Google DeepMind. Updated to version 1.1",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "gemma:latest",
+      "size": "5.0GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "gemma:2b",
+      "size": "1.7GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "gemma:7b",
+      "size": "5.0GB",
+      "context": "8K",
+      "inputType": "Text"
+    }
+  ]
+}

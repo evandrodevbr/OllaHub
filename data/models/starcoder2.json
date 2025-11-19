@@ -1,0 +1,32 @@
+{
+  "model": "starcoder2",
+  "url": "https://ollama.com/library/starcoder2",
+  "description": "StarCoder2 is the next generation of transparently trained open code LLMs that comes in three sizes: 3B, 7B and 15B parameters. ",
+  "variantsCount": 4,
+  "variants": [
+    {
+      "name": "starcoder2:latest",
+      "size": "1.7GB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "starcoder2:3b",
+      "size": "1.7GB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "starcoder2:7b",
+      "size": "4.0GB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "starcoder2:15b",
+      "size": "9.1GB",
+      "context": "16K",
+      "inputType": "Text"
+    }
+  ]
+}

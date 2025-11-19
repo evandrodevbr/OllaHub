@@ -1,0 +1,14 @@
+{
+  "model": "gemini-3-pro-preview",
+  "url": "https://ollama.com/library/gemini-3-pro-preview",
+  "description": "Google's most intelligent model with SOTA reasoning and multimodal understanding, and powerful agentic and vibe coding capabilities.",
+  "variantsCount": 1,
+  "variants": [
+    {
+      "name": "gemini-3-pro-preview:latest",
+      "size": "-",
+      "context": "1M",
+      "inputType": "Text"
+    }
+  ]
+}

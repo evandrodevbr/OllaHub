@@ -1,0 +1,32 @@
+{
+  "model": "deepseek-coder",
+  "url": "https://ollama.com/library/deepseek-coder",
+  "description": "DeepSeek Coder is a capable coding model trained on two trillion code and natural language tokens.",
+  "variantsCount": 4,
+  "variants": [
+    {
+      "name": "deepseek-coder:latest",
+      "size": "776MB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "deepseek-coder:1.3b",
+      "size": "776MB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "deepseek-coder:6.7b",
+      "size": "3.8GB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "deepseek-coder:33b",
+      "size": "19GB",
+      "context": "16K",
+      "inputType": "Text"
+    }
+  ]
+}

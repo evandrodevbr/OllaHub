@@ -1,0 +1,20 @@
+{
+  "model": "nemotron-mini",
+  "url": "https://ollama.com/library/nemotron-mini",
+  "description": "A commercial-friendly small language model by NVIDIA optimized for roleplay, RAG QA, and function calling.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "nemotron-mini:latest",
+      "size": "2.7GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "nemotron-mini:4b",
+      "size": "2.7GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

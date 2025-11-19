@@ -1,0 +1,20 @@
+{
+  "model": "duckdb-nsql",
+  "url": "https://ollama.com/library/duckdb-nsql",
+  "description": "7B parameter text-to-SQL model made by MotherDuck and Numbers Station.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "duckdb-nsql:latest",
+      "size": "3.8GB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "duckdb-nsql:7b",
+      "size": "3.8GB",
+      "context": "16K",
+      "inputType": "Text"
+    }
+  ]
+}

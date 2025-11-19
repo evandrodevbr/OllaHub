@@ -1,0 +1,20 @@
+{
+  "model": "wizardlm-uncensored",
+  "url": "https://ollama.com/library/wizardlm-uncensored",
+  "description": "Uncensored version of Wizard LM model ",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "wizardlm-uncensored:latest",
+      "size": "7.4GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm-uncensored:13b",
+      "size": "7.4GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

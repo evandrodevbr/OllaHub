@@ -1,0 +1,26 @@
+{
+  "model": "deepseek-v2",
+  "url": "https://ollama.com/library/deepseek-v2",
+  "description": "A strong, economical, and efficient Mixture-of-Experts language model.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "deepseek-v2:latest",
+      "size": "8.9GB",
+      "context": "160K",
+      "inputType": "Text"
+    },
+    {
+      "name": "deepseek-v2:16b",
+      "size": "8.9GB",
+      "context": "160K",
+      "inputType": "Text"
+    },
+    {
+      "name": "deepseek-v2:236b",
+      "size": "133GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

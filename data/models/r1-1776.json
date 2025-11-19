@@ -1,0 +1,26 @@
+{
+  "model": "r1-1776",
+  "url": "https://ollama.com/library/r1-1776",
+  "description": "A version of the DeepSeek-R1 model that has been post trained to provide unbiased, accurate, and factual information by Perplexity. ",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "r1-1776:latest",
+      "size": "43GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "r1-1776:70b",
+      "size": "43GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "r1-1776:671b",
+      "size": "404GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

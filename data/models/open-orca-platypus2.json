@@ -1,0 +1,20 @@
+{
+  "model": "open-orca-platypus2",
+  "url": "https://ollama.com/library/open-orca-platypus2",
+  "description": "Merge of the Open Orca OpenChat model and the Garage-bAInd Platypus 2 model. Designed for chat and code generation.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "open-orca-platypus2:latest",
+      "size": "7.4GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "open-orca-platypus2:13b",
+      "size": "7.4GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

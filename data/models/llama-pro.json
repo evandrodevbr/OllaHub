@@ -1,0 +1,206 @@
+{
+  "model": "llama-pro",
+  "url": "https://ollama.com/library/llama-pro",
+  "description": "An expansion of Llama 2 that specializes in integrating both general language understanding and domain-specific knowledge, particularly in programming and mathematics.",
+  "variantsCount": 33,
+  "variants": [
+    {
+      "name": "llama-pro:latest",
+      "size": "4.7GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:instruct",
+      "size": "4.7GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:text",
+      "size": "4.7GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-instruct-q2_K",
+      "size": "3.5GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-instruct-q3_K_S",
+      "size": "3.6GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-instruct-q3_K_M",
+      "size": "4.1GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-instruct-q3_K_L",
+      "size": "4.5GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-instruct-q4_0",
+      "size": "4.7GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-instruct-q4_1",
+      "size": "5.3GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-instruct-q4_K_S",
+      "size": "4.8GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-instruct-q4_K_M",
+      "size": "5.1GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-instruct-q5_0",
+      "size": "5.8GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-instruct-q5_1",
+      "size": "6.3GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-instruct-q5_K_S",
+      "size": "5.8GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-instruct-q5_K_M",
+      "size": "5.9GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-instruct-q6_K",
+      "size": "6.9GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-instruct-q8_0",
+      "size": "8.9GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-instruct-fp16",
+      "size": "17GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-text-q2_K",
+      "size": "3.5GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-text-q3_K_S",
+      "size": "3.6GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-text-q3_K_M",
+      "size": "4.1GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-text-q3_K_L",
+      "size": "4.5GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-text-q4_0",
+      "size": "4.7GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-text-q4_1",
+      "size": "5.3GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-text-q4_K_S",
+      "size": "4.8GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-text-q4_K_M",
+      "size": "5.1GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-text-q5_0",
+      "size": "5.8GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-text-q5_1",
+      "size": "6.3GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-text-q5_K_S",
+      "size": "5.8GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-text-q5_K_M",
+      "size": "5.9GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-text-q6_K",
+      "size": "6.9GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-text-q8_0",
+      "size": "8.9GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-pro:8b-text-fp16",
+      "size": "17GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

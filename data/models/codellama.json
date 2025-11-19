@@ -1,0 +1,38 @@
+{
+  "model": "codellama",
+  "url": "https://ollama.com/library/codellama",
+  "description": "A large language model that can use text prompts to generate and discuss code.",
+  "variantsCount": 5,
+  "variants": [
+    {
+      "name": "codellama:latest",
+      "size": "3.8GB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "codellama:7b",
+      "size": "3.8GB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "codellama:13b",
+      "size": "7.4GB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "codellama:34b",
+      "size": "19GB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "codellama:70b",
+      "size": "39GB",
+      "context": "2K",
+      "inputType": "Text"
+    }
+  ]
+}

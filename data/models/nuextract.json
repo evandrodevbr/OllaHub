@@ -1,0 +1,20 @@
+{
+  "model": "nuextract",
+  "url": "https://ollama.com/library/nuextract",
+  "description": "A 3.8B model fine-tuned on a private high-quality synthetic dataset for information extraction, based on Phi-3.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "nuextract:latest",
+      "size": "2.2GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "nuextract:3.8b",
+      "size": "2.2GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

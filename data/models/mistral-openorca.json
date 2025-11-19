@@ -1,0 +1,20 @@
+{
+  "model": "mistral-openorca",
+  "url": "https://ollama.com/library/mistral-openorca",
+  "description": "Mistral OpenOrca is a 7 billion parameter model, fine-tuned on top of the Mistral 7B model using the OpenOrca dataset.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "mistral-openorca:latest",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "mistral-openorca:7b",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

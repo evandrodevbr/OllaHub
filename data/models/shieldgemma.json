@@ -1,0 +1,32 @@
+{
+  "model": "shieldgemma",
+  "url": "https://ollama.com/library/shieldgemma",
+  "description": "ShieldGemma is set of instruction tuned models for evaluating the safety of text prompt input and text output responses against a set of defined safety policies.",
+  "variantsCount": 4,
+  "variants": [
+    {
+      "name": "shieldgemma:latest",
+      "size": "5.8GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "shieldgemma:2b",
+      "size": "1.7GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "shieldgemma:9b",
+      "size": "5.8GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "shieldgemma:27b",
+      "size": "17GB",
+      "context": "8K",
+      "inputType": "Text"
+    }
+  ]
+}

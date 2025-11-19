@@ -1,0 +1,20 @@
+{
+  "model": "codebooga",
+  "url": "https://ollama.com/library/codebooga",
+  "description": "A high-performing code instruct model created by merging two existing code models.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "codebooga:latest",
+      "size": "19GB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "codebooga:34b",
+      "size": "19GB",
+      "context": "16K",
+      "inputType": "Text"
+    }
+  ]
+}

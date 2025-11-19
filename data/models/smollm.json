@@ -1,0 +1,32 @@
+{
+  "model": "smollm",
+  "url": "https://ollama.com/library/smollm",
+  "description": "🪐 A family of small models with 135M, 360M, and 1.7B parameters, trained on a new high-quality dataset.",
+  "variantsCount": 4,
+  "variants": [
+    {
+      "name": "smollm:latest",
+      "size": "991MB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "smollm:135m",
+      "size": "92MB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "smollm:360m",
+      "size": "229MB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "smollm:1.7b",
+      "size": "991MB",
+      "context": "2K",
+      "inputType": "Text"
+    }
+  ]
+}

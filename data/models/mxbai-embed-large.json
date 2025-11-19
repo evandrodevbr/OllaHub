@@ -1,0 +1,20 @@
+{
+  "model": "mxbai-embed-large",
+  "url": "https://ollama.com/library/mxbai-embed-large",
+  "description": "State-of-the-art large embedding model from mixedbread.ai",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "mxbai-embed-large:latest",
+      "size": "670MB",
+      "context": "512",
+      "inputType": "Text"
+    },
+    {
+      "name": "mxbai-embed-large:335m",
+      "size": "670MB",
+      "context": "512",
+      "inputType": "Text"
+    }
+  ]
+}

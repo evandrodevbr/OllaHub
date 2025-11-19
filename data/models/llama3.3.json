@@ -1,0 +1,20 @@
+{
+  "model": "llama3.3",
+  "url": "https://ollama.com/library/llama3.3",
+  "description": "New state of the art 70B model. Llama 3.3 70B offers similar performance compared to the Llama 3.1 405B model.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "llama3.3:latest",
+      "size": "43GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama3.3:70b",
+      "size": "43GB",
+      "context": "128K",
+      "inputType": "Text"
+    }
+  ]
+}

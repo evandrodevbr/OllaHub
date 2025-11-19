@@ -1,0 +1,20 @@
+{
+  "model": "command-a",
+  "url": "https://ollama.com/library/command-a",
+  "description": "111 billion parameter model optimized for demanding enterprises that require fast, secure, and high-quality AI",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "command-a:latest",
+      "size": "67GB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "command-a:111b",
+      "size": "67GB",
+      "context": "16K",
+      "inputType": "Text"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "model": "codegemma",
+  "url": "https://ollama.com/library/codegemma",
+  "description": "CodeGemma is a collection of powerful, lightweight models that can perform a variety of coding tasks like fill-in-the-middle code completion, code generation, natural language understanding, mathematical reasoning, and instruction following.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "codegemma:latest",
+      "size": "5.0GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "codegemma:2b",
+      "size": "1.6GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "codegemma:7b",
+      "size": "5.0GB",
+      "context": "8K",
+      "inputType": "Text"
+    }
+  ]
+}

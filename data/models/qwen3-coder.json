@@ -1,0 +1,32 @@
+{
+  "model": "qwen3-coder",
+  "url": "https://ollama.com/library/qwen3-coder",
+  "description": "Alibaba's performant long context models for agentic and coding tasks.",
+  "variantsCount": 4,
+  "variants": [
+    {
+      "name": "qwen3-coder:latest",
+      "size": "19GB",
+      "context": "256K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen3-coder:30b",
+      "size": "19GB",
+      "context": "256K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen3-coder:480b",
+      "size": "290GB",
+      "context": "256K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen3-coder:480b-cloud",
+      "size": "-",
+      "context": "256K",
+      "inputType": "Text"
+    }
+  ]
+}

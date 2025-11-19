@@ -1,0 +1,38 @@
+{
+  "model": "hermes3",
+  "url": "https://ollama.com/library/hermes3",
+  "description": "Hermes 3 is the latest version of the flagship Hermes series of LLMs by Nous Research",
+  "variantsCount": 5,
+  "variants": [
+    {
+      "name": "hermes3:latest",
+      "size": "4.7GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "hermes3:3b",
+      "size": "2.0GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "hermes3:8b",
+      "size": "4.7GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "hermes3:70b",
+      "size": "40GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "hermes3:405b",
+      "size": "229GB",
+      "context": "128K",
+      "inputType": "Text"
+    }
+  ]
+}

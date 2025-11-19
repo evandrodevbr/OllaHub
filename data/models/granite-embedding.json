@@ -1,0 +1,26 @@
+{
+  "model": "granite-embedding",
+  "url": "https://ollama.com/library/granite-embedding",
+  "description": "The IBM Granite Embedding 30M and 278M models models are text-only dense biencoder embedding models, with 30M available in English only and 278M serving multilingual use cases.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "granite-embedding:latest",
+      "size": "63MB",
+      "context": "512",
+      "inputType": "Text"
+    },
+    {
+      "name": "granite-embedding:30m",
+      "size": "63MB",
+      "context": "512",
+      "inputType": "Text"
+    },
+    {
+      "name": "granite-embedding:278m",
+      "size": "563MB",
+      "context": "512",
+      "inputType": "Text"
+    }
+  ]
+}

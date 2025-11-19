@@ -1,0 +1,26 @@
+{
+  "model": "deepseek-coder-v2",
+  "url": "https://ollama.com/library/deepseek-coder-v2",
+  "description": "An open-source Mixture-of-Experts code language model that achieves performance comparable to GPT4-Turbo in code-specific tasks.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "deepseek-coder-v2:latest",
+      "size": "8.9GB",
+      "context": "160K",
+      "inputType": "Text"
+    },
+    {
+      "name": "deepseek-coder-v2:16b",
+      "size": "8.9GB",
+      "context": "160K",
+      "inputType": "Text"
+    },
+    {
+      "name": "deepseek-coder-v2:236b",
+      "size": "133GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

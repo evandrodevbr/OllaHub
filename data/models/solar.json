@@ -1,0 +1,20 @@
+{
+  "model": "solar",
+  "url": "https://ollama.com/library/solar",
+  "description": "A compact, yet powerful 10.7B large language model designed for single-turn conversation.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "solar:latest",
+      "size": "6.1GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "solar:10.7b",
+      "size": "6.1GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

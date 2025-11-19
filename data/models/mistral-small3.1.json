@@ -1,0 +1,20 @@
+{
+  "model": "mistral-small3.1",
+  "url": "https://ollama.com/library/mistral-small3.1",
+  "description": "Building upon Mistral Small 3, Mistral Small 3.1 (2503) adds state-of-the-art vision understanding and enhances long context capabilities up to 128k tokens without compromising text performance.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "mistral-small3.1:latest",
+      "size": "15GB",
+      "context": "128K",
+      "inputType": "Text, Image"
+    },
+    {
+      "name": "mistral-small3.1:24b",
+      "size": "15GB",
+      "context": "128K",
+      "inputType": "Text, Image"
+    }
+  ]
+}

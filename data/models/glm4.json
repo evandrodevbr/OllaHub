@@ -1,0 +1,20 @@
+{
+  "model": "glm4",
+  "url": "https://ollama.com/library/glm4",
+  "description": "A strong multi-lingual general language model with competitive performance to Llama 3.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "glm4:latest",
+      "size": "5.5GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "glm4:9b",
+      "size": "5.5GB",
+      "context": "128K",
+      "inputType": "Text"
+    }
+  ]
+}

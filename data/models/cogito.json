@@ -1,0 +1,44 @@
+{
+  "model": "cogito",
+  "url": "https://ollama.com/library/cogito",
+  "description": "Cogito v1 Preview is a family of hybrid reasoning models by Deep Cogito that outperform the best available open models of the same size, including counterparts from LLaMA, DeepSeek, and Qwen across most standard benchmarks.",
+  "variantsCount": 6,
+  "variants": [
+    {
+      "name": "cogito:latest",
+      "size": "4.9GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "cogito:3b",
+      "size": "2.2GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "cogito:8b",
+      "size": "4.9GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "cogito:14b",
+      "size": "9.0GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "cogito:32b",
+      "size": "20GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "cogito:70b",
+      "size": "43GB",
+      "context": "128K",
+      "inputType": "Text"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "model": "phi4-mini-reasoning",
+  "url": "https://ollama.com/library/phi4-mini-reasoning",
+  "description": "Phi 4 mini reasoning is a lightweight open model that balances efficiency with advanced reasoning ability.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "phi4-mini-reasoning:latest",
+      "size": "3.2GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "phi4-mini-reasoning:3.8b",
+      "size": "3.2GB",
+      "context": "128K",
+      "inputType": "Text"
+    }
+  ]
+}

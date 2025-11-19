@@ -1,0 +1,32 @@
+{
+  "model": "granite4",
+  "url": "https://ollama.com/library/granite4",
+  "description": "Granite 4 features improved instruction following (IF) and tool-calling capabilities, making them more effective in enterprise applications.",
+  "variantsCount": 4,
+  "variants": [
+    {
+      "name": "granite4:latest",
+      "size": "2.1GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "granite4:350m",
+      "size": "708MB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "granite4:1b",
+      "size": "3.3GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "granite4:3b",
+      "size": "2.1GB",
+      "context": "128K",
+      "inputType": "Text"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "model": "llava-phi3",
+  "url": "https://ollama.com/library/llava-phi3",
+  "description": "A new small LLaVA model fine-tuned from Phi 3 Mini.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "llava-phi3:latest",
+      "size": "2.9GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llava-phi3:3.8b",
+      "size": "2.9GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

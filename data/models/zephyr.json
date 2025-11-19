@@ -1,0 +1,26 @@
+{
+  "model": "zephyr",
+  "url": "https://ollama.com/library/zephyr",
+  "description": "Zephyr is a series of fine-tuned versions of the Mistral and Mixtral models that are trained to act as helpful assistants.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "zephyr:latest",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "zephyr:7b",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "zephyr:141b",
+      "size": "80GB",
+      "context": "64K",
+      "inputType": "Text"
+    }
+  ]
+}

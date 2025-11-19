@@ -1,0 +1,26 @@
+{
+  "model": "dolphin-llama3",
+  "url": "https://ollama.com/library/dolphin-llama3",
+  "description": "Dolphin 2.9 is a new model with 8B and 70B sizes by Eric Hartford based on Llama 3 that has a variety of instruction, conversational, and coding skills.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "dolphin-llama3:latest",
+      "size": "4.7GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "dolphin-llama3:8b",
+      "size": "4.7GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "dolphin-llama3:70b",
+      "size": "40GB",
+      "context": "8K",
+      "inputType": "Text"
+    }
+  ]
+}

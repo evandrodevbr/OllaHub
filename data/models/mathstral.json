@@ -1,0 +1,20 @@
+{
+  "model": "mathstral",
+  "url": "https://ollama.com/library/mathstral",
+  "description": "MathΣtral: a 7B model designed for math reasoning and scientific discovery by Mistral AI.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "mathstral:latest",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "mathstral:7b",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

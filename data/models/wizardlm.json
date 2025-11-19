@@ -1,0 +1,446 @@
+{
+  "model": "wizardlm",
+  "url": "https://ollama.com/library/wizardlm",
+  "description": "General use model based on Llama 2.",
+  "variantsCount": 73,
+  "variants": [
+    {
+      "name": "wizardlm:7b-q2_K",
+      "size": "2.8GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:7b-q3_K_S",
+      "size": "2.9GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:7b-q3_K_M",
+      "size": "3.3GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:7b-q3_K_L",
+      "size": "3.6GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:7b-q4_0",
+      "size": "3.8GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:7b-q4_1",
+      "size": "4.2GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:7b-q4_K_S",
+      "size": "3.9GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:7b-q4_K_M",
+      "size": "4.1GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:7b-q5_0",
+      "size": "4.7GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:7b-q5_1",
+      "size": "5.1GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:7b-q5_K_S",
+      "size": "4.7GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:7b-q5_K_M",
+      "size": "4.8GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:7b-q6_K",
+      "size": "5.5GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:7b-q8_0",
+      "size": "7.2GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:7b-fp16",
+      "size": "13GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-llama2-q2_K",
+      "size": "5.4GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-llama2-q3_K_S",
+      "size": "5.7GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-llama2-q3_K_M",
+      "size": "6.3GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-llama2-q3_K_L",
+      "size": "6.9GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-llama2-q4_0",
+      "size": "7.4GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-llama2-q4_1",
+      "size": "8.2GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-llama2-q4_K_S",
+      "size": "7.4GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-llama2-q4_K_M",
+      "size": "7.9GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-llama2-q5_0",
+      "size": "9.0GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-llama2-q5_1",
+      "size": "9.8GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-llama2-q5_K_S",
+      "size": "9.0GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-llama2-q5_K_M",
+      "size": "9.2GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-llama2-q6_K",
+      "size": "11GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-llama2-q8_0",
+      "size": "14GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-llama2-fp16",
+      "size": "26GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-q2_K",
+      "size": "5.4GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-q3_K_S",
+      "size": "5.7GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-q3_K_M",
+      "size": "6.3GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-q3_K_L",
+      "size": "6.9GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-q4_0",
+      "size": "7.4GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-q4_1",
+      "size": "8.2GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-q4_K_S",
+      "size": "7.4GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-q4_K_M",
+      "size": "7.9GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-q5_0",
+      "size": "9.0GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-q5_1",
+      "size": "9.8GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-q5_K_S",
+      "size": "9.0GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-q5_K_M",
+      "size": "9.2GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-q6_K",
+      "size": "11GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-q8_0",
+      "size": "14GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:13b-fp16",
+      "size": "26GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:30b-q2_K",
+      "size": "14GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:30b-q3_K_S",
+      "size": "14GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:30b-q3_K_M",
+      "size": "16GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:30b-q3_K_L",
+      "size": "17GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:30b-q4_0",
+      "size": "18GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:30b-q4_1",
+      "size": "20GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:30b-q4_K_S",
+      "size": "18GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:30b-q4_K_M",
+      "size": "20GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:30b-q5_0",
+      "size": "22GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:30b-q5_1",
+      "size": "24GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:30b-q5_K_S",
+      "size": "22GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:30b-q5_K_M",
+      "size": "23GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:30b-q6_K",
+      "size": "27GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:30b-q8_0",
+      "size": "35GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:30b-fp16",
+      "size": "65GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:70b-llama2-q2_K",
+      "size": "29GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:70b-llama2-q3_K_S",
+      "size": "30GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:70b-llama2-q3_K_M",
+      "size": "33GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:70b-llama2-q3_K_L",
+      "size": "36GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:70b-llama2-q4_0",
+      "size": "39GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:70b-llama2-q4_1",
+      "size": "43GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:70b-llama2-q4_K_S",
+      "size": "39GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:70b-llama2-q4_K_M",
+      "size": "41GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:70b-llama2-q5_0",
+      "size": "47GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:70b-llama2-q5_K_S",
+      "size": "47GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:70b-llama2-q5_K_M",
+      "size": "49GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:70b-llama2-q6_K",
+      "size": "57GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm:70b-llama2-q8_0",
+      "size": "73GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

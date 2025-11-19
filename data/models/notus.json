@@ -1,0 +1,20 @@
+{
+  "model": "notus",
+  "url": "https://ollama.com/library/notus",
+  "description": "A 7B chat model fine-tuned with high-quality data and based on Zephyr.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "notus:latest",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "notus:7b",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

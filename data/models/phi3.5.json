@@ -1,0 +1,20 @@
+{
+  "model": "phi3.5",
+  "url": "https://ollama.com/library/phi3.5",
+  "description": "A lightweight AI model with 3.8 billion parameters with performance overtaking similarly and larger sized models.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "phi3.5:latest",
+      "size": "2.2GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "phi3.5:3.8b",
+      "size": "2.2GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

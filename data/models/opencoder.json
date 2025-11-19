@@ -1,0 +1,26 @@
+{
+  "model": "opencoder",
+  "url": "https://ollama.com/library/opencoder",
+  "description": "OpenCoder is an open and reproducible code LLM family which includes 1.5B and 8B models, supporting chat in English and Chinese languages.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "opencoder:latest",
+      "size": "4.7GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "opencoder:1.5b",
+      "size": "1.4GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "opencoder:8b",
+      "size": "4.7GB",
+      "context": "8K",
+      "inputType": "Text"
+    }
+  ]
+}

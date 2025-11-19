@@ -1,0 +1,20 @@
+{
+  "model": "solar-pro",
+  "url": "https://ollama.com/library/solar-pro",
+  "description": "Solar Pro Preview: an advanced large language model (LLM) with 22 billion parameters designed to fit into a single GPU",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "solar-pro:latest",
+      "size": "13GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "solar-pro:22b",
+      "size": "13GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

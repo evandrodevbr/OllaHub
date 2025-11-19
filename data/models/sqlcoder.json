@@ -1,0 +1,26 @@
+{
+  "model": "sqlcoder",
+  "url": "https://ollama.com/library/sqlcoder",
+  "description": "SQLCoder is a code completion model fined-tuned on StarCoder for SQL generation tasks",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "sqlcoder:latest",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "sqlcoder:7b",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "sqlcoder:15b",
+      "size": "9.0GB",
+      "context": "8K",
+      "inputType": "Text"
+    }
+  ]
+}

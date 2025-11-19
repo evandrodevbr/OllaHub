@@ -1,0 +1,20 @@
+{
+  "model": "neural-chat",
+  "url": "https://ollama.com/library/neural-chat",
+  "description": "A fine-tuned model based on Mistral with good coverage of domain and language.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "neural-chat:latest",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "neural-chat:7b",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

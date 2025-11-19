@@ -1,0 +1,26 @@
+{
+  "model": "llama3-gradient",
+  "url": "https://ollama.com/library/llama3-gradient",
+  "description": "This model extends LLama-3 8B's context length from 8k to over 1m tokens.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "llama3-gradient:latest",
+      "size": "4.7GB",
+      "context": "1M",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama3-gradient:8b",
+      "size": "4.7GB",
+      "context": "1M",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama3-gradient:70b",
+      "size": "40GB",
+      "context": "1M",
+      "inputType": "Text"
+    }
+  ]
+}

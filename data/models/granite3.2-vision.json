@@ -1,0 +1,20 @@
+{
+  "model": "granite3.2-vision",
+  "url": "https://ollama.com/library/granite3.2-vision",
+  "description": "A compact and efficient vision-language model, specifically designed for visual document understanding, enabling automated content extraction from tables, charts, infographics, plots, diagrams, and more.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "granite3.2-vision:latest",
+      "size": "2.4GB",
+      "context": "16K",
+      "inputType": "Text, Image"
+    },
+    {
+      "name": "granite3.2-vision:2b",
+      "size": "2.4GB",
+      "context": "16K",
+      "inputType": "Text, Image"
+    }
+  ]
+}

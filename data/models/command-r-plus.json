@@ -1,0 +1,20 @@
+{
+  "model": "command-r-plus",
+  "url": "https://ollama.com/library/command-r-plus",
+  "description": "Command R+ is a powerful, scalable large language model purpose-built to excel at real-world enterprise use cases.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "command-r-plus:latest",
+      "size": "59GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "command-r-plus:104b",
+      "size": "59GB",
+      "context": "128K",
+      "inputType": "Text"
+    }
+  ]
+}

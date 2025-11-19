@@ -1,0 +1,26 @@
+{
+  "model": "mixtral",
+  "url": "https://ollama.com/library/mixtral",
+  "description": "A set of Mixture of Experts (MoE) model with open weights by Mistral AI in 8x7b and 8x22b parameter sizes.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "mixtral:latest",
+      "size": "26GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "mixtral:8x7b",
+      "size": "26GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "mixtral:8x22b",
+      "size": "80GB",
+      "context": "64K",
+      "inputType": "Text"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "model": "dolphincoder",
+  "url": "https://ollama.com/library/dolphincoder",
+  "description": "A 7B and 15B uncensored variant of the Dolphin model family that excels at coding, based on StarCoder2.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "dolphincoder:latest",
+      "size": "4.2GB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "dolphincoder:7b",
+      "size": "4.2GB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "dolphincoder:15b",
+      "size": "9.1GB",
+      "context": "16K",
+      "inputType": "Text"
+    }
+  ]
+}

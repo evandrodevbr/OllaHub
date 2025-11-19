@@ -1,0 +1,32 @@
+{
+  "model": "llama3.1",
+  "url": "https://ollama.com/library/llama3.1",
+  "description": "Llama 3.1 is a new state-of-the-art model from Meta available in 8B, 70B and 405B parameter sizes.",
+  "variantsCount": 4,
+  "variants": [
+    {
+      "name": "llama3.1:latest",
+      "size": "4.9GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama3.1:8b",
+      "size": "4.9GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama3.1:70b",
+      "size": "43GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama3.1:405b",
+      "size": "243GB",
+      "context": "128K",
+      "inputType": "Text"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "model": "llava-llama3",
+  "url": "https://ollama.com/library/llava-llama3",
+  "description": "A LLaVA model fine-tuned from Llama 3 Instruct with better scores in several benchmarks.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "llava-llama3:latest",
+      "size": "5.5GB",
+      "context": "8K",
+      "inputType": "Text, Image"
+    },
+    {
+      "name": "llava-llama3:8b",
+      "size": "5.5GB",
+      "context": "8K",
+      "inputType": "Text, Image"
+    }
+  ]
+}

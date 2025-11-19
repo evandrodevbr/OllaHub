@@ -1,0 +1,32 @@
+{
+  "model": "exaone3.5",
+  "url": "https://ollama.com/library/exaone3.5",
+  "description": "EXAONE 3.5 is a collection of instruction-tuned bilingual (English and Korean) generative models ranging from 2.4B to 32B parameters, developed and released by LG AI Research. ",
+  "variantsCount": 4,
+  "variants": [
+    {
+      "name": "exaone3.5:latest",
+      "size": "4.8GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "exaone3.5:2.4b",
+      "size": "1.6GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "exaone3.5:7.8b",
+      "size": "4.8GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "exaone3.5:32b",
+      "size": "19GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

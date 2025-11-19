@@ -1,0 +1,20 @@
+{
+  "model": "notux",
+  "url": "https://ollama.com/library/notux",
+  "description": "A top-performing mixture of experts model, fine-tuned with high-quality data.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "notux:latest",
+      "size": "26GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "notux:8x7b",
+      "size": "26GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

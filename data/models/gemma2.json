@@ -1,0 +1,32 @@
+{
+  "model": "gemma2",
+  "url": "https://ollama.com/library/gemma2",
+  "description": "Google Gemma 2 is a high-performing and efficient model available in three sizes: 2B, 9B, and 27B.",
+  "variantsCount": 4,
+  "variants": [
+    {
+      "name": "gemma2:latest",
+      "size": "5.4GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "gemma2:2b",
+      "size": "1.6GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "gemma2:9b",
+      "size": "5.4GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "gemma2:27b",
+      "size": "16GB",
+      "context": "8K",
+      "inputType": "Text"
+    }
+  ]
+}

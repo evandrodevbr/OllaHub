@@ -1,0 +1,20 @@
+{
+  "model": "dolphin3",
+  "url": "https://ollama.com/library/dolphin3",
+  "description": "Dolphin 3.0 Llama 3.1 8B 🐬 is the next generation of the Dolphin series of instruct-tuned models designed to be the ultimate general purpose local model, enabling coding, math, agentic, function calling, and general use cases.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "dolphin3:latest",
+      "size": "4.9GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "dolphin3:8b",
+      "size": "4.9GB",
+      "context": "128K",
+      "inputType": "Text"
+    }
+  ]
+}

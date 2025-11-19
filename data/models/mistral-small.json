@@ -1,0 +1,26 @@
+{
+  "model": "mistral-small",
+  "url": "https://ollama.com/library/mistral-small",
+  "description": "Mistral Small 3 sets a new benchmark in the “small” Large Language Models category below 70B.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "mistral-small:latest",
+      "size": "14GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "mistral-small:22b",
+      "size": "13GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "mistral-small:24b",
+      "size": "14GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "model": "deepseek-v3",
+  "url": "https://ollama.com/library/deepseek-v3",
+  "description": "A strong Mixture-of-Experts (MoE) language model with 671B total parameters with 37B activated for each token.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "deepseek-v3:latest",
+      "size": "404GB",
+      "context": "160K",
+      "inputType": "Text"
+    },
+    {
+      "name": "deepseek-v3:671b",
+      "size": "404GB",
+      "context": "160K",
+      "inputType": "Text"
+    }
+  ]
+}

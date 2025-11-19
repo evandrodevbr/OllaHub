@@ -1,0 +1,26 @@
+{
+  "model": "llama-guard3",
+  "url": "https://ollama.com/library/llama-guard3",
+  "description": "Llama Guard 3 is a series of models fine-tuned for content safety classification of LLM inputs and responses.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "llama-guard3:latest",
+      "size": "4.9GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-guard3:1b",
+      "size": "1.6GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "llama-guard3:8b",
+      "size": "4.9GB",
+      "context": "128K",
+      "inputType": "Text"
+    }
+  ]
+}
