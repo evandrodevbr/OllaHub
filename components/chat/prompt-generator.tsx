@@ -15,28 +15,46 @@ interface PromptGeneratorDialogProps {
 export function PromptGeneratorDialog({ defaultModel, onPromptGenerated }: PromptGeneratorDialogProps) {
   const [open, setOpen] = useState(false);
   const [goal, setGoal] = useState("");
-  const [selectedModel, setSelectedModel] = useState(defaultModel);
+  const [selectedModel, setSelectedModel] = useState(defaultModel || "");
   const { generatePrompt, isGenerating } = usePromptGenerator();
-  const { models } = useLocalModels();
+  const { models, loading } = useLocalModels();
 
   // Set default model when dialog opens or defaultModel changes
   useEffect(() => {
-    if (defaultModel) {
+    if (defaultModel && defaultModel.trim()) {
       setSelectedModel(defaultModel);
     }
   }, [defaultModel]);
 
-  // Try to set specific default if available, otherwise fallback
+  // Try to set specific default if available and no model is selected
   useEffect(() => {
+    if (loading || models.length === 0) return;
+    
+    // Se já tem um modelo selecionado e válido, não alterar
+    if (selectedModel && models.some(m => m.name === selectedModel)) return;
+    
+    // Primeiro, tenta usar o defaultModel se for válido
+    if (defaultModel && defaultModel.trim() && models.some(m => m.name === defaultModel)) {
+      setSelectedModel(defaultModel);
+      return;
+    }
+    
+    // Fallback para modelo preferido
     const preferredModel = "llama3.2-abliterate:3b";
     const hasPreferred = models.some(m => m.name === preferredModel);
-    if (hasPreferred && !selectedModel) {
+    if (hasPreferred && !selectedModel.trim()) {
       setSelectedModel(preferredModel);
+      return;
     }
-  }, [models, selectedModel]);
+    
+    // Se nenhum modelo está selecionado, seleciona o primeiro disponível
+    if (!selectedModel.trim() && models.length > 0) {
+      setSelectedModel(models[0].name);
+    }
+  }, [models, loading, defaultModel, selectedModel]);
 
   const handleGenerate = async () => {
-    if (!goal.trim() || !selectedModel) return;
+    if (!goal.trim() || !selectedModel.trim()) return;
     
     try {
       const prompt = await generatePrompt(goal, selectedModel);
@@ -44,8 +62,14 @@ export function PromptGeneratorDialog({ defaultModel, onPromptGenerated }: Promp
       setOpen(false);
       setGoal("");
     } catch (error) {
-      // Error handling usually done in hook or global toast
+      console.error("Erro ao gerar prompt:", error);
+      // TODO: Implementar toast de erro quando disponível
     }
+  };
+
+  const handleCancel = () => {
+    setOpen(false);
+    setGoal("");
   };
 
   return (
@@ -65,15 +89,31 @@ export function PromptGeneratorDialog({ defaultModel, onPromptGenerated }: Promp
         
         <div className="space-y-4 py-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium">Modelo para Geração</label>
-            <Select value={selectedModel} onValueChange={setSelectedModel}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione um modelo..." />
+            <label htmlFor="model-select" className="text-sm font-medium">
+              Modelo para Geração
+            </label>
+            <Select 
+              value={selectedModel || undefined} 
+              onValueChange={setSelectedModel}
+              disabled={loading || models.length === 0}
+            >
+              <SelectTrigger id="model-select">
+                <SelectValue placeholder={
+                  loading 
+                    ? "Carregando modelos..." 
+                    : models.length === 0 
+                      ? "Nenhum modelo disponível" 
+                      : "Selecione um modelo..."
+                } />
               </SelectTrigger>
               <SelectContent>
-                {models.map(m => (
-                  <SelectItem key={m.name} value={m.name}>{m.name}</SelectItem>
-                ))}
+                {models.length === 0 ? (
+                  <SelectItem value="" disabled>Nenhum modelo disponível</SelectItem>
+                ) : (
+                  models.map(m => (
+                    <SelectItem key={m.name} value={m.name}>{m.name}</SelectItem>
+                  ))
+                )}
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
@@ -82,19 +122,28 @@ export function PromptGeneratorDialog({ defaultModel, onPromptGenerated }: Promp
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium">Seu Objetivo</label>
+            <label htmlFor="goal-textarea" className="text-sm font-medium">
+              Seu Objetivo
+            </label>
             <Textarea
+              id="goal-textarea"
               value={goal}
               onChange={(e) => setGoal(e.target.value)}
               placeholder="Ex: Quero um assistente especialista em Python que explique conceitos complexos de forma simples..."
               className="min-h-[150px]"
+              disabled={isGenerating}
             />
           </div>
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
-          <Button onClick={handleGenerate} disabled={isGenerating || !goal.trim() || !selectedModel}>
+          <Button variant="ghost" onClick={handleCancel} disabled={isGenerating}>
+            Cancelar
+          </Button>
+          <Button 
+            onClick={handleGenerate} 
+            disabled={isGenerating || !goal.trim() || !selectedModel.trim() || models.length === 0}
+          >
             {isGenerating ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

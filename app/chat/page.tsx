@@ -15,6 +15,8 @@ import { useLocalModels } from "@/hooks/use-local-models";
 import { useState, useEffect, useRef } from "react";
 import { useTheme } from "next-themes";
 import { ImperativePanelHandle } from "react-resizable-panels";
+// @ts-ignore
+import defaultFormatPrompt from "@/data/prompts/default-format.md";
 
 export default function ChatPage() {
   const { messages, sendMessage, isLoading, stop } = useChat();
@@ -22,7 +24,8 @@ export default function ChatPage() {
   const { theme, setTheme } = useTheme();
   
   const [selectedModel, setSelectedModel] = useState("");
-  const [systemPrompt, setSystemPrompt] = useState("Você é um assistente útil e prestativo.");
+  // Initialize with default format prompt
+  const [systemPrompt, setSystemPrompt] = useState(defaultFormatPrompt || "Você é um assistente útil e prestativo.");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   
   const sidebarRef = useRef<ImperativePanelHandle>(null);
