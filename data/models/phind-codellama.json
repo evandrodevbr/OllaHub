@@ -1,0 +1,20 @@
+{
+  "model": "phind-codellama",
+  "url": "https://ollama.com/library/phind-codellama",
+  "description": "Code generation model based on Code Llama.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "phind-codellama:latest",
+      "size": "19GB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "phind-codellama:34b",
+      "size": "19GB",
+      "context": "16K",
+      "inputType": "Text"
+    }
+  ]
+}

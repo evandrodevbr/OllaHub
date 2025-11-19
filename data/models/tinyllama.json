@@ -1,0 +1,20 @@
+{
+  "model": "tinyllama",
+  "url": "https://ollama.com/library/tinyllama",
+  "description": "The TinyLlama project is an open endeavor to train a compact 1.1B Llama model on 3 trillion tokens.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "tinyllama:latest",
+      "size": "638MB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "tinyllama:1.1b",
+      "size": "638MB",
+      "context": "2K",
+      "inputType": "Text"
+    }
+  ]
+}

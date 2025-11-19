@@ -1,0 +1,38 @@
+{
+  "model": "internlm2",
+  "url": "https://ollama.com/library/internlm2",
+  "description": "InternLM2.5 is a 7B parameter model tailored for practical scenarios with outstanding reasoning capability.",
+  "variantsCount": 5,
+  "variants": [
+    {
+      "name": "internlm2:latest",
+      "size": "4.5GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "internlm2:1m",
+      "size": "4.5GB",
+      "context": "256K",
+      "inputType": "Text"
+    },
+    {
+      "name": "internlm2:1.8b",
+      "size": "1.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "internlm2:7b",
+      "size": "4.5GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "internlm2:20b",
+      "size": "11GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

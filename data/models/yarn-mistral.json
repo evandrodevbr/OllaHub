@@ -1,0 +1,20 @@
+{
+  "model": "yarn-mistral",
+  "url": "https://ollama.com/library/yarn-mistral",
+  "description": "An extension of Mistral to support context windows of 64K or 128K.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "yarn-mistral:latest",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "yarn-mistral:7b",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

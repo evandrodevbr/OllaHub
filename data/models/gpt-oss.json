@@ -1,0 +1,38 @@
+{
+  "model": "gpt-oss",
+  "url": "https://ollama.com/library/gpt-oss",
+  "description": "OpenAI’s open-weight models designed for powerful reasoning, agentic tasks, and versatile developer use cases.",
+  "variantsCount": 5,
+  "variants": [
+    {
+      "name": "gpt-oss:latest",
+      "size": "14GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "gpt-oss:20b",
+      "size": "14GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "gpt-oss:120b",
+      "size": "65GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "gpt-oss:20b-cloud",
+      "size": "-",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "gpt-oss:120b-cloud",
+      "size": "-",
+      "context": "128K",
+      "inputType": "Text"
+    }
+  ]
+}

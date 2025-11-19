@@ -1,0 +1,56 @@
+{
+  "model": "deepseek-r1",
+  "url": "https://ollama.com/library/deepseek-r1",
+  "description": "DeepSeek-R1 is a family of open reasoning models with performance approaching that of leading models, such as O3 and Gemini 2.5 Pro.",
+  "variantsCount": 8,
+  "variants": [
+    {
+      "name": "deepseek-r1:latest",
+      "size": "5.2GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "deepseek-r1:1.5b",
+      "size": "1.1GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "deepseek-r1:7b",
+      "size": "4.7GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "deepseek-r1:8b",
+      "size": "5.2GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "deepseek-r1:14b",
+      "size": "9.0GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "deepseek-r1:32b",
+      "size": "20GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "deepseek-r1:70b",
+      "size": "43GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "deepseek-r1:671b",
+      "size": "404GB",
+      "context": "160K",
+      "inputType": "Text"
+    }
+  ]
+}

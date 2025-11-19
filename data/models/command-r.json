@@ -1,0 +1,20 @@
+{
+  "model": "command-r",
+  "url": "https://ollama.com/library/command-r",
+  "description": "Command R is a Large Language Model optimized for conversational interaction and long context tasks.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "command-r:latest",
+      "size": "19GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "command-r:35b",
+      "size": "19GB",
+      "context": "128K",
+      "inputType": "Text"
+    }
+  ]
+}

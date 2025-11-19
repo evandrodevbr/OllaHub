@@ -1,0 +1,20 @@
+{
+  "model": "command-r7b-arabic",
+  "url": "https://ollama.com/library/command-r7b-arabic",
+  "description": "A new state-of-the-art version of the lightweight Command R7B model that excels in advanced Arabic language capabilities for enterprises in the Middle East and Northern Africa.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "command-r7b-arabic:latest",
+      "size": "5.1GB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "command-r7b-arabic:7b",
+      "size": "5.1GB",
+      "context": "16K",
+      "inputType": "Text"
+    }
+  ]
+}

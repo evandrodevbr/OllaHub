@@ -1,0 +1,38 @@
+{
+  "model": "qwen2",
+  "url": "https://ollama.com/library/qwen2",
+  "description": "Qwen2 is a new series of large language models from Alibaba group",
+  "variantsCount": 5,
+  "variants": [
+    {
+      "name": "qwen2:latest",
+      "size": "4.4GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen2:0.5b",
+      "size": "352MB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen2:1.5b",
+      "size": "935MB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen2:7b",
+      "size": "4.4GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen2:72b",
+      "size": "41GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

@@ -1,0 +1,104 @@
+{
+  "model": "goliath",
+  "url": "https://ollama.com/library/goliath",
+  "description": "A language model created by combining two fine-tuned Llama 2 70B models into one.",
+  "variantsCount": 16,
+  "variants": [
+    {
+      "name": "goliath:latest",
+      "size": "66GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "goliath:120b-q2_K",
+      "size": "50GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "goliath:120b-q3_K_S",
+      "size": "51GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "goliath:120b-q3_K_M",
+      "size": "56GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "goliath:120b-q3_K_L",
+      "size": "62GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "goliath:120b-q4_0",
+      "size": "66GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "goliath:120b-q4_1",
+      "size": "74GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "goliath:120b-q4_K_S",
+      "size": "66GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "goliath:120b-q4_K_M",
+      "size": "71GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "goliath:120b-q5_0",
+      "size": "81GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "goliath:120b-q5_1",
+      "size": "88GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "goliath:120b-q5_K_S",
+      "size": "81GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "goliath:120b-q5_K_M",
+      "size": "83GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "goliath:120b-q6_K",
+      "size": "97GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "goliath:120b-q8_0",
+      "size": "125GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "goliath:120b-fp16",
+      "size": "236GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

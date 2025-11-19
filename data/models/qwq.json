@@ -1,0 +1,20 @@
+{
+  "model": "qwq",
+  "url": "https://ollama.com/library/qwq",
+  "description": "QwQ is the reasoning model of the Qwen series.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "qwq:latest",
+      "size": "20GB",
+      "context": "40K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwq:32b",
+      "size": "20GB",
+      "context": "40K",
+      "inputType": "Text"
+    }
+  ]
+}

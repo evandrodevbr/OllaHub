@@ -1,0 +1,26 @@
+{
+  "model": "stablelm2",
+  "url": "https://ollama.com/library/stablelm2",
+  "description": "Stable LM 2 is a state-of-the-art 1.6B and 12B parameter language model trained on multilingual data in English, Spanish, German, Italian, French, Portuguese, and Dutch.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "stablelm2:latest",
+      "size": "983MB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "stablelm2:1.6b",
+      "size": "983MB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "stablelm2:12b",
+      "size": "7.0GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

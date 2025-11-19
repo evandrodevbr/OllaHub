@@ -1,0 +1,20 @@
+{
+  "model": "firefunction-v2",
+  "url": "https://ollama.com/library/firefunction-v2",
+  "description": "An open weights function calling model based on Llama 3, competitive with GPT-4o function calling capabilities.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "firefunction-v2:latest",
+      "size": "40GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "firefunction-v2:70b",
+      "size": "40GB",
+      "context": "8K",
+      "inputType": "Text"
+    }
+  ]
+}

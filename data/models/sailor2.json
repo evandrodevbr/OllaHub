@@ -1,0 +1,32 @@
+{
+  "model": "sailor2",
+  "url": "https://ollama.com/library/sailor2",
+  "description": "Sailor2 are multilingual language models made for South-East Asia. Available in 1B, 8B, and 20B parameter sizes.",
+  "variantsCount": 4,
+  "variants": [
+    {
+      "name": "sailor2:latest",
+      "size": "5.2GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "sailor2:1b",
+      "size": "1.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "sailor2:8b",
+      "size": "5.2GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "sailor2:20b",
+      "size": "12GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

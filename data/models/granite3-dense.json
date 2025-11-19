@@ -1,0 +1,26 @@
+{
+  "model": "granite3-dense",
+  "url": "https://ollama.com/library/granite3-dense",
+  "description": "The IBM Granite 2B and 8B models are designed to support tool-based use cases and support for retrieval augmented generation (RAG), streamlining code generation, translation and bug fixing.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "granite3-dense:latest",
+      "size": "1.6GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "granite3-dense:2b",
+      "size": "1.6GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "granite3-dense:8b",
+      "size": "4.9GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

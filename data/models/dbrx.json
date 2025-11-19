@@ -1,0 +1,20 @@
+{
+  "model": "dbrx",
+  "url": "https://ollama.com/library/dbrx",
+  "description": "DBRX is an open, general-purpose LLM created by Databricks.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "dbrx:latest",
+      "size": "74GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "dbrx:132b",
+      "size": "74GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

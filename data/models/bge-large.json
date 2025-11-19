@@ -1,0 +1,20 @@
+{
+  "model": "bge-large",
+  "url": "https://ollama.com/library/bge-large",
+  "description": "Embedding model from BAAI mapping texts to vectors.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "bge-large:latest",
+      "size": "671MB",
+      "context": "512",
+      "inputType": "Text"
+    },
+    {
+      "name": "bge-large:335m",
+      "size": "671MB",
+      "context": "512",
+      "inputType": "Text"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "model": "gpt-oss-safeguard",
+  "url": "https://ollama.com/library/gpt-oss-safeguard",
+  "description": "gpt-oss-safeguard-20b and gpt-oss-safeguard-120b are safety reasoning models built-upon gpt-oss",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "gpt-oss-safeguard:latest",
+      "size": "14GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "gpt-oss-safeguard:20b",
+      "size": "14GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "gpt-oss-safeguard:120b",
+      "size": "65GB",
+      "context": "128K",
+      "inputType": "Text"
+    }
+  ]
+}

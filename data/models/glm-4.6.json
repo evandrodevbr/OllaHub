@@ -1,0 +1,14 @@
+{
+  "model": "glm-4.6",
+  "url": "https://ollama.com/library/glm-4.6",
+  "description": "Advanced agentic, reasoning and coding capabilities.",
+  "variantsCount": 1,
+  "variants": [
+    {
+      "name": "glm-4.6:cloud",
+      "size": "-",
+      "context": "198K",
+      "inputType": "Text"
+    }
+  ]
+}

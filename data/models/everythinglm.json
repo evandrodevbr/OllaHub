@@ -1,0 +1,20 @@
+{
+  "model": "everythinglm",
+  "url": "https://ollama.com/library/everythinglm",
+  "description": "Uncensored Llama2 based model with support for a 16K context window.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "everythinglm:latest",
+      "size": "7.4GB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "everythinglm:13b",
+      "size": "7.4GB",
+      "context": "16K",
+      "inputType": "Text"
+    }
+  ]
+}

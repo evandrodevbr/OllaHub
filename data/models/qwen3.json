@@ -1,0 +1,62 @@
+{
+  "model": "qwen3",
+  "url": "https://ollama.com/library/qwen3",
+  "description": "Qwen3 is the latest generation of large language models in Qwen series, offering a comprehensive suite of dense and mixture-of-experts (MoE) models.",
+  "variantsCount": 9,
+  "variants": [
+    {
+      "name": "qwen3:latest",
+      "size": "5.2GB",
+      "context": "40K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen3:0.6b",
+      "size": "523MB",
+      "context": "40K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen3:1.7b",
+      "size": "1.4GB",
+      "context": "40K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen3:4b",
+      "size": "2.5GB",
+      "context": "256K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen3:8b",
+      "size": "5.2GB",
+      "context": "40K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen3:14b",
+      "size": "9.3GB",
+      "context": "40K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen3:30b",
+      "size": "19GB",
+      "context": "256K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen3:32b",
+      "size": "20GB",
+      "context": "40K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen3:235b",
+      "size": "142GB",
+      "context": "256K",
+      "inputType": "Text"
+    }
+  ]
+}

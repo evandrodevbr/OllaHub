@@ -1,0 +1,20 @@
+{
+  "model": "minicpm-v",
+  "url": "https://ollama.com/library/minicpm-v",
+  "description": "A series of multimodal LLMs (MLLMs) designed for vision-language understanding.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "minicpm-v:latest",
+      "size": "5.5GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "minicpm-v:8b",
+      "size": "5.5GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

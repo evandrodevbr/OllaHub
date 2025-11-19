@@ -1,0 +1,20 @@
+{
+  "model": "bge-m3",
+  "url": "https://ollama.com/library/bge-m3",
+  "description": "BGE-M3 is a new model from BAAI distinguished for its versatility in Multi-Functionality, Multi-Linguality, and Multi-Granularity.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "bge-m3:latest",
+      "size": "1.2GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "bge-m3:567m",
+      "size": "1.2GB",
+      "context": "8K",
+      "inputType": "Text"
+    }
+  ]
+}

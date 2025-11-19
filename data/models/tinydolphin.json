@@ -1,0 +1,20 @@
+{
+  "model": "tinydolphin",
+  "url": "https://ollama.com/library/tinydolphin",
+  "description": "An experimental 1.1B parameter model trained on the new Dolphin 2.8 dataset by Eric Hartford and based on TinyLlama.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "tinydolphin:latest",
+      "size": "637MB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "tinydolphin:1.1b",
+      "size": "637MB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

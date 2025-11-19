@@ -1,0 +1,26 @@
+{
+  "model": "nous-hermes2",
+  "url": "https://ollama.com/library/nous-hermes2",
+  "description": "The powerful family of models by Nous Research that excels at scientific discussion and coding tasks.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "nous-hermes2:latest",
+      "size": "6.1GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "nous-hermes2:10.7b",
+      "size": "6.1GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "nous-hermes2:34b",
+      "size": "19GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

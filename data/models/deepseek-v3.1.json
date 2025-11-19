@@ -1,0 +1,26 @@
+{
+  "model": "deepseek-v3.1",
+  "url": "https://ollama.com/library/deepseek-v3.1",
+  "description": "DeepSeek-V3.1-Terminus is a hybrid model that supports both thinking mode and non-thinking mode.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "deepseek-v3.1:latest",
+      "size": "404GB",
+      "context": "160K",
+      "inputType": "Text"
+    },
+    {
+      "name": "deepseek-v3.1:671b",
+      "size": "404GB",
+      "context": "160K",
+      "inputType": "Text"
+    },
+    {
+      "name": "deepseek-v3.1:671b-cloud",
+      "size": "-",
+      "context": "160K",
+      "inputType": "Text"
+    }
+  ]
+}

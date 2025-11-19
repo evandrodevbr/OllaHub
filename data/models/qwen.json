@@ -1,0 +1,62 @@
+{
+  "model": "qwen",
+  "url": "https://ollama.com/library/qwen",
+  "description": "Qwen 1.5 is a series of large language models by Alibaba Cloud spanning from 0.5B to 110B parameters",
+  "variantsCount": 9,
+  "variants": [
+    {
+      "name": "qwen:latest",
+      "size": "2.3GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen:0.5b",
+      "size": "395MB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen:1.8b",
+      "size": "1.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen:4b",
+      "size": "2.3GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen:7b",
+      "size": "4.5GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen:14b",
+      "size": "8.2GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen:32b",
+      "size": "18GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen:72b",
+      "size": "41GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "qwen:110b",
+      "size": "63GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

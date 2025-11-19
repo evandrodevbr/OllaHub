@@ -1,0 +1,20 @@
+{
+  "model": "magicoder",
+  "url": "https://ollama.com/library/magicoder",
+  "description": "🎩 Magicoder is a family of 7B parameter models trained on 75K synthetic instruction data using OSS-Instruct, a novel approach to enlightening LLMs with open-source code snippets.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "magicoder:latest",
+      "size": "3.8GB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "magicoder:7b",
+      "size": "3.8GB",
+      "context": "16K",
+      "inputType": "Text"
+    }
+  ]
+}

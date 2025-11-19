@@ -1,0 +1,14 @@
+{
+  "model": "kimi-k2-thinking",
+  "url": "https://ollama.com/library/kimi-k2-thinking",
+  "description": "Kimi K2 Thinking, Moonshot AI's best open-source thinking model.",
+  "variantsCount": 1,
+  "variants": [
+    {
+      "name": "kimi-k2-thinking:cloud",
+      "size": "-",
+      "context": "256K",
+      "inputType": "Text"
+    }
+  ]
+}

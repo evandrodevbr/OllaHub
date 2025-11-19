@@ -1,0 +1,26 @@
+{
+  "model": "granite3-guardian",
+  "url": "https://ollama.com/library/granite3-guardian",
+  "description": "The IBM Granite Guardian 3.0 2B and 8B models are designed to detect risks in prompts and/or responses.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "granite3-guardian:latest",
+      "size": "2.7GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "granite3-guardian:2b",
+      "size": "2.7GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "granite3-guardian:8b",
+      "size": "5.8GB",
+      "context": "8K",
+      "inputType": "Text"
+    }
+  ]
+}

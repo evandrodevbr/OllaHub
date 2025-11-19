@@ -1,0 +1,26 @@
+{
+  "model": "granite3.1-moe",
+  "url": "https://ollama.com/library/granite3.1-moe",
+  "description": "The IBM Granite 1B and 3B models are long-context mixture of experts (MoE) Granite models from IBM designed for low latency usage.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "granite3.1-moe:latest",
+      "size": "2.0GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "granite3.1-moe:1b",
+      "size": "1.4GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "granite3.1-moe:3b",
+      "size": "2.0GB",
+      "context": "128K",
+      "inputType": "Text"
+    }
+  ]
+}

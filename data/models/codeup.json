@@ -1,0 +1,20 @@
+{
+  "model": "codeup",
+  "url": "https://ollama.com/library/codeup",
+  "description": "Great code generation model based on Llama2.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "codeup:latest",
+      "size": "7.4GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "codeup:13b",
+      "size": "7.4GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

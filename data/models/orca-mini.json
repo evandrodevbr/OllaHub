@@ -1,0 +1,38 @@
+{
+  "model": "orca-mini",
+  "url": "https://ollama.com/library/orca-mini",
+  "description": "A general-purpose model ranging from 3 billion parameters to 70 billion, suitable for entry-level hardware.",
+  "variantsCount": 5,
+  "variants": [
+    {
+      "name": "orca-mini:latest",
+      "size": "2.0GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "orca-mini:3b",
+      "size": "2.0GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "orca-mini:7b",
+      "size": "3.8GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "orca-mini:13b",
+      "size": "7.4GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "orca-mini:70b",
+      "size": "39GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

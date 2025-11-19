@@ -1,0 +1,20 @@
+{
+  "model": "paraphrase-multilingual",
+  "url": "https://ollama.com/library/paraphrase-multilingual",
+  "description": "Sentence-transformers model that can be used for tasks like clustering or semantic search.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "paraphrase-multilingual:latest",
+      "size": "563MB",
+      "context": "512",
+      "inputType": "Text"
+    },
+    {
+      "name": "paraphrase-multilingual:278m",
+      "size": "563MB",
+      "context": "512",
+      "inputType": "Text"
+    }
+  ]
+}

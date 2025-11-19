@@ -1,0 +1,20 @@
+{
+  "model": "embeddinggemma",
+  "url": "https://ollama.com/library/embeddinggemma",
+  "description": "EmbeddingGemma is a 300M parameter embedding model from Google.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "embeddinggemma:latest",
+      "size": "622MB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "embeddinggemma:300m",
+      "size": "622MB",
+      "context": "2K",
+      "inputType": "Text"
+    }
+  ]
+}

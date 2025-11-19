@@ -1,0 +1,20 @@
+{
+  "model": "phi4",
+  "url": "https://ollama.com/library/phi4",
+  "description": "Phi-4 is a 14B parameter, state-of-the-art open model from Microsoft.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "phi4:latest",
+      "size": "9.1GB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "phi4:14b",
+      "size": "9.1GB",
+      "context": "16K",
+      "inputType": "Text"
+    }
+  ]
+}

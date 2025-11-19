@@ -1,0 +1,32 @@
+{
+  "model": "falcon",
+  "url": "https://ollama.com/library/falcon",
+  "description": "A large language model built by the Technology Innovation Institute (TII) for use in summarization, text generation, and chat bots.",
+  "variantsCount": 4,
+  "variants": [
+    {
+      "name": "falcon:latest",
+      "size": "4.2GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "falcon:7b",
+      "size": "4.2GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "falcon:40b",
+      "size": "24GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "falcon:180b",
+      "size": "101GB",
+      "context": "2K",
+      "inputType": "Text"
+    }
+  ]
+}

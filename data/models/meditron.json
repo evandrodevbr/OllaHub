@@ -1,0 +1,26 @@
+{
+  "model": "meditron",
+  "url": "https://ollama.com/library/meditron",
+  "description": "Open-source medical large language model adapted from Llama 2 to the medical domain.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "meditron:latest",
+      "size": "3.8GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "meditron:7b",
+      "size": "3.8GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "meditron:70b",
+      "size": "39GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

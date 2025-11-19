@@ -1,0 +1,20 @@
+{
+  "model": "medllama2",
+  "url": "https://ollama.com/library/medllama2",
+  "description": "Fine-tuned Llama 2 model to answer medical questions based on an open source medical dataset. ",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "medllama2:latest",
+      "size": "3.8GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "medllama2:7b",
+      "size": "3.8GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

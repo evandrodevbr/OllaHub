@@ -1,0 +1,20 @@
+{
+  "model": "samantha-mistral",
+  "url": "https://ollama.com/library/samantha-mistral",
+  "description": "A companion assistant trained in philosophy, psychology, and personal relationships. Based on Mistral.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "samantha-mistral:latest",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "samantha-mistral:7b",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

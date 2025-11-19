@@ -1,0 +1,20 @@
+{
+  "model": "megadolphin",
+  "url": "https://ollama.com/library/megadolphin",
+  "description": "MegaDolphin-2.2-120b is a transformation of Dolphin-2.2-70b created by interleaving the model with itself.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "megadolphin:latest",
+      "size": "68GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "megadolphin:120b",
+      "size": "68GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "model": "wizard-vicuna",
+  "url": "https://ollama.com/library/wizard-vicuna",
+  "description": "Wizard Vicuna is a 13B parameter model based on Llama 2 trained by MelodysDreamj.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "wizard-vicuna:latest",
+      "size": "7.4GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizard-vicuna:13b",
+      "size": "7.4GB",
+      "context": "2K",
+      "inputType": "Text"
+    }
+  ]
+}

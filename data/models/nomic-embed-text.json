@@ -1,0 +1,26 @@
+{
+  "model": "nomic-embed-text",
+  "url": "https://ollama.com/library/nomic-embed-text",
+  "description": "A high-performing open embedding model with a large token context window.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "nomic-embed-text:latest",
+      "size": "274MB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "nomic-embed-text:v1.5",
+      "size": "274MB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "nomic-embed-text:137m-v1.5-fp16",
+      "size": "274MB",
+      "context": "2K",
+      "inputType": "Text"
+    }
+  ]
+}

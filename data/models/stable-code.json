@@ -1,0 +1,20 @@
+{
+  "model": "stable-code",
+  "url": "https://ollama.com/library/stable-code",
+  "description": "Stable Code 3B is a coding model with instruct and code completion variants on par with models such as Code Llama 7B that are 2.5x larger.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "stable-code:latest",
+      "size": "1.6GB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "stable-code:3b",
+      "size": "1.6GB",
+      "context": "16K",
+      "inputType": "Text"
+    }
+  ]
+}

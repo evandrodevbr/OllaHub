@@ -1,0 +1,26 @@
+{
+  "model": "all-minilm",
+  "url": "https://ollama.com/library/all-minilm",
+  "description": "Embedding models on very large sentence level datasets.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "all-minilm:latest",
+      "size": "46MB",
+      "context": "512",
+      "inputType": "Text"
+    },
+    {
+      "name": "all-minilm:22m",
+      "size": "46MB",
+      "context": "512",
+      "inputType": "Text"
+    },
+    {
+      "name": "all-minilm:33m",
+      "size": "67MB",
+      "context": "512",
+      "inputType": "Text"
+    }
+  ]
+}

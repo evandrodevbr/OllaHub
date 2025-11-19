@@ -1,0 +1,26 @@
+{
+  "model": "wizardlm2",
+  "url": "https://ollama.com/library/wizardlm2",
+  "description": "State of the art large language model from Microsoft AI with improved performance on complex chat, multilingual, reasoning and agent use cases.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "wizardlm2:latest",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm2:7b",
+      "size": "4.1GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardlm2:8x22b",
+      "size": "80GB",
+      "context": "64K",
+      "inputType": "Text"
+    }
+  ]
+}

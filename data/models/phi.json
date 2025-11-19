@@ -1,0 +1,20 @@
+{
+  "model": "phi",
+  "url": "https://ollama.com/library/phi",
+  "description": "Phi-2: a 2.7B language model by Microsoft Research that demonstrates outstanding reasoning and language understanding capabilities.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "phi:latest",
+      "size": "1.6GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "phi:2.7b",
+      "size": "1.6GB",
+      "context": "2K",
+      "inputType": "Text"
+    }
+  ]
+}

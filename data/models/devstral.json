@@ -1,0 +1,20 @@
+{
+  "model": "devstral",
+  "url": "https://ollama.com/library/devstral",
+  "description": "Devstral: the best open source model for coding agents",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "devstral:latest",
+      "size": "14GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "devstral:24b",
+      "size": "14GB",
+      "context": "128K",
+      "inputType": "Text"
+    }
+  ]
+}

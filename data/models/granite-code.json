@@ -1,0 +1,38 @@
+{
+  "model": "granite-code",
+  "url": "https://ollama.com/library/granite-code",
+  "description": "A family of open foundation models by IBM for Code Intelligence",
+  "variantsCount": 5,
+  "variants": [
+    {
+      "name": "granite-code:latest",
+      "size": "2.0GB",
+      "context": "125K",
+      "inputType": "Text"
+    },
+    {
+      "name": "granite-code:3b",
+      "size": "2.0GB",
+      "context": "125K",
+      "inputType": "Text"
+    },
+    {
+      "name": "granite-code:8b",
+      "size": "4.6GB",
+      "context": "125K",
+      "inputType": "Text"
+    },
+    {
+      "name": "granite-code:20b",
+      "size": "12GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "granite-code:34b",
+      "size": "19GB",
+      "context": "8K",
+      "inputType": "Text"
+    }
+  ]
+}

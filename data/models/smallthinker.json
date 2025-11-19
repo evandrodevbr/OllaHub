@@ -1,0 +1,20 @@
+{
+  "model": "smallthinker",
+  "url": "https://ollama.com/library/smallthinker",
+  "description": "A new small reasoning model fine-tuned from the Qwen 2.5 3B Instruct model.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "smallthinker:latest",
+      "size": "3.6GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "smallthinker:3b",
+      "size": "3.6GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "model": "yi-coder",
+  "url": "https://ollama.com/library/yi-coder",
+  "description": "Yi-Coder is a series of open-source code language models that delivers state-of-the-art coding performance with fewer than 10 billion parameters.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "yi-coder:latest",
+      "size": "5.0GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "yi-coder:1.5b",
+      "size": "866MB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "yi-coder:9b",
+      "size": "5.0GB",
+      "context": "128K",
+      "inputType": "Text"
+    }
+  ]
+}

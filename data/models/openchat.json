@@ -1,0 +1,20 @@
+{
+  "model": "openchat",
+  "url": "https://ollama.com/library/openchat",
+  "description": "A family of open-source models trained on a wide variety of data, surpassing ChatGPT on various benchmarks. Updated to version 3.5-0106.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "openchat:latest",
+      "size": "4.1GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openchat:7b",
+      "size": "4.1GB",
+      "context": "8K",
+      "inputType": "Text"
+    }
+  ]
+}

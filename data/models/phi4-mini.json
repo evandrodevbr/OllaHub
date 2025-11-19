@@ -1,0 +1,20 @@
+{
+  "model": "phi4-mini",
+  "url": "https://ollama.com/library/phi4-mini",
+  "description": "Phi-4-mini brings significant enhancements in multilingual support, reasoning, and mathematics, and now, the long-awaited function calling feature is finally supported.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "phi4-mini:latest",
+      "size": "2.5GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "phi4-mini:3.8b",
+      "size": "2.5GB",
+      "context": "128K",
+      "inputType": "Text"
+    }
+  ]
+}

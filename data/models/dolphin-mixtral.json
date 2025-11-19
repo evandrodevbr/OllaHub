@@ -1,0 +1,26 @@
+{
+  "model": "dolphin-mixtral",
+  "url": "https://ollama.com/library/dolphin-mixtral",
+  "description": "Uncensored, 8x7b and 8x22b fine-tuned models based on the Mixtral mixture of experts models that excels at coding tasks. Created by Eric Hartford.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "dolphin-mixtral:latest",
+      "size": "26GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "dolphin-mixtral:8x7b",
+      "size": "26GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "dolphin-mixtral:8x22b",
+      "size": "80GB",
+      "context": "64K",
+      "inputType": "Text"
+    }
+  ]
+}

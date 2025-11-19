@@ -1,0 +1,20 @@
+{
+  "model": "deepseek-v2.5",
+  "url": "https://ollama.com/library/deepseek-v2.5",
+  "description": "An upgraded version of DeekSeek-V2  that integrates the general and coding abilities of both DeepSeek-V2-Chat and DeepSeek-Coder-V2-Instruct.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "deepseek-v2.5:latest",
+      "size": "133GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "deepseek-v2.5:236b",
+      "size": "133GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

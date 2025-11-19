@@ -1,0 +1,26 @@
+{
+  "model": "nous-hermes",
+  "url": "https://ollama.com/library/nous-hermes",
+  "description": "General use models based on Llama and Llama 2 from Nous Research.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "nous-hermes:latest",
+      "size": "3.8GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "nous-hermes:7b",
+      "size": "3.8GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "nous-hermes:13b",
+      "size": "7.4GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "model": "marco-o1",
+  "url": "https://ollama.com/library/marco-o1",
+  "description": "An open large reasoning model for real-world solutions by the Alibaba International Digital Commerce Group (AIDC-AI).",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "marco-o1:latest",
+      "size": "4.7GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "marco-o1:7b",
+      "size": "4.7GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

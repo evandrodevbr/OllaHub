@@ -1,0 +1,38 @@
+{
+  "model": "falcon3",
+  "url": "https://ollama.com/library/falcon3",
+  "description": "A family of efficient AI models under 10B parameters performant in science, math, and coding through innovative training techniques.",
+  "variantsCount": 5,
+  "variants": [
+    {
+      "name": "falcon3:latest",
+      "size": "4.6GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "falcon3:1b",
+      "size": "1.8GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "falcon3:3b",
+      "size": "2.0GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "falcon3:7b",
+      "size": "4.6GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "falcon3:10b",
+      "size": "6.3GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

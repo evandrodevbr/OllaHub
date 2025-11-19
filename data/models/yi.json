@@ -1,0 +1,32 @@
+{
+  "model": "yi",
+  "url": "https://ollama.com/library/yi",
+  "description": "Yi 1.5 is a high-performing, bilingual language model.",
+  "variantsCount": 4,
+  "variants": [
+    {
+      "name": "yi:latest",
+      "size": "3.5GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "yi:6b",
+      "size": "3.5GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "yi:9b",
+      "size": "5.0GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "yi:34b",
+      "size": "19GB",
+      "context": "4K",
+      "inputType": "Text"
+    }
+  ]
+}

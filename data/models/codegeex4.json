@@ -1,0 +1,20 @@
+{
+  "model": "codegeex4",
+  "url": "https://ollama.com/library/codegeex4",
+  "description": "A versatile model for AI software development scenarios, including code completion.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "codegeex4:latest",
+      "size": "5.5GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "codegeex4:9b",
+      "size": "5.5GB",
+      "context": "128K",
+      "inputType": "Text"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "model": "codeqwen",
+  "url": "https://ollama.com/library/codeqwen",
+  "description": "CodeQwen1.5 is a large language model pretrained on a large amount of code data.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "codeqwen:latest",
+      "size": "4.2GB",
+      "context": "64K",
+      "inputType": "Text"
+    },
+    {
+      "name": "codeqwen:7b",
+      "size": "4.2GB",
+      "context": "64K",
+      "inputType": "Text"
+    }
+  ]
+}

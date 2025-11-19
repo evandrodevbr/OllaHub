@@ -1,0 +1,44 @@
+{
+  "model": "gemma3",
+  "url": "https://ollama.com/library/gemma3",
+  "description": "The current, most capable model that runs on a single GPU.",
+  "variantsCount": 6,
+  "variants": [
+    {
+      "name": "gemma3:latest",
+      "size": "3.3GB",
+      "context": "128K",
+      "inputType": "Text, Image"
+    },
+    {
+      "name": "gemma3:270m",
+      "size": "292MB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "gemma3:1b",
+      "size": "815MB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "gemma3:4b",
+      "size": "3.3GB",
+      "context": "128K",
+      "inputType": "Text, Image"
+    },
+    {
+      "name": "gemma3:12b",
+      "size": "8.1GB",
+      "context": "128K",
+      "inputType": "Text, Image"
+    },
+    {
+      "name": "gemma3:27b",
+      "size": "17GB",
+      "context": "128K",
+      "inputType": "Text, Image"
+    }
+  ]
+}

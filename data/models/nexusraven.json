@@ -1,0 +1,20 @@
+{
+  "model": "nexusraven",
+  "url": "https://ollama.com/library/nexusraven",
+  "description": "Nexus Raven is a 13B instruction tuned model for function calling tasks. ",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "nexusraven:latest",
+      "size": "7.4GB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "nexusraven:13b",
+      "size": "7.4GB",
+      "context": "16K",
+      "inputType": "Text"
+    }
+  ]
+}

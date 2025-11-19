@@ -1,0 +1,38 @@
+{
+  "model": "qwen2.5vl",
+  "url": "https://ollama.com/library/qwen2.5vl",
+  "description": "Flagship vision-language model of Qwen and also a significant leap from the previous Qwen2-VL.",
+  "variantsCount": 5,
+  "variants": [
+    {
+      "name": "qwen2.5vl:latest",
+      "size": "6.0GB",
+      "context": "125K",
+      "inputType": "Text, Image"
+    },
+    {
+      "name": "qwen2.5vl:3b",
+      "size": "3.2GB",
+      "context": "125K",
+      "inputType": "Text, Image"
+    },
+    {
+      "name": "qwen2.5vl:7b",
+      "size": "6.0GB",
+      "context": "125K",
+      "inputType": "Text, Image"
+    },
+    {
+      "name": "qwen2.5vl:32b",
+      "size": "21GB",
+      "context": "125K",
+      "inputType": "Text, Image"
+    },
+    {
+      "name": "qwen2.5vl:72b",
+      "size": "49GB",
+      "context": "125K",
+      "inputType": "Text, Image"
+    }
+  ]
+}

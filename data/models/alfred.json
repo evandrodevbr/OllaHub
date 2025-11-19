@@ -1,0 +1,20 @@
+{
+  "model": "alfred",
+  "url": "https://ollama.com/library/alfred",
+  "description": "A robust conversational model designed to be used for both chat and instruct use cases.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "alfred:latest",
+      "size": "24GB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "alfred:40b",
+      "size": "24GB",
+      "context": "2K",
+      "inputType": "Text"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "model": "mistral-large",
+  "url": "https://ollama.com/library/mistral-large",
+  "description": "Mistral Large 2 is Mistral's new flagship model that is significantly more capable in code generation, mathematics, and reasoning with 128k context window and support for dozens of languages.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "mistral-large:latest",
+      "size": "73GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "mistral-large:123b",
+      "size": "73GB",
+      "context": "128K",
+      "inputType": "Text"
+    }
+  ]
+}

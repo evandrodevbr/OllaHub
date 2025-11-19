@@ -1,0 +1,20 @@
+{
+  "model": "wizardcoder",
+  "url": "https://ollama.com/library/wizardcoder",
+  "description": "State-of-the-art code generation model",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "wizardcoder:latest",
+      "size": "3.8GB",
+      "context": "16K",
+      "inputType": "Text"
+    },
+    {
+      "name": "wizardcoder:33b",
+      "size": "19GB",
+      "context": "16K",
+      "inputType": "Text"
+    }
+  ]
+}

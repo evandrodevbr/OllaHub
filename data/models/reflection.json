@@ -1,0 +1,20 @@
+{
+  "model": "reflection",
+  "url": "https://ollama.com/library/reflection",
+  "description": "A high-performing model trained with a new technique called Reflection-tuning that teaches a LLM to detect mistakes in its reasoning and correct course.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "reflection:latest",
+      "size": "40GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "reflection:70b",
+      "size": "40GB",
+      "context": "128K",
+      "inputType": "Text"
+    }
+  ]
+}

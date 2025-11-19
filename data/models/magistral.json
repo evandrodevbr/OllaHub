@@ -1,0 +1,20 @@
+{
+  "model": "magistral",
+  "url": "https://ollama.com/library/magistral",
+  "description": "Magistral is a small, efficient reasoning model with 24B parameters.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "magistral:latest",
+      "size": "14GB",
+      "context": "39K",
+      "inputType": "Text"
+    },
+    {
+      "name": "magistral:24b",
+      "size": "14GB",
+      "context": "39K",
+      "inputType": "Text"
+    }
+  ]
+}

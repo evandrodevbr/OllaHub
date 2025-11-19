@@ -1,0 +1,44 @@
+{
+  "model": "snowflake-arctic-embed",
+  "url": "https://ollama.com/library/snowflake-arctic-embed",
+  "description": "A suite of text embedding models by Snowflake, optimized for performance.",
+  "variantsCount": 6,
+  "variants": [
+    {
+      "name": "snowflake-arctic-embed:latest",
+      "size": "669MB",
+      "context": "512",
+      "inputType": "Text"
+    },
+    {
+      "name": "snowflake-arctic-embed:22m",
+      "size": "46MB",
+      "context": "512",
+      "inputType": "Text"
+    },
+    {
+      "name": "snowflake-arctic-embed:33m",
+      "size": "67MB",
+      "context": "512",
+      "inputType": "Text"
+    },
+    {
+      "name": "snowflake-arctic-embed:110m",
+      "size": "219MB",
+      "context": "512",
+      "inputType": "Text"
+    },
+    {
+      "name": "snowflake-arctic-embed:137m",
+      "size": "274MB",
+      "context": "2K",
+      "inputType": "Text"
+    },
+    {
+      "name": "snowflake-arctic-embed:335m",
+      "size": "669MB",
+      "context": "512",
+      "inputType": "Text"
+    }
+  ]
+}

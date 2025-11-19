@@ -1,0 +1,26 @@
+{
+  "model": "openthinker",
+  "url": "https://ollama.com/library/openthinker",
+  "description": "A fully open-source family of reasoning models built using a dataset derived by distilling DeepSeek-R1.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "openthinker:latest",
+      "size": "4.7GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openthinker:7b",
+      "size": "4.7GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "openthinker:32b",
+      "size": "20GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

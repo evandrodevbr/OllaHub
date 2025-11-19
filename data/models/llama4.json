@@ -1,0 +1,26 @@
+{
+  "model": "llama4",
+  "url": "https://ollama.com/library/llama4",
+  "description": "Meta's latest collection of multimodal models.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "llama4:latest",
+      "size": "67GB",
+      "context": "10M",
+      "inputType": "Text, Image"
+    },
+    {
+      "name": "llama4:16x17b",
+      "size": "67GB",
+      "context": "10M",
+      "inputType": "Text, Image"
+    },
+    {
+      "name": "llama4:128x17b",
+      "size": "245GB",
+      "context": "1M",
+      "inputType": "Text, Image"
+    }
+  ]
+}

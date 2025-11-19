@@ -1,0 +1,26 @@
+{
+  "model": "tulu3",
+  "url": "https://ollama.com/library/tulu3",
+  "description": "Tülu 3 is a leading instruction following model family, offering fully open-source data, code, and recipes by the The Allen Institute for AI.",
+  "variantsCount": 3,
+  "variants": [
+    {
+      "name": "tulu3:latest",
+      "size": "4.9GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "tulu3:8b",
+      "size": "4.9GB",
+      "context": "128K",
+      "inputType": "Text"
+    },
+    {
+      "name": "tulu3:70b",
+      "size": "43GB",
+      "context": "128K",
+      "inputType": "Text"
+    }
+  ]
+}

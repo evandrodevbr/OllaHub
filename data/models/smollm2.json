@@ -1,0 +1,32 @@
+{
+  "model": "smollm2",
+  "url": "https://ollama.com/library/smollm2",
+  "description": "SmolLM2 is a family of compact language models available in three size: 135M, 360M, and 1.7B parameters.",
+  "variantsCount": 4,
+  "variants": [
+    {
+      "name": "smollm2:latest",
+      "size": "1.8GB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "smollm2:135m",
+      "size": "271MB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "smollm2:360m",
+      "size": "726MB",
+      "context": "8K",
+      "inputType": "Text"
+    },
+    {
+      "name": "smollm2:1.7b",
+      "size": "1.8GB",
+      "context": "8K",
+      "inputType": "Text"
+    }
+  ]
+}

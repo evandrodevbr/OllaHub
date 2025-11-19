@@ -1,0 +1,20 @@
+{
+  "model": "bakllava",
+  "url": "https://ollama.com/library/bakllava",
+  "description": "BakLLaVA is a multimodal model consisting of the Mistral 7B base model augmented with the LLaVA  architecture.",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "bakllava:latest",
+      "size": "4.7GB",
+      "context": "32K",
+      "inputType": "Text, Image"
+    },
+    {
+      "name": "bakllava:7b",
+      "size": "4.7GB",
+      "context": "32K",
+      "inputType": "Text, Image"
+    }
+  ]
+}

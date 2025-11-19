@@ -1,0 +1,20 @@
+{
+  "model": "phi4-reasoning",
+  "url": "https://ollama.com/library/phi4-reasoning",
+  "description": "Phi 4 reasoning and reasoning plus are 14-billion parameter open-weight reasoning models that rival much larger models on complex reasoning tasks. ",
+  "variantsCount": 2,
+  "variants": [
+    {
+      "name": "phi4-reasoning:latest",
+      "size": "11GB",
+      "context": "32K",
+      "inputType": "Text"
+    },
+    {
+      "name": "phi4-reasoning:14b",
+      "size": "11GB",
+      "context": "32K",
+      "inputType": "Text"
+    }
+  ]
+}

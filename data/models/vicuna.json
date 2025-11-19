@@ -1,0 +1,32 @@
+{
+  "model": "vicuna",
+  "url": "https://ollama.com/library/vicuna",
+  "description": "General use chat model based on Llama and Llama 2 with 2K to 16K context sizes.",
+  "variantsCount": 4,
+  "variants": [
+    {
+      "name": "vicuna:latest",
+      "size": "3.8GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "vicuna:7b",
+      "size": "3.8GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "vicuna:13b",
+      "size": "7.4GB",
+      "context": "4K",
+      "inputType": "Text"
+    },
+    {
+      "name": "vicuna:33b",
+      "size": "18GB",
+      "context": "2K",
+      "inputType": "Text"
+    }
+  ]
+}
