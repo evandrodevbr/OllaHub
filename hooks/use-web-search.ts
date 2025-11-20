@@ -120,6 +120,62 @@ export function useWebSearch() {
   }, []);
 
   /**
+   * Pipeline em duas etapas: metadados → scraping das top URLs
+   */
+  const smartSearchRag = useCallback(async (query: string, limit: number = 3): Promise<ScrapedContent[]> => {
+    if (!query || !query.trim()) {
+      return [];
+    }
+
+    setState(prev => ({
+      ...prev,
+      status: 'searching',
+      currentQuery: query,
+      error: null,
+      scrapedSources: [],
+    }));
+
+    try {
+      const settings = useSettingsStore.getState();
+      const searchConfig: SearchConfig = {
+        maxConcurrentTabs: settings.webSearch.maxConcurrentTabs,
+        totalSourcesLimit: settings.webSearch.totalSourcesLimit,
+        categories: settings.webSearch.categories,
+        userCustomSites: settings.webSearch.userCustomSites,
+        excludedDomains: settings.webSearch.excludedDomains,
+      };
+
+      // Etapa 1: metadados
+      setState(prev => ({ ...prev, status: 'searching' }));
+      const { metadata, contents } = await webSearchService.smartSearchRag(query, limit, searchConfig);
+
+      // Etapa 2: scraping
+      setState(prev => ({ ...prev, status: 'scraping' }));
+
+      // [DEBUG] metadados coletados
+      console.log('🔎 Metadados coletados:', metadata);
+
+      setState(prev => ({
+        ...prev,
+        status: 'completed',
+        scrapedSources: contents,
+        error: null,
+      }));
+
+      return contents;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido no smartSearchRag';
+      setState(prev => ({
+        ...prev,
+        status: 'error',
+        error: errorMessage,
+        scrapedSources: [],
+      }));
+      throw error;
+    }
+  }, []);
+
+  /**
    * Extrai conteúdo de uma URL
    */
   const extractUrl = useCallback(async (url: string): Promise<ScrapedContent> => {
@@ -169,6 +225,7 @@ export function useWebSearch() {
     ...state,
     setEnabled,
     search,
+    smartSearchRag,
     extractUrl,
     reset,
     clearCache,

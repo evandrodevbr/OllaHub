@@ -17,6 +17,12 @@ export interface SearchConfig {
   excludedDomains: string[];
 }
 
+export interface SearchResultMetadata {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
 interface CachedResult {
   results: ScrapedContent[];
   timestamp: number;
@@ -213,6 +219,43 @@ class WebSearchService {
   }
 
   /**
+   * Executa busca de metadados (sem scraping)
+   */
+  private async executeMetadataSearch(
+    query: string,
+    limit: number = 5,
+    searchConfig?: SearchConfig
+  ): Promise<SearchResultMetadata[]> {
+    try {
+      let rustConfig: any = undefined;
+      if (searchConfig) {
+        rustConfig = {
+          max_concurrent_tabs: searchConfig.maxConcurrentTabs,
+          total_sources_limit: searchConfig.totalSourcesLimit,
+          categories: searchConfig.categories.map(cat => ({
+            id: cat.id,
+            name: cat.name,
+            base_sites: cat.baseSites,
+            enabled: cat.enabled,
+          })),
+          user_custom_sites: searchConfig.userCustomSites,
+          excluded_domains: searchConfig.excludedDomains,
+        };
+      }
+
+      const results = await invoke<SearchResultMetadata[]>('search_web_metadata', {
+        query: query.trim(),
+        limit,
+        search_config: rustConfig,
+      });
+      return results || [];
+    } catch (error) {
+      console.error('Erro ao buscar metadados:', error);
+      throw error instanceof Error ? error : new Error('Falha ao buscar metadados');
+    }
+  }
+
+  /**
    * Busca conteúdo na web com cache e rate limiting
    */
   async search(
@@ -288,6 +331,32 @@ class WebSearchService {
     } finally {
       // Processar fila se houver
       this.processRateLimitQueue();
+    }
+  }
+
+  /**
+   * Busca em duas etapas: metadados → scraping das melhores URLs
+   */
+  async smartSearchRag(
+    query: string,
+    limit: number = 3,
+    searchConfig?: SearchConfig
+  ): Promise<{ metadata: SearchResultMetadata[]; contents: ScrapedContent[] }> {
+    if (!query || !query.trim()) {
+      return { metadata: [], contents: [] };
+    }
+
+    const metas = await this.executeMetadataSearch(query, Math.max(limit * 2, 5), searchConfig);
+    const topUrls = metas.map(m => m.url).slice(0, limit);
+    if (topUrls.length === 0) {
+      return { metadata: metas, contents: [] };
+    }
+    try {
+      const contents = await invoke<ScrapedContent[]>('scrape_urls', { urls: topUrls });
+      return { metadata: metas, contents: contents || [] };
+    } catch (error) {
+      console.error('Erro ao fazer scraping em lote:', error);
+      return { metadata: metas, contents: [] };
     }
   }
 

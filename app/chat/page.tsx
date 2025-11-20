@@ -154,10 +154,9 @@ export default function ChatPage() {
         // Passo 2: Se precisar de busca, executar
         if (searchQuery && searchQuery !== 'NO_SEARCH') {
           setThinkingStep('searching');
-          // Buscar fontes usando configurações do store
+          // Pipeline em duas etapas: metadados → scraping de top URLs
           const maxResults = settings.webSearch.maxResults;
-          const excludedDomains = settings.webSearch.excludedDomains;
-          scrapedSources = await webSearch.search(searchQuery, maxResults, excludedDomains);
+          scrapedSources = await webSearch.smartSearchRag(searchQuery, maxResults);
           
           // Atualizar indicador enquanto lê fontes
           setThinkingStep('reading');
@@ -301,7 +300,10 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
       finalUserContent = `[CONTEXTO WEB OBRIGATÓRIO]\n${webContext}\n[/CONTEXTO WEB]\n\nCom base EXCLUSIVAMENTE no texto acima, responda: ${content}`;
     }
     
-    await sendMessage(finalUserContent, selectedModel, enhancedSystemPrompt);
+    // Enviar o conteúdo original para UI, mas com override no payload para incluir contexto
+    await sendMessage(content, selectedModel, enhancedSystemPrompt, {
+      payloadContentOverride: finalUserContent,
+    });
     
     // Marcar como completo quando começar a streamar
     setTimeout(() => setThinkingStep('complete'), 100);

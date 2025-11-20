@@ -19,7 +19,18 @@ mod scheduler_loop;
 mod sources_config;
 mod system_monitor;
 
-use web_scraper::{ScrapedContent, create_browser, search_and_scrape, search_and_scrape_with_config, scrape_url, SearchConfig};
+use web_scraper::{
+    ScrapedContent,
+    SearchResultMetadata,
+    create_browser,
+    search_and_scrape,
+    search_and_scrape_with_config,
+    scrape_url,
+    SearchConfig,
+    search_duckduckgo_metadata,
+    smart_search,
+    scrape_urls_bulk,
+};
 use headless_chrome::Browser;
 use scheduler::{SentinelTask, SchedulerService, SchedulerState, TaskAction};
 use sources_config::{SourcesConfig, load_sources_config, save_sources_config};
@@ -1232,6 +1243,56 @@ async fn extract_url_content(
         .map_err(|e| format!("Erro ao extrair conteúdo da URL: {}", e))
 }
 
+/// Busca metadados leves (título/URL/snippet) sem abrir páginas
+#[command]
+async fn search_web_metadata(
+    query: String,
+    limit: Option<usize>,
+    search_config: Option<SearchConfig>,
+) -> Result<Vec<SearchResultMetadata>, String> {
+    if query.trim().is_empty() {
+        return Err("Query não pode estar vazia".to_string());
+    }
+
+    let lim = limit.unwrap_or(5);
+
+    if let Some(config) = search_config {
+        // Usar smart_search para obter URLs e convertê-las em metadados simples
+        match smart_search(&query, &config).await {
+            Ok(mut urls) => {
+                urls.truncate(lim);
+                let metas = urls
+                    .into_iter()
+                    .map(|u| SearchResultMetadata { title: u.clone(), url: u, snippet: String::new() })
+                    .collect::<Vec<_>>();
+                Ok(metas)
+            }
+            Err(e) => Err(format!("Erro ao executar smart_search: {}", e)),
+        }
+    } else {
+        search_duckduckgo_metadata(&query, lim)
+            .await
+            .map_err(|e| format!("Erro ao buscar metadados: {}", e))
+    }
+}
+
+/// Faz scraping em lote de URLs fornecidas
+#[command]
+async fn scrape_urls(
+    urls: Vec<String>,
+    state: State<'_, BrowserState>,
+) -> Result<Vec<ScrapedContent>, String> {
+    if urls.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let browser = get_or_create_browser(state)?;
+
+    scrape_urls_bulk(urls, browser)
+        .await
+        .map_err(|e| format!("Erro ao extrair conteúdo das URLs: {}", e))
+}
+
 /// Reinicia o browser (útil se houver problemas)
 #[command]
 fn reset_browser(state: State<'_, BrowserState>) -> Result<(), String> {
@@ -1785,6 +1846,8 @@ pub fn run() {
         check_mcp_server_available,
         search_and_extract_content,
         extract_url_content,
+        search_web_metadata,
+        scrape_urls,
         reset_browser,
         force_kill_browser,
         export_chat_sessions,

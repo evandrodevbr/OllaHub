@@ -202,6 +202,9 @@ export function useChat() {
     systemPrompt?: string,
     options?: {
       onBeforeModelRequest?: (pendingMessages: Message[]) => Promise<void>;
+      // Quando presente, substitui SOMENTE o conteúdo da última mensagem do usuário
+      // no payload enviado ao LLM, mantendo a UI com o conteúdo original.
+      payloadContentOverride?: string;
     }
   ) => {
     setIsLoading(true);
@@ -257,12 +260,22 @@ export function useChat() {
     selectedMessages.push(lastUserMessage);
     totalTokens += estimateTokens(lastUserMessage.content);
 
-    const apiMessages = (systemPrompt 
+    // Constrói mensagens para payload, aplicando override apenas à última mensagem do usuário
+    const baseMessages = systemPrompt 
       ? [{ role: 'system', content: systemPrompt }, ...selectedMessages]
-      : selectedMessages).map(m => ({
+      : selectedMessages;
+
+    const apiMessages = baseMessages.map((m, idx) => {
+      // Detecta última mensagem do usuário
+      const isLastUser = m.role === 'user' && idx === baseMessages.length - 1;
+      const payloadContent = isLastUser && options?.payloadContentOverride
+        ? options.payloadContentOverride
+        : m.content;
+      return {
         role: m.role,
-        content: m.content // Send only content, not metadata (unless we want to inject it back)
-      }));
+        content: payloadContent,
+      };
+    });
 
     // [DEBUG INJECTION START]
     const systemMsg = apiMessages.find(m => m.role === 'system');

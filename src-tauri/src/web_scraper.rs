@@ -18,6 +18,14 @@ pub struct ScrapedContent {
     pub markdown: String,
 }
 
+/// Metadados de resultado de busca (leve, sem abrir página)
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct SearchResultMetadata {
+    pub title: String,
+    pub url: String,
+    pub snippet: String,
+}
+
 /// Categoria de busca com sites curados
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct SearchCategory {
@@ -122,6 +130,115 @@ pub async fn search_duckduckgo(query: &str, limit: usize) -> Result<Vec<String>>
     }
 
     Ok(links)
+}
+
+/// Busca no DuckDuckGo retornando apenas metadados (título, URL, snippet)
+pub async fn search_duckduckgo_metadata(query: &str, limit: usize) -> Result<Vec<SearchResultMetadata>> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()?;
+
+    let url = format!("https://html.duckduckgo.com/html/?q={}",
+        urlencoding::encode(query));
+
+    let user_agent = get_random_user_agent();
+    let res = client
+        .get(&url)
+        .header(USER_AGENT, user_agent)
+        .send()
+        .await?
+        .text()
+        .await?;
+
+    let mut results: Vec<SearchResultMetadata> = Vec::new();
+
+    {
+        let document = Html::parse_document(&res);
+
+        // Estruturas comuns no HTML do DuckDuckGo
+        let container_selectors = vec![
+            ".result",
+            ".web-result",
+            ".result__body",
+        ];
+        let title_selectors = vec![
+            ".result__a",
+            ".web-result__link",
+            "a.result__a",
+        ];
+        let snippet_selectors = vec![
+            ".result__snippet",
+            ".result__snippet.js-result-snippet",
+            ".web-result__snippet",
+        ];
+
+        for cont_sel in &container_selectors {
+            if results.len() >= limit { break; }
+            if let Ok(container) = Selector::parse(cont_sel) {
+                for node in document.select(&container) {
+                    if results.len() >= limit { break; }
+                    // Title + URL
+                    let mut found_url: Option<String> = None;
+                    let mut found_title: Option<String> = None;
+                    for tsel in &title_selectors {
+                        if let Ok(ts) = Selector::parse(tsel) {
+                            if let Some(a) = node.select(&ts).next() {
+                                if let Some(href) = a.value().attr("href") {
+                                    if let Some(real_url) = extract_real_url(href) {
+                                        found_url = clean_url(&real_url);
+                                    }
+                                }
+                                let text = a.text().collect::<Vec<_>>().join(" ").trim().to_string();
+                                if !text.is_empty() { found_title = Some(text); }
+                            }
+                        }
+                        if found_url.is_some() && found_title.is_some() { break; }
+                    }
+
+                    if found_url.is_none() { continue; }
+
+                    // Snippet
+                    let mut snippet_text: String = String::new();
+                    for ssel in &snippet_selectors {
+                        if let Ok(ss) = Selector::parse(ssel) {
+                            if let Some(s) = node.select(&ss).next() {
+                                let t = s.text().collect::<Vec<_>>().join(" ");
+                                let norm = t.split_whitespace().collect::<Vec<_>>().join(" ");
+                                if !norm.is_empty() { snippet_text = norm; break; }
+                            }
+                        }
+                    }
+
+                    let url_final = found_url.unwrap();
+                    if is_ad_or_tracker_url(&url_final) || url_final.is_empty() { continue; }
+
+                    results.push(SearchResultMetadata {
+                        title: found_title.unwrap_or_else(|| url_final.clone()),
+                        url: url_final,
+                        snippet: snippet_text,
+                    });
+
+                    if results.len() >= limit { break; }
+                }
+            }
+        }
+    }
+
+    // Se ainda vazio, tentar fallback simples: extrair todos os links conhecidos
+    if results.is_empty() {
+        let links = search_duckduckgo(query, limit).await?;
+        for l in links {
+            let url_clean = clean_url(&l).unwrap_or(l);
+            results.push(SearchResultMetadata {
+                title: url_clean.clone(),
+                url: url_clean,
+                snippet: String::new(),
+            });
+            if results.len() >= limit { break; }
+        }
+    }
+
+    Ok(results)
 }
 
 /// Extrai a URL real do redirecionamento do DuckDuckGo
@@ -436,6 +553,55 @@ pub async fn scrape_url(
     .map_err(|e| anyhow::anyhow!("Erro na task: {}", e))?
 }
 
+/// Extrai conteúdo de múltiplas URLs já definidas (bulk)
+pub async fn scrape_urls_bulk(
+    urls: Vec<String>,
+    browser: Arc<Browser>,
+) -> Result<Vec<ScrapedContent>> {
+    if urls.is_empty() { return Ok(Vec::new()); }
+    let concurrency = 5usize;
+    let semaphore = Arc::new(Semaphore::new(concurrency));
+    let mut handles = Vec::new();
+
+    for url in urls {
+        let browser_clone = browser.clone();
+        let permit = semaphore.clone().acquire_owned().await.unwrap();
+        let url_clone = url.clone();
+        let handle = tokio::task::spawn_blocking(move || {
+            let res = fetch_and_convert_sync(&browser_clone, &url_clone);
+            drop(permit);
+            res
+        });
+        handles.push(handle);
+    }
+
+    let mut results = Vec::new();
+    for h in handles {
+        match h.await {
+            Ok(Ok(content)) => {
+                let content_len = content.content.chars().count();
+                let md_len = content.markdown.chars().count();
+                if content_len < 200 && md_len < 200 {
+                    log::debug!("Descartado por conteúdo curto: {}", content.url);
+                } else {
+                    results.push(content);
+                }
+            }
+            Ok(Err(e)) => {
+                let msg = format!("{}", e);
+                if msg.contains("Timeout") || msg.contains("ERR_HTTP") {
+                    log::debug!("Ignorado (timeout/HTTP): {}", msg);
+                } else {
+                    log::warn!("Erro ao processar URL: {}", e);
+                }
+            }
+            Err(e) => log::warn!("Erro na task de scraping: {}", e),
+        }
+    }
+
+    Ok(results)
+}
+
 /// Extrai conteúdo de uma URL e converte para Markdown (versão síncrona)
 /// Retorna erro se timeout ou falha HTTP, mas não mata o processo
 fn fetch_and_convert_sync(browser: &Browser, url: &str) -> Result<ScrapedContent> {
@@ -534,7 +700,7 @@ fn fetch_and_convert_sync(browser: &Browser, url: &str) -> Result<ScrapedContent
     
     match readability::extractor::extract(&mut reader, &url_obj) {
         Ok(product) => {
-            let mut markdown = html2text::from_read(product.content.as_bytes(), 80);
+            let markdown = html2text::from_read(product.content.as_bytes(), 80);
             // Se o markdown for muito curto, significa que o readability pode ter falhado
             if markdown.trim().chars().count() < 400 {
                 if let Some(fallback) = extract_paragraph_fallback(url, &content) {
