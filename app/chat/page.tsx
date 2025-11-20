@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { MessageSquare, Settings, Server, Moon, Sun, PanelLeftClose, PanelLeftOpen, Loader2 } from "lucide-react";
+import { MessageSquare, Settings, Server, Moon, Sun, PanelLeftClose, PanelLeftOpen, Loader2, ChevronDown } from "lucide-react";
 import { ChatInput } from "@/components/chat/chat-input";
 import { ChatMessage } from "@/components/chat/chat-message";
 import { SystemPanel } from "@/components/chat/system-panel";
@@ -22,6 +22,7 @@ import { SearchProgress } from "@/components/chat/search-progress";
 import { ThinkingIndicator, ThinkingStep } from "@/components/chat/thinking-indicator";
 import { useQueryGenerator } from "@/hooks/use-query-generator";
 import { useSettingsStore } from "@/store/settings-store";
+import type { ScrapedContent } from "@/services/webSearch";
 import { invoke } from "@tauri-apps/api/core";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTheme } from "next-themes";
@@ -64,6 +65,9 @@ export default function ChatPage() {
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedMessagesRef = useRef<number>(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [showContextDebug, setShowContextDebug] = useState(false);
+  const [lastWebContext, setLastWebContext] = useState('');
+  const [lastContextSources, setLastContextSources] = useState<ScrapedContent[]>([]);
 
   // Auto-select first model
   useEffect(() => {
@@ -120,6 +124,9 @@ export default function ChatPage() {
 
   const handleSend = async (content: string) => {
     if (!selectedModel) return;
+    setShowContextDebug(false);
+    setLastWebContext('');
+    setLastContextSources([]);
     
     // Generate ID if new session (but don't create card yet - wait for title)
     if (!currentSessionId) {
@@ -131,7 +138,7 @@ export default function ChatPage() {
     // ========== LÓGICA DE AGENTE DE PESQUISA ==========
     let webContext = '';
     let searchQuery = '';
-    let scrapedSources: any[] = [];
+    let scrapedSources: ScrapedContent[] = [];
     
     // Iniciar indicador de pensamento
     setThinkingStep('analyzing');
@@ -188,7 +195,13 @@ export default function ChatPage() {
             // Log para debug: verificar tamanho do contexto gerado
             const contextLength = webContext.length;
             console.debug(`Contexto web gerado (sanitizado): ${contextLength} caracteres de ${scrapedSources.length} fontes`);
+            setLastWebContext(webContext);
+            setLastContextSources(scrapedSources);
+            setShowContextDebug(false);
           }
+        } else {
+          setLastWebContext('');
+          setLastContextSources([]);
         }
       } catch (error) {
         console.error('Erro na pesquisa web:', error);
@@ -283,7 +296,12 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
     }
     // [DEBUG INJECTION END]
     
-    await sendMessage(content, selectedModel, enhancedSystemPrompt);
+    let finalUserContent = content;
+    if (webContext) {
+      finalUserContent = `[CONTEXTO WEB OBRIGATÓRIO]\n${webContext}\n[/CONTEXTO WEB]\n\nCom base EXCLUSIVAMENTE no texto acima, responda: ${content}`;
+    }
+    
+    await sendMessage(finalUserContent, selectedModel, enhancedSystemPrompt);
     
     // Marcar como completo quando começar a streamar
     setTimeout(() => setThinkingStep('complete'), 100);
@@ -516,8 +534,54 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                 currentStep={thinkingStep}
                 searchQuery={webSearch.currentQuery}
                 sourcesRead={webSearch.scrapedSources.length}
-                totalSources={5}
+                totalSources={settings.webSearch.maxResults}
               />
+            )}
+
+            {/* Raw Context Debug */}
+            {lastContextSources.length > 0 && (
+              <div className="border-t border-muted px-6 py-4 bg-muted/40 space-y-3">
+                <button
+                  type="button"
+                  onClick={() => setShowContextDebug((prev) => !prev)}
+                  className="w-full flex items-center justify-between text-left text-sm font-medium"
+                >
+                  <span>Ver contexto extraído (debug)</span>
+                  <ChevronDown
+                    className={`w-4 h-4 transition-transform ${showContextDebug ? 'rotate-180' : ''}`}
+                  />
+                </button>
+                {showContextDebug && (
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground mb-1">
+                        Fontes utilizadas ({lastContextSources.length}):
+                      </p>
+                      <div className="space-y-1 max-h-32 overflow-auto pr-2">
+                        {lastContextSources.map((source, idx) => (
+                          <a
+                            key={`${source.url}-${idx}`}
+                            href={source.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block text-xs text-primary hover:underline truncate"
+                          >
+                            {source.title || source.url}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground mb-1">
+                        Bloco enviado na mensagem do usuário:
+                      </p>
+                      <pre className="text-[11px] leading-relaxed font-mono whitespace-pre-wrap bg-background border border-muted rounded-lg p-3 max-h-64 overflow-auto">
+                        {lastWebContext.trim().length > 0 ? lastWebContext : '[Contexto vazio após sanitização]'}
+                      </pre>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
 
             {/* Input */}

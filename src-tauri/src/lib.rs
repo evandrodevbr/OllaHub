@@ -1307,40 +1307,40 @@ fn force_kill_browser() -> Result<u32, String> {
         }
         
         // Processo identificado como headless - pode matar com segurança
-        #[cfg(target_os = "windows")]
-        {
-            use std::process::Command;
-            match Command::new("taskkill")
-                .args(&["/F", "/PID", &pid.to_string()])
-                .output()
+            #[cfg(target_os = "windows")]
             {
-                Ok(output) => {
-                    if output.status.success() {
-                        killed_count += 1;
+                use std::process::Command;
+                match Command::new("taskkill")
+                    .args(&["/F", "/PID", &pid.to_string()])
+                    .output()
+                {
+                    Ok(output) => {
+                        if output.status.success() {
+                            killed_count += 1;
                         log::info!("Processo Chrome headless encerrado: PID {} ({})", pid, name);
+                        }
                     }
-                }
-                Err(e) => {
-                    log::warn!("Erro ao encerrar processo {}: {}", pid, e);
+                    Err(e) => {
+                        log::warn!("Erro ao encerrar processo {}: {}", pid, e);
+                    }
                 }
             }
-        }
-        
-        #[cfg(not(target_os = "windows"))]
-        {
-            use std::process::Command;
-            match Command::new("kill")
-                .args(&["-9", &pid.to_string()])
-                .output()
+            
+            #[cfg(not(target_os = "windows"))]
             {
-                Ok(output) => {
-                    if output.status.success() {
-                        killed_count += 1;
+                use std::process::Command;
+                match Command::new("kill")
+                    .args(&["-9", &pid.to_string()])
+                    .output()
+                {
+                    Ok(output) => {
+                        if output.status.success() {
+                            killed_count += 1;
                         log::info!("Processo Chrome headless encerrado: PID {} ({})", pid, name);
+                        }
                     }
-                }
-                Err(e) => {
-                    log::warn!("Erro ao encerrar processo {}: {}", pid, e);
+                    Err(e) => {
+                        log::warn!("Erro ao encerrar processo {}: {}", pid, e);
                 }
             }
         }

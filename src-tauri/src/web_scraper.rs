@@ -532,33 +532,43 @@ fn fetch_and_convert_sync(browser: &Browser, url: &str) -> Result<ScrapedContent
         }
     };
     
-    let product = match readability::extractor::extract(&mut reader, &url_obj) {
-        Ok(p) => p,
-        Err(e) => {
-            log::warn!("Falha ao extrair conteúdo legível de {}: {}", url, e);
-            return Err(anyhow::anyhow!("Falha ao processar conteúdo: {}", e));
+    match readability::extractor::extract(&mut reader, &url_obj) {
+        Ok(product) => {
+            let mut markdown = html2text::from_read(product.content.as_bytes(), 80);
+            // Se o markdown for muito curto, significa que o readability pode ter falhado
+            if markdown.trim().chars().count() < 400 {
+                if let Some(fallback) = extract_paragraph_fallback(url, &content) {
+                    log::info!("Fallback de parágrafos aplicado para {}", url);
+                    return Ok(fallback);
+                }
+            }
+            
+            let title = if product.title.is_empty() {
+                fallback_title(&content).unwrap_or_else(|| "Fonte externa sem título".to_string())
+            } else {
+                product.title.clone()
+            };
+            
+            Ok(ScrapedContent {
+                title: title.clone(),
+                url: url.to_string(),
+                content: product.content,
+                markdown: format!(
+                    "---\nTitle: {}\nSource: {}\n---\n\n{}",
+                    title,
+                    url,
+                    markdown
+                ),
+            })
         }
-    };
-    
-    // Conversão para Markdown
-    let markdown = html2text::from_read(product.content.as_bytes(), 80);
-    
-    // Clonar title antes de mover para poder usar no format!
-    let title = product.title.clone();
-    
-    let result = ScrapedContent {
-        title: product.title,
-        url: url.to_string(),
-        content: product.content,
-        markdown: format!(
-            "---\nTitle: {}\nSource: {}\n---\n\n{}",
-            title,
-            url,
-            markdown
-        ),
-    };
-
-    Ok(result)
+        Err(e) => {
+            log::warn!("Falha ao extrair conteúdo legível de {}: {}. Tentando fallback...", url, e);
+            if let Some(fallback) = extract_paragraph_fallback(url, &content) {
+                return Ok(fallback);
+            }
+            Err(anyhow::anyhow!("Falha ao processar conteúdo: {}", e))
+        }
+    }
 }
 
 /// Cria uma instância do Browser (singleton para reutilização)
@@ -570,5 +580,69 @@ pub fn create_browser() -> Result<Browser> {
     
     Browser::new(options)
         .map_err(|e| anyhow::anyhow!("Falha ao criar browser: {}", e))
+}
+
+fn extract_paragraph_fallback(url: &str, html: &str) -> Option<ScrapedContent> {
+    use scraper::{Html, Selector};
+    
+    let document = Html::parse_document(html);
+    let paragraph_selector = Selector::parse("p").ok()?;
+    let mut paragraphs = Vec::new();
+    
+    for element in document.select(&paragraph_selector) {
+        let text = element.text().collect::<Vec<_>>().join(" ");
+        let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        if normalized.chars().count() >= 100 {
+            paragraphs.push(normalized);
+        }
+        if paragraphs.len() >= 20 {
+            break;
+        }
+    }
+    
+    if paragraphs.len() < 3 {
+        return None;
+    }
+    
+    let fallback_body = paragraphs.join("\n\n");
+    let title = fallback_title(html).unwrap_or_else(|| "Conteúdo externo".to_string());
+    
+    Some(ScrapedContent {
+        title: title.clone(),
+        url: url.to_string(),
+        content: fallback_body.clone(),
+        markdown: format!(
+            "---\nTitle: {}\nSource: {}\n---\n\n{}",
+            title,
+            url,
+            fallback_body
+        ),
+    })
+}
+
+fn fallback_title(html: &str) -> Option<String> {
+    use scraper::{Html, Selector};
+    
+    let document = Html::parse_document(html);
+    
+    if let Ok(selector) = Selector::parse("title") {
+        if let Some(node) = document.select(&selector).next() {
+            let text = node.text().collect::<Vec<_>>().join(" ").trim().to_string();
+            if !text.is_empty() {
+                return Some(text);
+            }
+        }
+    }
+    
+    if let Ok(selector) = Selector::parse("h1") {
+        if let Some(node) = document.select(&selector).next() {
+            let text = node.text().collect::<Vec<_>>().join(" ").trim().to_string();
+            if !text.is_empty() {
+                return Some(text);
+            }
+        }
+    }
+    
+    None
 }
 
