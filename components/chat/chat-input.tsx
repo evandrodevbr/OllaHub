@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Square, Globe, WifiOff } from "lucide-react";
+import { Send, Square, Globe, WifiOff, ChevronUp } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import {
   Tooltip,
@@ -15,6 +15,8 @@ interface ChatInputProps {
   isLoading: boolean;
   webSearchEnabled?: boolean;
   onWebSearchToggle?: (enabled: boolean) => void;
+  categories?: SearchCategory[];
+  onToggleCategory?: (id: string, enabled: boolean) => void;
 }
 
 export function ChatInput({ 
@@ -23,9 +25,12 @@ export function ChatInput({
   isLoading,
   webSearchEnabled = true,
   onWebSearchToggle,
+  categories = [],
+  onToggleCategory,
 }: ChatInputProps) {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [webDialogOpen, setWebDialogOpen] = useState(false);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -49,8 +54,8 @@ export function ChatInput({
   }, [input]);
 
   return (
-    <div className="p-4 border-t bg-background">
-      <div className="relative flex items-end gap-2 max-w-4xl mx-auto w-full">
+    <div className="p-6 bg-transparent">
+      <div className="relative max-w-3xl mx-auto w-full">
         <div className="flex-1 relative">
           <Textarea
             ref={textareaRef}
@@ -58,7 +63,7 @@ export function ChatInput({
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Digite sua mensagem..."
-            className="min-h-[50px] max-h-[200px] resize-none py-3 pr-12"
+            className="min-h-[48px] resize-none overflow-hidden py-4 pr-12 rounded-xl border shadow-lg"
             rows={1}
           />
           <div className="absolute right-2 bottom-2 flex items-center gap-2">
@@ -71,16 +76,9 @@ export function ChatInput({
                       variant={webSearchEnabled ? "default" : "ghost"}
                       onClick={() => {
                         if (!webSearchEnabled) {
-                          // Ao ativar, não precisa de confirmação
                           onWebSearchToggle(true);
                         } else {
-                          // Ao desativar, mostrar aviso
-                          const confirmed = window.confirm(
-                            "Atenção: Desativar a pesquisa web pode reduzir a qualidade das respostas para fatos recentes, especialmente em modelos menores. Deseja continuar?"
-                          );
-                          if (confirmed) {
-                            onWebSearchToggle(false);
-                          }
+                          setWebDialogOpen(true);
                         }
                       }}
                       className="h-8 w-8"
@@ -103,6 +101,28 @@ export function ChatInput({
                 </Tooltip>
               </TooltipProvider>
             )}
+            {onToggleCategory && categories && categories.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="icon" variant="outline" className="h-8 w-8" title="Gerenciar fontes">
+                    <ChevronUp className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" sideOffset={6}>
+                  <DropdownMenuLabel>Fontes de conhecimento</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {categories.map((cat) => (
+                    <DropdownMenuCheckboxItem
+                      key={cat.id}
+                      checked={cat.enabled}
+                      onCheckedChange={(checked) => onToggleCategory(cat.id, !!checked)}
+                    >
+                      {cat.name}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             {isLoading ? (
               <Button size="icon" variant="destructive" onClick={onStop} className="h-8 w-8">
                 <Square className="h-4 w-4 fill-current" />
@@ -120,12 +140,51 @@ export function ChatInput({
           </div>
         </div>
       </div>
+      <Dialog open={webDialogOpen} onOpenChange={setWebDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Desativar pesquisa web?</DialogTitle>
+            <DialogDescription>
+              Desativar a busca pode reduzir a qualidade em perguntas sobre fatos recentes, preços, notícias e conteúdo em rápida mudança. 
+              Use com cautela — modelos locais sem contexto web tendem a alucinar mais nesses cenários.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setWebDialogOpen(false)}>Manter ativado</Button>
+            <Button
+              variant="destructive"
+              onClick={() => { onWebSearchToggle?.(false); setWebDialogOpen(false); }}
+            >
+              Desativar pesquisa web
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <div className="text-xs text-center text-muted-foreground mt-2">
         OllaHub pode cometer erros. Verifique informações importantes.
       </div>
     </div>
   );
 }
+
+
+import { 
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import type { SearchCategory } from "@/store/settings-store";
 
 
 

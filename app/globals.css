@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
+@custom-variant hc (&:is([data-high-contrast=true] *));
 
 @theme inline {
   --color-background: var(--background);
@@ -37,10 +38,23 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-message-user: var(--message-user);
+  --color-message-assistant: var(--message-assistant);
+  --color-message-highlight: var(--message-highlight);
+  --color-message-selected: var(--message-selected);
+  --color-message-high-contrast: var(--message-high-contrast);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+  --space-5: 40px;
+  --space-6: 48px;
+  --space-7: 56px;
+  --space-8: 64px;
 }
 
 :root {
@@ -76,6 +90,11 @@
   --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
   --sidebar-border: oklch(0.92 0.004 286.32);
   --sidebar-ring: oklch(0.705 0.015 286.067);
+  --message-user: oklch(0.965 0.02 245);
+  --message-assistant: oklch(0.972 0.012 300);
+  --message-highlight: oklch(0.94 0.02 250);
+  --message-selected: oklch(0.92 0.02 285);
+  --message-high-contrast: oklch(0.99 0 0);
 }
 
 .dark {
@@ -110,6 +129,19 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.552 0.016 285.938);
+  --message-user: oklch(0.23 0.02 245);
+  --message-assistant: oklch(0.24 0.015 300);
+  --message-highlight: oklch(0.34 0.02 250);
+  --message-selected: oklch(0.25 0.02 285);
+  --message-high-contrast: oklch(0.18 0.005 286);
+}
+
+:root[data-high-contrast="true"] {
+  --message-user: oklch(0.9 0 0);
+  --message-assistant: oklch(0.9 0 0);
+  --message-highlight: oklch(0.8 0 0);
+  --message-selected: oklch(0.7 0 0);
+  --message-high-contrast: oklch(0.99 0 0);
 }
 
 @layer base {

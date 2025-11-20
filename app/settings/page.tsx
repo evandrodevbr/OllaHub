@@ -425,19 +425,36 @@ export default function SettingsPage() {
               <div className="space-y-2">
                 <Label htmlFor="max-results">Máximo de Resultados</Label>
                 <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>1</span>
-                    <span className="font-medium">{settings.webSearch.maxResults}</span>
-                    <span>10</span>
+                  <div className="flex items-center gap-3">
+                    <Input
+                      id="max-results"
+                      type="number"
+                      value={settings.webSearch.maxResults}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value || '0', 10);
+                        const clamped = Math.min(100, Math.max(1, isNaN(v) ? 1 : v));
+                        settings.setWebSearchMaxResults(clamped);
+                      }}
+                      className="w-24"
+                      min={1}
+                      max={100}
+                      disabled={!settings.webSearch.enabled}
+                    />
+                    <div className="flex-1">
+                      <Slider
+                        value={[settings.webSearch.maxResults]}
+                        onValueChange={([value]) => settings.setWebSearchMaxResults(value)}
+                        min={1}
+                        max={100}
+                        step={1}
+                        disabled={!settings.webSearch.enabled}
+                      />
+                    </div>
                   </div>
-                  <Slider
-                    value={[settings.webSearch.maxResults]}
-                    onValueChange={([value]) => settings.setWebSearchMaxResults(value)}
-                    min={1}
-                    max={10}
-                    step={1}
-                    disabled={!settings.webSearch.enabled}
-                  />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>1</span>
+                    <span>100</span>
+                  </div>
                 </div>
               </div>
 
@@ -516,9 +533,9 @@ export default function SettingsPage() {
                       variant="outline"
                       size="sm"
                       onClick={async () => {
-                        if (confirm('Restaurar categorias padrão? Isso substituirá a configuração atual.')) {
+                        if (confirm('Mesclar categorias padrão curadas com sua configuração (sem duplicatas)?')) {
                           try {
-                            const defaultConfig: SourcesConfig = {
+                            const curated: SourcesConfig = {
                               version: 1,
                               last_updated: new Date().toISOString(),
                               categories: [
@@ -526,11 +543,10 @@ export default function SettingsPage() {
                                   id: 'academico',
                                   name: 'Acadêmico',
                                   base_sites: [
-                                    'scholar.google.com',
-                                    'arxiv.org',
-                                    'pubmed.ncbi.nlm.nih.gov',
-                                    'ieee.org',
-                                    'acm.org',
+                                    'scholar.google.com', 'arxiv.org', 'pubmed.ncbi.nlm.nih.gov', 'ieee.org', 'acm.org',
+                                    'sciencedirect.com', 'springer.com', 'jstor.org', 'researchgate.net', 'plos.org',
+                                    'nature.com', 'sciencemag.org', 'mit.edu', 'phys.org', 'semanticscholar.org',
+                                    'core.ac.uk', 'paperswithcode.com', 'base-search.net', 'doaj.org', 'worldscientific.com'
                                   ],
                                   enabled: true,
                                 },
@@ -538,11 +554,10 @@ export default function SettingsPage() {
                                   id: 'tech',
                                   name: 'Tech',
                                   base_sites: [
-                                    'github.com',
-                                    'stackoverflow.com',
-                                    'dev.to',
-                                    'medium.com',
-                                    'reddit.com/r/programming',
+                                    'stackoverflow.com', 'github.com', 'reddit.com/r/programming', 'dev.to', 'hackernoon.com',
+                                    'tabnews.com.br', 'lobste.rs', 'news.ycombinator.com', 'hashnode.com', 'codesandbox.io',
+                                    'developer.mozilla.org', 'web.dev', 'smashingmagazine.com', 'martinfowler.com', 'infoq.com',
+                                    'dzone.com', 'freecodecamp.org', 'digitalocean.com', 'realpython.com', 'css-tricks.com'
                                   ],
                                   enabled: true,
                                 },
@@ -550,10 +565,10 @@ export default function SettingsPage() {
                                   id: 'news',
                                   name: 'News',
                                   base_sites: [
-                                    'news.ycombinator.com',
-                                    'techcrunch.com',
-                                    'theverge.com',
-                                    'arstechnica.com',
+                                    'theverge.com', 'techcrunch.com', 'arstechnica.com', 'engadget.com', 'wired.com',
+                                    'venturebeat.com', 'cnet.com', 'mashable.com', 'gizmodo.com', 'zdnet.com',
+                                    'tomshardware.com', 'anandtech.com', 'bleepingcomputer.com', 'theregister.com', '9to5mac.com',
+                                    'androidauthority.com', 'techradar.com', 'fastcompany.com', 'g1.globo.com', 'techtudo.com.br'
                                   ],
                                   enabled: true,
                                 },
@@ -561,33 +576,47 @@ export default function SettingsPage() {
                                   id: 'financeiro',
                                   name: 'Financeiro',
                                   base_sites: [
-                                    'bloomberg.com',
-                                    'reuters.com',
-                                    'financialtimes.com',
-                                    'wsj.com',
+                                    'bloomberg.com', 'reuters.com', 'wsj.com', 'ft.com', 'cnbc.com',
+                                    'marketwatch.com', 'economist.com', 'forbes.com', 'investopedia.com', 'seekingalpha.com',
+                                    'infomoney.com.br', 'valor.globo.com', 'exame.com', 'braziljournal.com', 'coindesk.com',
+                                    'cointelegraph.com', 'moneytimes.com.br', 'suno.com.br', 'b3.com.br', 'imf.org'
                                   ],
                                   enabled: true,
                                 },
                               ],
                             };
-                            await settings.saveSources(defaultConfig);
+                            if (!settings.sourcesConfig) {
+                              await settings.saveSources(curated);
+                            } else {
+                              const merged: SourcesConfig = {
+                                ...settings.sourcesConfig,
+                                categories: settings.sourcesConfig.categories.map((existing) => {
+                                  const cur = curated.categories.find(c => c.id === existing.id);
+                                  if (!cur) return existing;
+                                  const set = new Set<string>([...existing.base_sites, ...cur.base_sites].map(s => s.toLowerCase()));
+                                  return { ...existing, base_sites: Array.from(set) } as any;
+                                }),
+                                last_updated: new Date().toISOString(),
+                              };
+                              await settings.saveSources(merged);
+                            }
                             toast({
-                              title: 'Padrões restaurados',
-                              description: 'Categorias padrão foram restauradas',
+                              title: 'Fontes mescladas',
+                              description: 'Categorias curadas foram mescladas sem duplicatas',
                             });
                           } catch (error) {
                             toast({
-                              title: 'Erro ao restaurar',
-                              description: error instanceof Error ? error.message : 'Falha ao restaurar',
+                              title: 'Erro ao mesclar',
+                              description: error instanceof Error ? error.message : 'Falha ao mesclar categorias',
                               variant: 'destructive',
                             });
                           }
                         }
-                      }}
-                    >
-                      <RotateCcw className="w-4 h-4 mr-2" />
-                      Restaurar Padrões
-                    </Button>
+                    }}
+                  >
+                    <RotateCcw className="w-4 h-4 mr-2" />
+                    Mesclar Padrões Curados
+                  </Button>
                   </div>
                   <div className="grid gap-4">
                     {settings.sourcesConfig.categories.map((category) => {

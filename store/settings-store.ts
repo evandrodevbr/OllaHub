@@ -159,7 +159,7 @@ const initialState = {
     timeout: 10,
     excludedDomains: ['youtube.com', 'linkedin.com'],
     maxConcurrentTabs: 5,
-    totalSourcesLimit: 40,
+    totalSourcesLimit: 100,
     categories: defaultCategories,
     userCustomSites: [],
   },

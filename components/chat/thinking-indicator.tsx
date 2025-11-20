@@ -59,8 +59,8 @@ export function ThinkingIndicator({
   }
 
   return (
-    <div className="px-6 py-3 border-b border-muted/50 bg-muted/20">
-      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+    <div className="px-6 py-4 border-b border-muted/50 bg-muted/20">
+      <div className="flex items-center gap-4 text-xs text-muted-foreground">
         {steps.slice(0, currentStepIndex + 1).map((step, idx) => {
           const isActive = idx === currentStepIndex;
           const isPast = idx < currentStepIndex;

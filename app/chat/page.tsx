@@ -1,17 +1,14 @@
 'use client';
 
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { MessageSquare, Settings, Server, Moon, Sun, PanelLeftClose, PanelLeftOpen, Loader2, ChevronDown } from "lucide-react";
 import { ChatInput } from "@/components/chat/chat-input";
 import { ChatMessage } from "@/components/chat/chat-message";
-import { SystemPanel } from "@/components/chat/system-panel";
-import { PromptGeneratorDialog } from "@/components/chat/prompt-generator";
+ 
 import { SidebarList } from "@/components/chat/sidebar-list";
 import { useChat } from "@/hooks/use-chat";
 import { useLocalModels } from "@/hooks/use-local-models";
@@ -36,7 +33,7 @@ import defaultFormatPrompt from "@/data/prompts/default-format.md";
 export default function ChatPage() {
   const router = useRouter();
   const { messages, setMessages, sendMessage, isLoading, stop, clearChat } = useChat();
-  const { models } = useLocalModels();
+  const { models, refresh } = useLocalModels();
   const { theme, setTheme } = useTheme();
   
   const { 
@@ -56,6 +53,8 @@ export default function ChatPage() {
   const settings = useSettingsStore();
   
   const [selectedModel, setSelectedModel] = useState("");
+  const [mounted, setMounted] = useState(false);
+  const initializedRef = useRef(false);
   // Initialize with default format prompt
   const [systemPrompt, setSystemPrompt] = useState(defaultFormatPrompt || "Você é um assistente útil e prestativo.");
   const [isChatsSidebarCollapsed, setIsChatsSidebarCollapsed] = useState(false);
@@ -71,10 +70,22 @@ export default function ChatPage() {
 
   // Auto-select first model
   useEffect(() => {
-    if (models.length > 0 && !selectedModel) {
-      setSelectedModel(models[0].name);
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (initializedRef.current) return;
+    const stored = settings.selectedModel;
+    const first = models.length > 0 ? models[0].name : "";
+    const next = stored || first || "";
+    if (next) {
+      setSelectedModel(next);
+      if (!stored) {
+        settings.setSelectedModel(next);
+      }
     }
-  }, [models, selectedModel]);
+    initializedRef.current = true;
+  }, [settings.selectedModel, models]);
 
   // Auto-scroll para o final durante streaming
   useEffect(() => {
@@ -372,7 +383,7 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             className="rounded-lg text-muted-foreground hover:text-foreground"
           >
-            {theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            {mounted ? (theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />) : null}
           </Button>
           <Button 
             variant="ghost" 
@@ -436,17 +447,27 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                 </div>
               </div>
 
-              <div className="flex-1 max-w-[300px]">
-                 <Select value={selectedModel} onValueChange={setSelectedModel}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue placeholder="Selecione um modelo..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {models.map(m => (
-                      <SelectItem key={m.name} value={m.name}>{m.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="flex-1 max-w-[420px] flex items-center gap-2">
+                <div className="flex-1">
+                  <Select value={selectedModel} onValueChange={(v) => { setSelectedModel(v); settings.setSelectedModel(v); }}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Selecione um modelo..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {models.map(m => (
+                        <SelectItem key={m.name} value={m.name}>
+                          <span className="flex items-center justify-between w-full">
+                            <span className="truncate">{m.name}</span>
+                            <span className="ml-3 text-xs text-muted-foreground">{m.size}</span>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button variant="outline" size="icon" className="h-9 w-9" onClick={refresh} title="Atualizar modelos">
+                  <Loader2 className="w-4 h-4" />
+                </Button>
               </div>
             </div>
 
@@ -460,7 +481,7 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                   <p>Inicie uma conversa com {selectedModel}</p>
                 </div>
               ) : (
-                <div className="flex flex-col pb-4 max-w-4xl mx-auto w-full">
+                <div className="flex flex-col pb-4 max-w-3xl mx-auto w-full space-y-6">
                   {messages.map((msg, i) => {
                     // Verificar se a mensagem anterior teve busca web
                     const hasWebSources = i > 0 && 
@@ -471,6 +492,19 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                     return (
                       <div key={i}>
                         <ChatMessage message={msg} />
+                        {(msg.role === 'user') && (
+                          (webSearch.status === 'searching' || 
+                           webSearch.status === 'scraping' || 
+                           webSearch.status === 'completed' || 
+                           webSearch.status === 'error') && (
+                            <SearchProgress
+                              status={webSearch.status}
+                              query={webSearch.currentQuery}
+                              sources={webSearch.scrapedSources}
+                              error={webSearch.error}
+                            />
+                          )
+                        )}
                         {/* Mostrar fontes após resposta do assistente que usou web search */}
                         {msg.role === 'assistant' && hasWebSources && (
                           <div className="px-6 pb-4">
@@ -507,18 +541,7 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                       </div>
                     );
                   })}
-                  {/* Web Search Progress - mostrar antes da resposta da IA */}
-                  {(webSearch.status === 'searching' || 
-                    webSearch.status === 'scraping' || 
-                    webSearch.status === 'completed' || 
-                    webSearch.status === 'error') && (
-                    <SearchProgress
-                      status={webSearch.status}
-                      query={webSearch.currentQuery}
-                      sources={webSearch.scrapedSources}
-                      error={webSearch.error}
-                    />
-                  )}
+                  
                   {isLoading && thinkingStep === 'complete' && (
                     <div className="px-6 py-4 text-xs text-muted-foreground animate-pulse">
                       Gerando resposta...
@@ -530,8 +553,8 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
               <div ref={messagesEndRef} className="h-1" />
             </div>
 
-            {/* Thinking Indicator */}
-            {thinkingStep && thinkingStep !== 'complete' && (
+            {/* Thinking Indicator - aparece apenas quando não há web search ativo */}
+            {thinkingStep && thinkingStep !== 'complete' && (webSearch.status === 'idle') && (
               <ThinkingIndicator
                 currentStep={thinkingStep}
                 searchQuery={webSearch.currentQuery}
@@ -593,60 +616,14 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
               isLoading={isLoading}
               webSearchEnabled={webSearch.isEnabled}
               onWebSearchToggle={webSearch.setEnabled}
+              categories={settings.webSearch.categories}
+              onToggleCategory={(id, enabled) => {
+                const cat = settings.webSearch.categories.find(c => c.id === id);
+                if (!cat) return;
+                settings.updateCategory({ ...cat, enabled });
+              }}
             />
           </div>
-        </ResizablePanel>
-
-        <ResizableHandle withHandle />
-
-        {/* Right Sidebar (Settings & Monitor) */}
-        <ResizablePanel defaultSize={20} minSize={15} maxSize={30} className="bg-muted/10">
-          <Tabs defaultValue="params" className="h-full flex flex-col overflow-hidden">
-            <div className="border-b px-4">
-              <TabsList className="w-full justify-start h-12 bg-transparent p-0 gap-4">
-                <TabsTrigger 
-                  value="params" 
-                  className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0"
-                >
-                  Parâmetros
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="system" 
-                  className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0"
-                >
-                  Sistema
-                </TabsTrigger>
-              </TabsList>
-            </div>
-
-            <TabsContent value="params" className="flex-1 p-4 space-y-6 overflow-y-auto overflow-x-hidden m-0">
-              <div className="space-y-6">
-                {/* System Prompt */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium">System Prompt</label>
-                    <PromptGeneratorDialog 
-                      defaultModel={selectedModel} 
-                      onPromptGenerated={setSystemPrompt} 
-                    />
-                  </div>
-                  <Textarea 
-                    value={systemPrompt}
-                    onChange={(e) => setSystemPrompt(e.target.value)}
-                    className="min-h-[300px] resize-none font-mono text-sm"
-                    placeholder="Defina como a IA deve se comportar..."
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Instruções globais para o comportamento do modelo.
-                  </p>
-                </div>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="system" className="flex-1 m-0 overflow-y-auto overflow-x-hidden">
-              <SystemPanel />
-            </TabsContent>
-          </Tabs>
         </ResizablePanel>
 
       </ResizablePanelGroup>

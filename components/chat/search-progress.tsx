@@ -1,6 +1,5 @@
 import { Search, BookOpen, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { ScrapedContent } from '@/services/webSearch';
 import { SearchStatus } from '@/hooks/use-web-search';
@@ -73,24 +72,23 @@ export function SearchProgress({
   const showExpandButton = status === 'completed' && sources.length > 0;
 
   return (
-    <Card className={cn(
-      "mx-4 mb-2 border border-border/50 bg-muted/30 transition-all",
-      status === 'completed' && "opacity-60 hover:opacity-100",
-      status === 'error' && "border-destructive/30 bg-destructive/5"
+    <div className={cn(
+      "mx-6 mb-2 transition-all",
+      status === 'completed' && "opacity-70 hover:opacity-100",
+      status === 'error' && "text-destructive"
     )}>
-      <CardContent className="p-2">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <div className="flex-shrink-0">
-              {isActive ? (
-                <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
-              ) : (
-                <div className="w-3 h-3">
-                  {getStatusIcon()}
-                </div>
-              )}
-            </div>
-            <span className="text-xs text-muted-foreground truncate">
+      <div className="p-2 pl-3 border-l-2 border-muted flex items-center justify-between gap-2 text-xs">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <div className="flex-shrink-0">
+            {isActive ? (
+              <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+            ) : (
+              <div className="w-3 h-3">
+                {getStatusIcon()}
+              </div>
+            )}
+          </div>
+            <span className="text-muted-foreground truncate">
               {getStatusText()}
             </span>
           </div>
@@ -100,7 +98,7 @@ export function SearchProgress({
               variant="ghost"
               size="sm"
               onClick={toggleExpanded}
-              className="h-7 w-7 p-0 flex-shrink-0"
+              className="h-8 w-8 p-0 flex-shrink-0"
             >
               {isExpanded ? (
                 <ChevronUp className="w-4 h-4" />
@@ -109,15 +107,15 @@ export function SearchProgress({
               )}
             </Button>
           )}
-        </div>
+      </div>
 
         {/* Lista de fontes expandida */}
         {isExpanded && sources.length > 0 && (
-          <div className="mt-3 pt-3 border-t space-y-2">
+          <div className="mt-2 ml-6 pl-3 border-l space-y-2">
             {sources.map((source, idx) => (
               <div
                 key={idx}
-                className="flex items-start gap-2 p-2 rounded-md bg-background/50 hover:bg-background/80 transition-colors"
+                className="flex items-start gap-2 p-2 rounded-md bg-muted/30 hover:bg-muted/50 transition-colors"
               >
                 <img
                   src={getFaviconUrl(source.url)}
@@ -145,8 +143,7 @@ export function SearchProgress({
             ))}
           </div>
         )}
-      </CardContent>
-    </Card>
+    </div>
   );
 }
 

@@ -74,7 +74,7 @@ export function WebSearchStatus({
         status === 'error' && "border-l-red-500",
         (status === 'searching' || status === 'scraping') && "border-l-blue-500"
       )}>
-        <CardContent className="p-3">
+        <CardContent className="p-4">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <div className="flex-shrink-0">

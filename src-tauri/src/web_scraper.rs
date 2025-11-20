@@ -54,7 +54,7 @@ fn default_max_concurrent() -> usize {
 }
 
 fn default_total_sources() -> usize {
-    40
+    100
 }
 
 /// Pool de User-Agents para rotação (evita bloqueios 429)
@@ -80,55 +80,51 @@ pub async fn search_duckduckgo(query: &str, limit: usize) -> Result<Vec<String>>
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()?;
-    
-    let url = format!("https://html.duckduckgo.com/html/?q={}", 
-        urlencoding::encode(query));
-    
-    // User-Agent rotativo para evitar bloqueios
     let user_agent = get_random_user_agent();
-    log::debug!("Usando User-Agent: {}", user_agent);
-    
-    let res = client
-        .get(&url)
-        .header(USER_AGENT, user_agent)
-        .send()
-        .await?
-        .text()
-        .await?;
-
-    let document = Html::parse_document(&res);
-    
-    // Seletores para links orgânicos do DuckDuckGo
-    // Tenta múltiplos seletores para maior compatibilidade
+    let mut links = Vec::new();
+    let mut offset = 0usize;
+    let max_pages = 5usize;
     let selectors = vec![
         ".result__a",
         ".web-result__link",
         "a.result__a",
     ];
-
-    let mut links = Vec::new();
-    
-    for selector_str in selectors {
-        if let Ok(selector) = Selector::parse(selector_str) {
-            for element in document.select(&selector).take(limit) {
-                if let Some(href) = element.value().attr("href") {
-                    // DuckDuckGo usa redirecionamento, extrair URL real
-                    if let Some(real_url) = extract_real_url(href) {
-                        if !links.contains(&real_url) {
-                            links.push(real_url);
-                            if links.len() >= limit {
-                                break;
+    for _ in 0..max_pages {
+        if links.len() >= limit { break; }
+        let url = format!(
+            "https://html.duckduckgo.com/html/?q={}&s={}",
+            urlencoding::encode(query),
+            offset
+        );
+        let res = client
+            .get(&url)
+            .header(USER_AGENT, user_agent)
+            .send()
+            .await?
+            .text()
+            .await?;
+        {
+            let document = Html::parse_document(&res);
+            for selector_str in &selectors {
+                if let Ok(selector) = Selector::parse(selector_str) {
+                    for element in document.select(&selector) {
+                        if let Some(href) = element.value().attr("href") {
+                            if let Some(real_url) = extract_real_url(href) {
+                                if !links.contains(&real_url) {
+                                    links.push(real_url);
+                                    if links.len() >= limit { break; }
+                                }
                             }
                         }
                     }
+                    if links.len() >= limit { break; }
                 }
             }
-            if !links.is_empty() {
-                break;
-            }
         }
+        offset += 50;
+        if res.is_empty() { break; }
     }
-
+    links.truncate(limit);
     Ok(links)
 }
 
@@ -485,23 +481,25 @@ pub async fn search_and_scrape_with_config(
     let semaphore = Arc::new(Semaphore::new(config.max_concurrent_tabs));
     let mut handles = Vec::new();
     
-    for url in urls {
+    for url in urls.clone() {
         let browser_clone = browser.clone();
         let permit = semaphore.clone().acquire_owned().await.unwrap();
-        
+        let url_clone = url.clone();
         let handle = tokio::task::spawn_blocking(move || {
-            let result = fetch_and_convert_sync(&browser_clone, &url);
-            drop(permit); // Libera o semáforo após processar
-            result
+            let res = fetch_and_convert_sync(&browser_clone, &url_clone);
+            drop(permit);
+            (url_clone, res)
         });
         handles.push(handle);
     }
 
     // 3. Coletar resultados (ignorar erros individuais, continuar com sucessos)
     let mut results = Vec::new();
+    let mut failed_urls = Vec::new();
+    let mut connection_closed = false;
     for handle in handles {
         match handle.await {
-            Ok(Ok(content)) => {
+            Ok((_, Ok(content))) => {
                 // Filtrar conteúdo muito curto (< 200 caracteres)
                 let content_length = content.content.chars().count();
                 let markdown_length = content.markdown.chars().count();
@@ -516,16 +514,54 @@ pub async fn search_and_scrape_with_config(
                     results.push(content);
                 }
             }
-            Ok(Err(e)) => {
+            Ok((url, Err(e))) => {
                 let err_msg = format!("{}", e);
                 if err_msg.contains("Timeout") || err_msg.contains("ERR_HTTP") {
                     log::debug!("URL ignorada (timeout/erro HTTP): {}", err_msg);
+                    failed_urls.push(url);
                 } else {
                     log::warn!("Erro ao processar URL: {}", e);
+                    if err_msg.contains("underlying connection is closed") {
+                        connection_closed = true;
+                        failed_urls.push(url);
+                    }
                 }
             }
             Err(e) => {
                 log::warn!("Erro na task de scraping: {}", e);
+            }
+        }
+    }
+    
+    if connection_closed && !failed_urls.is_empty() {
+        let retry_concurrency = std::cmp::min(3, config.max_concurrent_tabs.max(1));
+        let semaphore = Arc::new(Semaphore::new(retry_concurrency));
+        let browser_new = Arc::new(create_browser()?);
+        let mut retry_handles = Vec::new();
+        for url in failed_urls.clone() {
+            let browser_clone = browser_new.clone();
+            let permit = semaphore.clone().acquire_owned().await.unwrap();
+            let url_clone = url.clone();
+            let handle = tokio::task::spawn_blocking(move || {
+                let res = fetch_and_convert_sync(&browser_clone, &url_clone);
+                drop(permit);
+                (url_clone, res)
+            });
+            retry_handles.push(handle);
+        }
+        for h in retry_handles {
+            match h.await {
+                Ok((_, Ok(content))) => {
+                    let content_length = content.content.chars().count();
+                    let markdown_length = content.markdown.chars().count();
+                    if content_length >= 200 || markdown_length >= 200 {
+                        results.push(content);
+                    }
+                }
+                Ok((url, Err(e))) => {
+                    log::warn!("Falha após retry para URL {}: {}", url, e);
+                }
+                Err(e) => log::warn!("Erro na task de retry: {}", e),
             }
         }
     }

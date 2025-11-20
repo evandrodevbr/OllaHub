@@ -130,7 +130,7 @@ export function PromptGeneratorDialog({ defaultModel, onPromptGenerated }: Promp
               value={goal}
               onChange={(e) => setGoal(e.target.value)}
               placeholder="Ex: Quero um assistente especialista em Python que explique conceitos complexos de forma simples..."
-              className="min-h-[150px]"
+              className="min-h-[160px]"
               disabled={isGenerating}
             />
           </div>

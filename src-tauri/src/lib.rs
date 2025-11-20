@@ -1178,7 +1178,12 @@ pub fn get_or_create_browser(state: State<BrowserState>) -> Result<Arc<Browser>,
     let mut browser_opt = state.lock().map_err(|e| format!("Erro ao acessar estado do browser: {}", e))?;
     
     if let Some(ref browser) = *browser_opt {
-        return Ok(browser.clone());
+        let alive = browser.new_tab().is_ok();
+        if alive {
+            return Ok(browser.clone());
+        } else {
+            *browser_opt = None;
+        }
     }
     
     // Criar nova instância
