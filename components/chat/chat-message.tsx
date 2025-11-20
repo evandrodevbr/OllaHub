@@ -28,7 +28,30 @@ export function ChatMessage({ message }: { message: Message }) {
             remarkPlugins={[remarkGfm]}
             components={markdownRenderers}
           >
-            {message.content}
+            {(() => {
+              let content = message.content || '';
+              // Remove metadata tags
+              content = content.replace(/<metadata>[\s\S]*?<\/metadata>/gi, '').trim();
+              
+              // Also remove common prefixes if they appear at the end
+              const prefixes = [
+                'Bloco oculto de metadados:',
+                'Metadata:',
+                'Metadados:',
+                'Hidden metadata block:',
+                'JSON metadata:',
+                '---'
+              ];
+              
+              for (const prefix of prefixes) {
+                const regex = new RegExp(`${prefix}\\s*$`, 'i');
+                if (regex.test(content)) {
+                  content = content.replace(regex, '').trim();
+                }
+              }
+              
+              return content || message.content;
+            })()}
           </ReactMarkdown>
         </div>
       </div>

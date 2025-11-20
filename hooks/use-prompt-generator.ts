@@ -68,3 +68,5 @@ export function usePromptGenerator() {
   return { generatePrompt, isGenerating };
 }
 
+
+
