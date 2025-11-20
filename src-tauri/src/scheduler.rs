@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tauri::{AppHandle, Manager};
-use uuid::Uuid;
 
 /// Tipos de ações que uma task pode executar
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -49,7 +48,8 @@ pub type SchedulerState = Arc<Mutex<SchedulerService>>;
 pub struct SchedulerService {
     tasks: HashMap<String, SentinelTask>,
     tasks_file: PathBuf,
-    app_handle: Option<AppHandle>,
+    #[allow(dead_code)]
+    app_handle: Option<AppHandle>, // Mantido para uso futuro (notificações, etc)
 }
 
 impl SchedulerService {

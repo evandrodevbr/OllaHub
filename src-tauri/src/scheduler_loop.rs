@@ -1,4 +1,4 @@
-use crate::scheduler::{SchedulerService, SchedulerState};
+use crate::scheduler::SchedulerState;
 use crate::task_executor::execute_task;
 use tokio_cron_scheduler::{Job, JobScheduler};
 use std::sync::Arc;

@@ -25,6 +25,7 @@ import { useSettingsStore } from "@/store/settings-store";
 import { invoke } from "@tauri-apps/api/core";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTheme } from "next-themes";
+import { useRouter } from "next/navigation";
 import { ImperativePanelHandle } from "react-resizable-panels";
 import { sanitizeWebSources } from "@/lib/sanitize-web-content";
 // @ts-ignore
@@ -32,6 +33,7 @@ import defaultFormatPrompt from "@/data/prompts/default-format.md";
 
 
 export default function ChatPage() {
+  const router = useRouter();
   const { messages, setMessages, sendMessage, isLoading, stop, clearChat } = useChat();
   const { models } = useLocalModels();
   const { theme, setTheme } = useTheme();
@@ -164,6 +166,25 @@ export default function ChatPage() {
               removeHiddenText: true,
             });
             
+            // [DEBUG INJECTION START]
+            console.group('🔍 Debug: Web Context Generation');
+            console.log('1. Raw Sources Count:', scrapedSources.length);
+            console.log('2. Web Context Length:', webContext.length);
+            console.log('3. Is Context Empty?', webContext === '');
+            if (webContext.length > 0) {
+              console.log('4. Context Preview:', webContext.substring(0, 200) + '...');
+            } else {
+              console.warn('⚠️ ALERT: Web Context is EMPTY even with sources!');
+              console.log('4. Sources Details:', scrapedSources.map(s => ({
+                url: s.url,
+                title: s.title,
+                hasMarkdown: !!s.markdown,
+                markdownLength: s.markdown?.length || 0
+              })));
+            }
+            console.groupEnd();
+            // [DEBUG INJECTION END]
+            
             // Log para debug: verificar tamanho do contexto gerado
             const contextLength = webContext.length;
             console.debug(`Contexto web gerado (sanitizado): ${contextLength} caracteres de ${scrapedSources.length} fontes`);
@@ -221,7 +242,7 @@ export default function ChatPage() {
 3. **Uso Estrito de Fontes:**
    - Use SOMENTE as informações do bloco [CONTEXTO WEB RECUPERADO] abaixo para fatos recentes. Não alucine.
    - Se o contexto trouxer múltiplas notícias diferentes, agrupe-as por temas usando títulos Markdown (ex: "## Economia", "## Política").
-   - Cite as fontes usando [1], [2], [3] ao final das frases quando usar informações do contexto web.
+   - NÃO cite fontes no meio do texto. Use as informações do contexto web naturalmente, sem mencionar [1], [2], [3] ou outras referências numéricas.
    - Se o contexto não for suficiente para responder completamente, diga isso claramente.
 
 4. **Formato Jornalístico:**
@@ -251,6 +272,16 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
 ---
 `;
     }
+    
+    // [DEBUG INJECTION START]
+    console.log('5. Enhanced System Prompt Length:', enhancedSystemPrompt.length);
+    console.log('6. Contains "CONTEXTO WEB"?', enhancedSystemPrompt.includes('CONTEXTO WEB RECUPERADO'));
+    if (enhancedSystemPrompt.includes('CONTEXTO WEB RECUPERADO')) {
+      const contextStart = enhancedSystemPrompt.indexOf('CONTEXTO WEB RECUPERADO');
+      console.log('7. Web Context Position:', contextStart);
+      console.log('8. Web Context in Prompt Preview:', enhancedSystemPrompt.substring(contextStart, contextStart + 300) + '...');
+    }
+    // [DEBUG INJECTION END]
     
     await sendMessage(content, selectedModel, enhancedSystemPrompt);
     
@@ -323,7 +354,12 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
           >
             {theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
           </Button>
-          <Button variant="ghost" size="icon" className="rounded-lg text-muted-foreground hover:text-foreground">
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="rounded-lg text-muted-foreground hover:text-foreground"
+            onClick={() => router.push('/settings')}
+          >
             <Settings className="w-5 h-5" />
           </Button>
         </ResizablePanel>

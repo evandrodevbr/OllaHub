@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { SourcesConfig } from '@/lib/types';
 
 export interface SearchCategory {
   id: string;
@@ -27,6 +28,18 @@ export interface SettingsState {
     userCustomSites: string[];
   };
 
+  // Sources Config (from Rust backend)
+  sourcesConfig: SourcesConfig | null;
+  
+  // AutoStart
+  autoStart: boolean;
+  
+  // Notifications
+  notifications: {
+    enabled: boolean;
+    keywords: string[];
+  };
+
   // Actions
   setOllamaUrl: (url: string) => void;
   setSelectedModel: (model: string) => void;
@@ -44,6 +57,14 @@ export interface SettingsState {
   addCustomSite: (site: string) => void;
   removeCustomSite: (site: string) => void;
   resetSettings: () => void;
+  
+  // New Actions for Sources & AutoStart
+  fetchSources: () => Promise<void>;
+  saveSources: (config: SourcesConfig) => Promise<void>;
+  toggleAutoStart: () => Promise<void>;
+  setNotificationsEnabled: (enabled: boolean) => void;
+  addNotificationKeyword: (keyword: string) => void;
+  removeNotificationKeyword: (keyword: string) => void;
 }
 
 const defaultSystemPrompt = `Você é um assistente de IA local integrado ao OllaHub.
@@ -59,7 +80,7 @@ const defaultSystemPrompt = `Você é um assistente de IA local integrado ao Oll
 ## CONTEXTO WEB
 
 - Quando informações da web forem fornecidas, use-as como fonte principal.
-- Cite as fontes usando [1], [2], [3] ao final das frases quando usar informações do contexto web.
+- NÃO cite fontes no meio do texto. Use as informações do contexto web naturalmente, sem mencionar [1], [2], [3] ou outras referências numéricas.
 - Se o contexto não for suficiente, diga isso claramente.
 
 ## FORMATO SUGERIDO
@@ -141,6 +162,12 @@ const initialState = {
     totalSourcesLimit: 40,
     categories: defaultCategories,
     userCustomSites: [],
+  },
+  sourcesConfig: null,
+  autoStart: false,
+  notifications: {
+    enabled: true,
+    keywords: [],
   },
 };
 
@@ -232,6 +259,59 @@ export const useSettingsStore = create<SettingsState>()(
           },
         })),
       resetSettings: () => set(initialState),
+      
+      // Sources Config Actions
+      fetchSources: async () => {
+        try {
+          const { invoke } = await import('@tauri-apps/api/core');
+          const config = await invoke<SourcesConfig>('load_sources_config_command');
+          set({ sourcesConfig: config });
+        } catch (error) {
+          console.error('Failed to fetch sources config:', error);
+        }
+      },
+      saveSources: async (config: SourcesConfig) => {
+        try {
+          const { invoke } = await import('@tauri-apps/api/core');
+          await invoke('save_sources_config_command', { config });
+          set({ sourcesConfig: config });
+        } catch (error) {
+          console.error('Failed to save sources config:', error);
+          throw error;
+        }
+      },
+      
+      // AutoStart Actions
+      toggleAutoStart: async () => {
+        // TODO: Implementar quando tauri-plugin-autostart estiver configurado
+        set((state) => ({ autoStart: !state.autoStart }));
+      },
+      
+      // Notifications Actions
+      setNotificationsEnabled: (enabled) =>
+        set((state) => ({
+          notifications: { ...state.notifications, enabled },
+        })),
+      addNotificationKeyword: (keyword) =>
+        set((state) => {
+          const normalized = keyword.toLowerCase().trim();
+          if (!normalized || state.notifications.keywords.includes(normalized)) {
+            return state;
+          }
+          return {
+            notifications: {
+              ...state.notifications,
+              keywords: [...state.notifications.keywords, normalized],
+            },
+          };
+        }),
+      removeNotificationKeyword: (keyword) =>
+        set((state) => ({
+          notifications: {
+            ...state.notifications,
+            keywords: state.notifications.keywords.filter((k) => k !== keyword),
+          },
+        })),
     }),
     {
       name: 'ollahub-settings',

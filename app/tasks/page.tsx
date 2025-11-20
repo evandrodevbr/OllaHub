@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Plus, Trash2, Clock, Play, Pause } from 'lucide-react';
+import { Plus, Trash2, Clock, Play, Pause, CheckCircle2, XCircle } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -157,13 +158,15 @@ export default function TasksPage() {
                     <CardTitle className="flex items-center gap-2">
                       {task.label}
                       {task.enabled ? (
-                        <span className="text-xs bg-green-500/10 text-green-500 px-2 py-1 rounded">
+                        <Badge variant="default" className="bg-green-500/10 text-green-500 border-green-500/20">
+                          <CheckCircle2 className="w-3 h-3 mr-1" />
                           Ativa
-                        </span>
+                        </Badge>
                       ) : (
-                        <span className="text-xs bg-gray-500/10 text-gray-500 px-2 py-1 rounded">
+                        <Badge variant="secondary">
+                          <XCircle className="w-3 h-3 mr-1" />
                           Pausada
-                        </span>
+                        </Badge>
                       )}
                     </CardTitle>
                     <CardDescription className="mt-2">
@@ -222,9 +225,10 @@ export default function TasksPage() {
 
 function TaskFormDialog({ onSuccess }: { onSuccess: () => void }) {
   const [label, setLabel] = useState('');
-  const [scheduleType, setScheduleType] = useState<'daily' | 'weekly' | 'custom'>('daily');
+  const [scheduleType, setScheduleType] = useState<'daily' | 'weekly' | 'hourly' | 'custom'>('daily');
   const [hour, setHour] = useState('8');
   const [minute, setMinute] = useState('0');
+  const [intervalHours, setIntervalHours] = useState('1');
   const [customCron, setCustomCron] = useState('');
   const [taskType, setTaskType] = useState<'search_and_summarize' | 'just_ping' | 'custom_prompt'>('search_and_summarize');
   const [query, setQuery] = useState('');
@@ -238,8 +242,28 @@ function TaskFormDialog({ onSuccess }: { onSuccess: () => void }) {
     if (scheduleType === 'custom') {
       return customCron;
     }
-    // Diário às hora:minuto
-    return `${minute} ${hour} * * *`;
+    if (scheduleType === 'hourly') {
+      return `0 */${intervalHours} * * *`;
+    }
+    if (scheduleType === 'daily') {
+      return `${minute} ${hour} * * *`;
+    }
+    // Weekly (every Monday at hour:minute)
+    return `${minute} ${hour} * * 1`;
+  };
+
+  const getCronPreview = (): string => {
+    const cron = generateCron();
+    if (scheduleType === 'hourly') {
+      return `A cada ${intervalHours} hora(s)`;
+    }
+    if (scheduleType === 'daily') {
+      return `Todo dia às ${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
+    }
+    if (scheduleType === 'weekly') {
+      return `Toda segunda-feira às ${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
+    }
+    return cron;
   };
   
   const handleSubmit = async (e: React.FormEvent) => {
@@ -306,9 +330,22 @@ function TaskFormDialog({ onSuccess }: { onSuccess: () => void }) {
           <SelectContent>
             <SelectItem value="daily">Diário</SelectItem>
             <SelectItem value="weekly">Semanal</SelectItem>
-            <SelectItem value="custom">Cron Customizado</SelectItem>
+            <SelectItem value="hourly">A cada X horas</SelectItem>
+            <SelectItem value="custom">Cron Customizado (Avançado)</SelectItem>
           </SelectContent>
         </Select>
+      </div>
+
+      {/* Cron Preview */}
+      <div className="bg-muted p-3 rounded-lg">
+        <div className="flex items-center gap-2">
+          <Clock className="w-4 h-4 text-muted-foreground" />
+          <span className="text-sm font-medium">Agendamento:</span>
+          <span className="text-sm text-muted-foreground">{getCronPreview()}</span>
+        </div>
+        <div className="mt-1 text-xs text-muted-foreground font-mono">
+          Cron: {generateCron()}
+        </div>
       </div>
       
       {scheduleType === 'custom' ? (
@@ -322,13 +359,29 @@ function TaskFormDialog({ onSuccess }: { onSuccess: () => void }) {
             required
           />
           <p className="text-xs text-muted-foreground mt-1">
-            Formato: minuto hora dia mês dia-da-semana
+            Formato: minuto hora dia mês dia-da-semana (ex: 0 8 * * * = todo dia às 8h)
+          </p>
+        </div>
+      ) : scheduleType === 'hourly' ? (
+        <div>
+          <Label htmlFor="interval-hours">Intervalo (horas)</Label>
+          <Input
+            id="interval-hours"
+            type="number"
+            min="1"
+            max="24"
+            value={intervalHours}
+            onChange={(e) => setIntervalHours(e.target.value)}
+            required
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            A task será executada a cada {intervalHours} hora(s)
           </p>
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <Label htmlFor="hour">Hora</Label>
+            <Label htmlFor="hour">Hora (0-23)</Label>
             <Input
               id="hour"
               type="number"
@@ -340,7 +393,7 @@ function TaskFormDialog({ onSuccess }: { onSuccess: () => void }) {
             />
           </div>
           <div>
-            <Label htmlFor="minute">Minuto</Label>
+            <Label htmlFor="minute">Minuto (0-59)</Label>
             <Input
               id="minute"
               type="number"

@@ -264,6 +264,27 @@ export function useChat() {
         content: m.content // Send only content, not metadata (unless we want to inject it back)
       }));
 
+    // [DEBUG INJECTION START]
+    const systemMsg = apiMessages.find(m => m.role === 'system');
+    console.group('📦 Debug: Ollama Payload');
+    console.log('1. Total Messages:', apiMessages.length);
+    console.log('2. Has System Message?', !!systemMsg);
+    if (systemMsg) {
+      console.log('3. System Message Length:', systemMsg.content.length);
+      console.log('4. System Content Preview:', systemMsg.content.substring(0, 300) + '...');
+      console.log('5. Web Context Present in Payload?', systemMsg.content.includes('CONTEXTO WEB RECUPERADO'));
+      if (systemMsg.content.includes('CONTEXTO WEB RECUPERADO')) {
+        const contextStart = systemMsg.content.indexOf('CONTEXTO WEB RECUPERADO');
+        console.log('6. Web Context Position in Payload:', contextStart);
+        console.log('7. Web Context Preview in Payload:', systemMsg.content.substring(contextStart, contextStart + 200) + '...');
+      }
+    } else {
+      console.error('❌ CRITICAL: System Message is MISSING in payload!');
+      console.log('Available roles:', apiMessages.map(m => m.role));
+    }
+    console.groupEnd();
+    // [DEBUG INJECTION END]
+
     abortControllerRef.current = new AbortController();
 
     try {

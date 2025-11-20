@@ -16,11 +16,14 @@ mod scheduler;
 mod ollama_client;
 mod task_executor;
 mod scheduler_loop;
+mod sources_config;
+mod system_monitor;
 
 use web_scraper::{ScrapedContent, create_browser, search_and_scrape, search_and_scrape_with_config, scrape_url, SearchConfig};
 use headless_chrome::Browser;
 use scheduler::{SentinelTask, SchedulerService, SchedulerState, TaskAction};
-use ollama_client::OllamaClient;
+use sources_config::{SourcesConfig, load_sources_config, save_sources_config};
+use system_monitor::{SystemStats, SystemMonitorState};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -63,8 +66,10 @@ struct SystemSpecs {
     os_name: String,
 }
 
+// SystemStats movido para system_monitor.rs
+// Mantendo apenas para compatibilidade com start_system_monitor
 #[derive(serde::Serialize, Clone)]
-struct SystemStats {
+struct LegacySystemStats {
     cpu_usage: f32,
     memory_used: u64,
     memory_total: u64,
@@ -443,7 +448,7 @@ fn start_system_monitor(window: Window) {
             let memory_used = sys.used_memory();
             let memory_total = sys.total_memory();
 
-            let stats = SystemStats {
+            let stats = LegacySystemStats {
                 cpu_usage,
                 memory_used,
                 memory_total,
@@ -1237,13 +1242,117 @@ fn reset_browser(state: State<'_, BrowserState>) -> Result<(), String> {
     Ok(())
 }
 
-/// Cleanup explícito do browser (chamado ao fechar app)
+/// Força o encerramento apenas de processos Chrome/Chromium headless criados pelo app
+/// Seguro: não mata o navegador pessoal do usuário
 #[command]
-fn cleanup_browser(state: State<'_, BrowserState>) -> Result<(), String> {
-    let mut browser_opt = state.lock().map_err(|e| format!("Erro ao acessar estado do browser: {}", e))?;
-    *browser_opt = None;
-    log::info!("Browser cleanup executado");
-    Ok(())
+fn force_kill_browser() -> Result<u32, String> {
+    let mut system = System::new_all();
+    system.refresh_all();
+    
+    let mut killed_count = 0;
+    let process_names = vec!["chrome", "chromium", "chromedriver", "headless_shell"];
+    
+    for (pid, process) in system.processes() {
+        let name = process.name().to_string_lossy().to_lowercase();
+        
+        // Verifica se o nome do processo corresponde
+        if !process_names.iter().any(|&pn| name.contains(pn)) {
+            continue;
+        }
+        
+        // SAFE KILL: Estratégia conservadora para identificar processos headless
+        // No Windows, tentamos usar wmic para obter a linha de comando completa
+        #[cfg(target_os = "windows")]
+        let is_headless = {
+            use std::process::Command;
+            // Tenta obter a linha de comando do processo via wmic
+            let cmd_output = Command::new("wmic")
+                .args(&["process", "where", &format!("ProcessId={}", pid), "get", "CommandLine", "/format:list"])
+                .output();
+            
+            if let Ok(output) = cmd_output {
+                if let Ok(cmd_str) = String::from_utf8(output.stdout) {
+                    let cmd_lower = cmd_str.to_lowercase();
+                    // Só mata se tiver flags muito específicas de headless
+                    cmd_lower.contains("--headless") 
+                        || cmd_lower.contains("--remote-debugging-port")
+                        || (cmd_lower.contains("--disable-gpu") && cmd_lower.contains("--no-sandbox"))
+                } else {
+                    false // Se não conseguir ler, não mata (seguro)
+                }
+            } else {
+                // Se wmic falhar, usa heurística conservadora: só mata se o nome for muito específico
+                name.contains("headless_shell") || name.contains("chromedriver")
+            }
+        };
+        
+        #[cfg(not(target_os = "windows"))]
+        let is_headless = {
+            // No Linux/Mac, tenta ler /proc/PID/cmdline
+            use std::fs;
+            if let Ok(cmdline) = fs::read_to_string(format!("/proc/{}/cmdline", pid)) {
+                let cmd_lower = cmdline.to_lowercase();
+                cmd_lower.contains("--headless") 
+                    || cmd_lower.contains("--remote-debugging-port")
+                    || (cmd_lower.contains("--disable-gpu") && cmd_lower.contains("--no-sandbox"))
+            } else {
+                // Se não conseguir ler, usa heurística conservadora
+                name.contains("headless_shell") || name.contains("chromedriver")
+            }
+        };
+        
+        if !is_headless {
+            log::debug!("Ignorando processo Chrome não-headless: PID {} ({})", pid, name);
+            continue;
+        }
+        
+        // Processo identificado como headless - pode matar com segurança
+        #[cfg(target_os = "windows")]
+        {
+            use std::process::Command;
+            match Command::new("taskkill")
+                .args(&["/F", "/PID", &pid.to_string()])
+                .output()
+            {
+                Ok(output) => {
+                    if output.status.success() {
+                        killed_count += 1;
+                        log::info!("Processo Chrome headless encerrado: PID {} ({})", pid, name);
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Erro ao encerrar processo {}: {}", pid, e);
+                }
+            }
+        }
+        
+        #[cfg(not(target_os = "windows"))]
+        {
+            use std::process::Command;
+            match Command::new("kill")
+                .args(&["-9", &pid.to_string()])
+                .output()
+            {
+                Ok(output) => {
+                    if output.status.success() {
+                        killed_count += 1;
+                        log::info!("Processo Chrome headless encerrado: PID {} ({})", pid, name);
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Erro ao encerrar processo {}: {}", pid, e);
+                }
+            }
+        }
+    }
+    
+    if killed_count > 0 {
+        log::info!("Total de {} processos Chrome headless encerrados (seguro)", killed_count);
+    } else {
+        log::info!("Nenhum processo Chrome headless encontrado para encerrar");
+    }
+    
+    Ok(killed_count)
 }
 
 // ========== Storage Management Commands ==========
@@ -1272,7 +1381,6 @@ async fn export_chat_sessions(app_handle: AppHandle) -> Result<String, String> {
     let entries = fs::read_dir(&chats_dir)
         .map_err(|e| format!("Failed to read chats dir: {}", e))?;
     
-    let mut file_count = 0;
     for entry in entries {
         let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
         let path = entry.path();
@@ -1289,8 +1397,6 @@ async fn export_chat_sessions(app_handle: AppHandle) -> Result<String, String> {
                 .map_err(|e| format!("Failed to add file to ZIP: {}", e))?;
             zip.write_all(file_content.as_bytes())
                 .map_err(|e| format!("Failed to write file to ZIP: {}", e))?;
-            
-            file_count += 1;
         }
     }
     
@@ -1330,6 +1436,186 @@ fn get_app_data_dir(app_handle: AppHandle) -> Result<String, String> {
     let app_data_dir = app_handle.path().app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
     Ok(format!("{}", app_data_dir.display()))
+}
+
+// ========== Sources Config Commands ==========
+
+/// Carrega a configuração de fontes de busca
+#[command]
+fn load_sources_config_command(app_handle: AppHandle) -> Result<SourcesConfig, String> {
+    load_sources_config(&app_handle)
+}
+
+/// Salva a configuração de fontes de busca
+#[command]
+fn save_sources_config_command(app_handle: AppHandle, config: SourcesConfig) -> Result<(), String> {
+    save_sources_config(&app_handle, config)
+}
+
+// ========== Export & Backup Commands ==========
+
+/// Exporta todos os dados do app (chats, tasks, sources, settings) para um arquivo ZIP
+#[command]
+async fn export_all_data(app_handle: AppHandle) -> Result<String, String> {
+    use walkdir::WalkDir;
+    
+    let app_data_dir = app_handle.path().app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    
+    // Criar nome do arquivo com timestamp
+    let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
+    let zip_path = app_data_dir.join(format!("ollahub_backup_{}.zip", timestamp));
+    
+    // Criar arquivo ZIP
+    let file = fs::File::create(&zip_path)
+        .map_err(|e| format!("Failed to create ZIP file: {}", e))?;
+    
+    let mut zip = ZipWriter::new(file);
+    let options = FileOptions::default()
+        .compression_method(CompressionMethod::Deflated)
+        .unix_permissions(0o755);
+    
+    // 1. Adicionar pasta chats/ inteira
+    let chats_dir = get_chats_dir(&app_handle)?;
+    if chats_dir.exists() {
+        for entry in WalkDir::new(&chats_dir) {
+            let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+            let path = entry.path();
+            
+            if path.is_file() {
+                // Obter caminho relativo a partir de chats_dir
+                let relative_path = path.strip_prefix(&chats_dir)
+                    .map_err(|e| format!("Failed to get relative path: {}", e))?;
+                
+                // Construir caminho no ZIP como "chats/nome_arquivo.json"
+                let zip_path = format!("chats/{}", relative_path.to_string_lossy().replace('\\', "/"));
+                
+                let file_content = fs::read(path)
+                    .map_err(|e| format!("Failed to read file {:?}: {}", path, e))?;
+                
+                zip.start_file(zip_path, options)
+                    .map_err(|e| format!("Failed to add file to ZIP: {}", e))?;
+                zip.write_all(&file_content)
+                    .map_err(|e| format!("Failed to write file to ZIP: {}", e))?;
+            }
+        }
+    }
+    
+    // 2. Adicionar tasks.json
+    let tasks_file = app_data_dir.join("tasks.json");
+    if tasks_file.exists() {
+        let tasks_content = fs::read_to_string(&tasks_file)
+            .map_err(|e| format!("Failed to read tasks.json: {}", e))?;
+        
+        zip.start_file("tasks.json", options)
+            .map_err(|e| format!("Failed to add tasks.json to ZIP: {}", e))?;
+        zip.write_all(tasks_content.as_bytes())
+            .map_err(|e| format!("Failed to write tasks.json to ZIP: {}", e))?;
+    }
+    
+    // 3. Adicionar sources.json
+    let sources_file = app_data_dir.join("sources.json");
+    if sources_file.exists() {
+        let sources_content = fs::read_to_string(&sources_file)
+            .map_err(|e| format!("Failed to read sources.json: {}", e))?;
+        
+        zip.start_file("sources.json", options)
+            .map_err(|e| format!("Failed to add sources.json to ZIP: {}", e))?;
+        zip.write_all(sources_content.as_bytes())
+            .map_err(|e| format!("Failed to write sources.json to ZIP: {}", e))?;
+    } else {
+        // Se não existir, criar um sources.json padrão no ZIP
+        let default_config = SourcesConfig::default();
+        let default_json = serde_json::to_string_pretty(&default_config)
+            .map_err(|e| format!("Failed to serialize default sources config: {}", e))?;
+        
+        zip.start_file("sources.json", options)
+            .map_err(|e| format!("Failed to add default sources.json to ZIP: {}", e))?;
+        zip.write_all(default_json.as_bytes())
+            .map_err(|e| format!("Failed to write default sources.json to ZIP: {}", e))?;
+    }
+    
+    // 4. Adicionar settings.json (se existir)
+    let settings_file = app_data_dir.join("settings.json");
+    if settings_file.exists() {
+        let settings_content = fs::read_to_string(&settings_file)
+            .map_err(|e| format!("Failed to read settings.json: {}", e))?;
+        
+        zip.start_file("settings.json", options)
+            .map_err(|e| format!("Failed to add settings.json to ZIP: {}", e))?;
+        zip.write_all(settings_content.as_bytes())
+            .map_err(|e| format!("Failed to write settings.json to ZIP: {}", e))?;
+    }
+    
+    // Finalizar ZIP
+    zip.finish()
+        .map_err(|e| format!("Failed to finalize ZIP: {}", e))?;
+    
+    log::info!("Backup completo exportado para: {}", zip_path.display());
+    Ok(format!("{}", zip_path.display()))
+}
+
+// ========== Logs Commands ==========
+
+/// Obtém as últimas N linhas dos logs do sistema
+#[command]
+fn get_recent_logs(app_handle: AppHandle, lines: usize) -> Result<Vec<String>, String> {
+    // O tauri-plugin-log geralmente salva logs em app_data_dir/logs/
+    let app_data_dir = app_handle.path().app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    
+    let logs_dir = app_data_dir.join("logs");
+    
+    // Se o diretório de logs não existir, retornar vazio
+    if !logs_dir.exists() {
+        return Ok(Vec::new());
+    }
+    
+    // Procurar pelo arquivo de log mais recente
+    let mut log_files: Vec<_> = fs::read_dir(&logs_dir)
+        .map_err(|e| format!("Failed to read logs directory: {}", e))?
+        .filter_map(|entry| {
+            entry.ok().and_then(|e| {
+                let path = e.path();
+                if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("log") {
+                    Some((path, e.metadata().ok()?.modified().ok()?))
+                } else {
+                    None
+                }
+            })
+        })
+        .collect();
+    
+    // Ordenar por data de modificação (mais recente primeiro)
+    log_files.sort_by(|a, b| b.1.cmp(&a.1));
+    
+    // Ler o arquivo mais recente
+    if let Some((log_file_path, _)) = log_files.first() {
+        let content = fs::read_to_string(log_file_path)
+            .map_err(|e| format!("Failed to read log file: {}", e))?;
+        
+        // Dividir em linhas e pegar as últimas N
+        let all_lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+        let total_lines = all_lines.len();
+        let start = if total_lines > lines { total_lines - lines } else { 0 };
+        
+        Ok(all_lines[start..].to_vec())
+    } else {
+        Ok(Vec::new())
+    }
+}
+
+// ========== System Monitor Commands ==========
+
+/// Obtém estatísticas do sistema em tempo real
+#[command]
+fn get_system_stats(
+    monitor_state: State<'_, Arc<Mutex<SystemMonitorState>>>,
+) -> Result<SystemStats, String> {
+    let mut monitor = monitor_state.lock()
+        .map_err(|e| format!("Failed to lock monitor state: {}", e))?;
+    
+    Ok(monitor.get_stats())
 }
 
 // ========== Task Scheduler Commands ==========
@@ -1447,7 +1733,8 @@ pub fn run() {
       let scheduler_clone = scheduler_state.clone();
       
       // BrowserState não é mais necessário - o scheduler criará o browser quando necessário
-      tokio::spawn(async move {
+      // Usar o runtime async do Tauri ao invés de tokio::spawn
+      tauri::async_runtime::spawn(async move {
           if let Err(e) = scheduler_loop::start_scheduler_loop(
               app_handle,
               scheduler_clone,
@@ -1460,6 +1747,10 @@ pub fn run() {
       
       // Adicionar scheduler ao manage
       app.manage(scheduler_state.clone());
+      
+      // Inicializar System Monitor State
+      let monitor_state: Arc<Mutex<SystemMonitorState>> = Arc::new(Mutex::new(SystemMonitorState::new()));
+      app.manage(monitor_state);
       
       Ok(())
     })
@@ -1495,9 +1786,15 @@ pub fn run() {
         search_and_extract_content,
         extract_url_content,
         reset_browser,
+        force_kill_browser,
         export_chat_sessions,
+        export_all_data,
         clear_chat_history,
         get_app_data_dir,
+        load_sources_config_command,
+        save_sources_config_command,
+        get_recent_logs,
+        get_system_stats,
         create_task,
         list_tasks,
         update_task,

@@ -83,6 +83,22 @@ export function useWebSearch() {
 
       const results = await webSearchService.search(query, limit, excludedDomains, searchConfig);
 
+      // [DEBUG INJECTION START]
+      console.log('🌐 Debug: Web Search Service Results', {
+        count: results.length,
+        firstResultHasMarkdown: results[0] ? !!results[0].markdown : 'N/A',
+        firstResultMarkdownLen: results[0]?.markdown?.length || 0,
+        allResults: results.map((r, idx) => ({
+          index: idx,
+          url: r.url,
+          title: r.title,
+          hasMarkdown: !!r.markdown,
+          markdownLength: r.markdown?.length || 0,
+          markdownPreview: r.markdown?.substring(0, 150) || 'SEM MARKDOWN'
+        }))
+      });
+      // [DEBUG INJECTION END]
+
       setState(prev => ({
         ...prev,
         status: 'completed',

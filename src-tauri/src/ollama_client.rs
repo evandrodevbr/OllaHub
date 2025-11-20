@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Mensagem para o Ollama API
 #[derive(Debug, Serialize)]
@@ -97,7 +96,7 @@ impl OllamaClient {
         };
         
         let url = format!("{}/api/chat", self.base_url);
-        let mut response = self.client
+        let response = self.client
             .post(&url)
             .json(&request)
             .send()

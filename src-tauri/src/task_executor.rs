@@ -103,7 +103,6 @@ async fn execute_search_and_summarize(
     
     // 5. Salvar como sessão de chat
     let session_id = uuid::Uuid::new_v4().to_string();
-    let now = Utc::now();
     
     let messages = vec![
         Message {
@@ -175,7 +174,6 @@ fn save_task_session_internal(
     messages: Vec<Message>,
 ) -> Result<(), String> {
     let chats_dir = get_chats_dir(app_handle)?;
-    let file_path = chats_dir.join(format!("{}.json", session_id));
     let file_path = chats_dir.join(format!("{}.json", session_id));
     
     let now = Utc::now();
