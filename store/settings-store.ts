@@ -155,7 +155,7 @@ const initialState = {
   contextWindow: 4096,
   webSearch: {
     enabled: true,
-    maxResults: 5,
+    maxResults: 10,
     timeout: 10,
     excludedDomains: ['youtube.com', 'linkedin.com'],
     maxConcurrentTabs: 5,
