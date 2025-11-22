@@ -316,6 +316,34 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
       payloadContentOverride: finalUserContent,
     });
     
+    // Persistir fontes na mensagem do assistente (metadata)
+    if (scrapedSources.length > 0) {
+      // Aguardar um pouco para garantir que o sendMessage iniciou e criou a mensagem do assistente
+      // O sendMessage é async mas retorna void enquanto a stream acontece. 
+      // O setMessages dentro dele adiciona a mensagem do assistente.
+      
+      // Nota: Como sendMessage roda em background (streaming), não podemos garantir que a mensagem 
+      // do assistente já existe aqui imediatamente se não esperarmos.
+      // Mas o sendMessage faz `setMessages` com assistant vazio logo no início.
+      
+      // Vamos atualizar o estado usando callback para garantir que pegamos o mais recente
+      setMessages(prev => {
+        const newMessages = [...prev];
+        const lastMsgIndex = newMessages.length - 1;
+        if (lastMsgIndex >= 0 && newMessages[lastMsgIndex].role === 'assistant') {
+          const lastMsg = newMessages[lastMsgIndex];
+          newMessages[lastMsgIndex] = {
+            ...lastMsg,
+            metadata: {
+              ...(lastMsg.metadata || {}),
+              sources: scrapedSources
+            }
+          };
+        }
+        return newMessages;
+      });
+    }
+    
     // Marcar como completo quando começar a streamar
     setTimeout(() => setThinkingStep('complete'), 100);
   };
@@ -483,27 +511,32 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
               ) : (
                 <div className="flex flex-col pb-4 max-w-3xl mx-auto w-full space-y-6">
                   {messages.map((msg, i) => {
-                    // Verificar se a mensagem anterior teve busca web
-                    const hasWebSources = i > 0 && 
-                      messages[i - 1].role === 'user' && 
-                      webSearch.scrapedSources.length > 0 &&
-                      webSearch.status === 'completed';
+                    // Verificar fontes nos metadados (preferencial)
+                    const msgSources = msg.metadata?.sources || [];
+                    const hasWebSources = msgSources.length > 0;
                     
+                    // Verificar se devemos mostrar o progresso em tempo real
+                    // Apenas para a interação atual (quando isLoading é true ou acabou de terminar)
+                    const isCurrentInteraction = i === messages.length - (isLoading ? 2 : 1) || i === messages.length - 1;
+                    const showRealtimeProgress = 
+                      msg.role === 'user' &&
+                      isCurrentInteraction &&
+                      (webSearch.status === 'searching' || 
+                       webSearch.status === 'scraping' || 
+                       webSearch.status === 'completed' || 
+                       webSearch.status === 'error') &&
+                       webSearch.currentQuery; // Só mostra se tiver query
+
                     return (
                       <div key={i}>
                         <ChatMessage message={msg} />
-                        {(msg.role === 'user') && (
-                          (webSearch.status === 'searching' || 
-                           webSearch.status === 'scraping' || 
-                           webSearch.status === 'completed' || 
-                           webSearch.status === 'error') && (
+                        {(msg.role === 'user') && showRealtimeProgress && (
                             <SearchProgress
                               status={webSearch.status}
                               query={webSearch.currentQuery}
                               sources={webSearch.scrapedSources}
                               error={webSearch.error}
                             />
-                          )
                         )}
                         {/* Mostrar fontes após resposta do assistente que usou web search */}
                         {msg.role === 'assistant' && hasWebSources && (
@@ -513,7 +546,7 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                                 Fontes consultadas:
                               </p>
                               <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent">
-                                {webSearch.scrapedSources.map((source, idx) => (
+                                {msgSources.map((source: ScrapedContent, idx: number) => (
                                   <a
                                     key={idx}
                                     href={source.url}
