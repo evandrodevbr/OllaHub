@@ -1,4 +1,5 @@
 import type { ResearchEntry } from '@/hooks/use-deep-research';
+import type { QueryContext } from './contextual-analyzer';
 import { processContent, type Chunk, type ProcessedContent } from './content-condenser';
 import { scoreAndSelectChunks } from './relevance-scorer';
 import { summarizeMarkdown } from './content-condenser';
@@ -20,6 +21,7 @@ export interface CondensationOptions {
   autoSummarize?: boolean;
   summarizeThreshold?: number;
   fallbackToSummarization?: boolean;
+  context?: QueryContext; // Contexto analisado para ranqueamento semântico
 }
 
 const DEFAULT_OPTIONS: Required<CondensationOptions> = {
@@ -129,12 +131,13 @@ export function condenseKnowledgeBase(
   // Calcular tokens disponíveis (reservar 20% para margem)
   const availableTokens = Math.floor(opts.maxTokens * 0.8);
 
-  // Selecionar chunks mais relevantes
+  // Selecionar chunks mais relevantes (usando contexto se disponível)
   let selectedChunks = scoreAndSelectChunks(
     allChunks,
     query,
     availableTokens,
-    opts.minRelevanceScore
+    opts.minRelevanceScore,
+    opts.context
   );
 
   // Se não selecionou chunks suficientes ou método de fallback está ativo

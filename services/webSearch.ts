@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
-import { SearchCategory } from '@/store/settings-store';
+import { SearchCategory, useSettingsStore } from '@/store/settings-store';
+import { retryWithBackoff, withTimeout, isRetryableError, type RetryConfig } from '@/lib/retry-utils';
 
 export interface ScrapedContent {
   title: string;
@@ -224,35 +225,101 @@ class WebSearchService {
   private async executeMetadataSearch(
     query: string,
     limit: number = 5,
-    searchConfig?: SearchConfig
+    searchConfig?: SearchConfig,
+    timeoutMs: number = 15000
   ): Promise<SearchResultMetadata[]> {
-    try {
-      let rustConfig: any = undefined;
-      if (searchConfig) {
-        rustConfig = {
-          max_concurrent_tabs: searchConfig.maxConcurrentTabs,
-          total_sources_limit: searchConfig.totalSourcesLimit,
-          categories: searchConfig.categories.map(cat => ({
-            id: cat.id,
-            name: cat.name,
-            base_sites: cat.baseSites,
-            enabled: cat.enabled,
-          })),
-          user_custom_sites: searchConfig.userCustomSites,
-          excluded_domains: searchConfig.excludedDomains,
-        };
-      }
-
-      const results = await invoke<SearchResultMetadata[]>('search_web_metadata', {
-        query: query.trim(),
-        limit,
-        search_config: rustConfig,
-      });
-      return results || [];
-    } catch (error) {
-      console.error('Erro ao buscar metadados:', error);
-      throw error instanceof Error ? error : new Error('Falha ao buscar metadados');
+    // Obter configurações de motores do store
+    const settings = useSettingsStore.getState();
+    const engineOrder = settings.webSearch.engineOrder || ['google', 'bing', 'yahoo', 'duckduckgo', 'startpage'];
+    
+    let rustConfig: any = undefined;
+    if (searchConfig) {
+      rustConfig = {
+        max_concurrent_tabs: searchConfig.maxConcurrentTabs,
+        total_sources_limit: searchConfig.totalSourcesLimit,
+        categories: searchConfig.categories.map(cat => ({
+          id: cat.id,
+          name: cat.name,
+          base_sites: cat.baseSites,
+          enabled: cat.enabled,
+        })),
+        user_custom_sites: searchConfig.userCustomSites,
+        excluded_domains: searchConfig.excludedDomains,
+      };
     }
+
+    // Log da tentativa
+    console.log(`[WebSearch] Executando busca multi-engine para: "${query}"`);
+    console.log(`[WebSearch] Engine order: ${engineOrder.join(' → ')}`);
+    console.log(`[WebSearch] Limit: ${limit}, Timeout: ${timeoutMs}ms`);
+
+    // Executar com retry e timeout
+    const retryResult = await retryWithBackoff<SearchResultMetadata[]>(
+      async () => {
+        const startTime = Date.now();
+        try {
+          const promise = invoke<SearchResultMetadata[]>('search_web_metadata', {
+            query: query.trim(),
+            limit,
+            search_config: rustConfig,
+            engineOrder: engineOrder, // Passar ordem de motores
+          });
+          
+          const result = await withTimeout(
+            promise,
+            timeoutMs,
+            `Timeout ao buscar metadados para "${query}"`
+          );
+          
+          const duration = Date.now() - startTime;
+          console.log(`[WebSearch] Busca concluída em ${duration}ms: ${result.length} resultados`);
+          
+          return result;
+        } catch (error) {
+          const duration = Date.now() - startTime;
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          console.error(`[WebSearch] Erro após ${duration}ms:`, errorMsg);
+          throw error;
+        }
+      },
+      {
+        maxAttempts: 3,
+        initialDelay: 1000,
+        maxDelay: 5000,
+      }
+    );
+
+    if (retryResult.success && retryResult.result) {
+      const results = retryResult.result || [];
+      if (results.length === 0) {
+        console.warn(`[WebSearch] Nenhum resultado encontrado para: "${query}"`);
+        console.warn(`[WebSearch] Tentativas: ${retryResult.attempts}, Motores testados: ${engineOrder.join(', ')}`);
+      }
+      return results;
+    }
+
+    // Se falhou mas é erro recuperável, logar detalhadamente
+    if (retryResult.lastError && isRetryableError(retryResult.lastError)) {
+      console.warn(
+        `[WebSearch] Falha após ${retryResult.attempts} tentativas:`,
+        retryResult.lastError.message
+      );
+      console.warn(`[WebSearch] Query: "${query}", Limit: ${limit}, Timeout: ${timeoutMs}ms`);
+      console.warn(`[WebSearch] Motores tentados: ${engineOrder.join(', ')}`);
+      return [];
+    }
+
+    // Para erros não recuperáveis, logar detalhadamente
+    if (retryResult.lastError) {
+      console.error(
+        `[WebSearch] Erro não recuperável:`,
+        retryResult.lastError.message
+      );
+      console.error(`[WebSearch] Query: "${query}", Limit: ${limit}, Timeout: ${timeoutMs}ms`);
+      console.error(`[WebSearch] Motores tentados: ${engineOrder.join(', ')}`);
+    }
+
+    return [];
   }
 
   /**
@@ -340,22 +407,43 @@ class WebSearchService {
   async smartSearchRag(
     query: string,
     limit: number = 3,
-    searchConfig?: SearchConfig
+    searchConfig?: SearchConfig,
+    timeoutMs: number = 15000
   ): Promise<{ metadata: SearchResultMetadata[]; contents: ScrapedContent[] }> {
     if (!query || !query.trim()) {
       return { metadata: [], contents: [] };
     }
 
-    const metas = await this.executeMetadataSearch(query, Math.max(limit * 2, 5), searchConfig);
+    // Buscar metadados com retry e timeout (já implementado em executeMetadataSearch)
+    const metas = await this.executeMetadataSearch(
+      query, 
+      Math.max(limit * 2, 5), 
+      searchConfig,
+      timeoutMs
+    );
+    
+    // Continuar mesmo se metadados estiverem vazios (pode ter falhado parcialmente)
     const topUrls = metas.map(m => m.url).slice(0, limit);
+    
     if (topUrls.length === 0) {
+      // Retornar resultados parciais (metadados vazios mas sem erro)
       return { metadata: metas, contents: [] };
     }
+    
+    // Tentar fazer scraping mesmo se metadados foram parciais
     try {
-      const contents = await invoke<ScrapedContent[]>('scrape_urls', { urls: topUrls });
+      const contents = await withTimeout(
+        invoke<ScrapedContent[]>('scrape_urls', { urls: topUrls }),
+        timeoutMs,
+        `Timeout ao fazer scraping para "${query}"`
+      );
       return { metadata: metas, contents: contents || [] };
     } catch (error) {
-      console.error('Erro ao fazer scraping em lote:', error);
+      // Logar erro mas retornar metadados disponíveis (resultado parcial)
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.warn('Erro ao fazer scraping em lote (continuando com metadados):', errorMessage);
+      
+      // Retornar metadados mesmo se scraping falhou
       return { metadata: metas, contents: [] };
     }
   }

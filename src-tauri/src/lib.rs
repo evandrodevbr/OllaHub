@@ -30,13 +30,15 @@ use web_scraper::{
     scrape_url,
     SearchConfig,
     search_duckduckgo_metadata,
+    search_multi_engine_metadata,
+    SearchEngine,
     smart_search,
     scrape_urls_bulk,
 };
 use headless_chrome::Browser;
 use scheduler::{SentinelTask, SchedulerService, SchedulerState, TaskAction};
 use sources_config::{SourcesConfig, load_sources_config, save_sources_config};
-use system_monitor::{SystemStats, SystemMonitorState, GpuInfo};
+use system_monitor::{SystemStats, SystemMonitorState, GpuInfo, GpuStats};
 
 // CommandExt é importado localmente onde necessário
 
@@ -588,6 +590,168 @@ fn check_if_model_installed(name: String) -> bool {
             stdout.contains(&name)
         }
         Err(_) => false,
+    }
+}
+
+/// Instala um modelo GGUF a partir de um arquivo local
+#[command]
+async fn install_gguf_model(
+    app_handle: AppHandle,
+    file_path: String,
+    model_name: Option<String>,
+) -> Result<String, String> {
+    use std::path::Path;
+    
+    let source_path = Path::new(&file_path);
+    
+    // Validar que o arquivo existe
+    if !source_path.exists() {
+        return Err("Arquivo não encontrado".to_string());
+    }
+    
+    // Validar extensão (mas aceitar arquivos sem extensão também)
+    let is_gguf = if let Some(ext) = source_path.extension() {
+        ext.to_string_lossy().to_lowercase() == "gguf"
+    } else {
+        // Arquivo sem extensão - verificar pelo tamanho (modelos GGUF são grandes)
+        let metadata = fs::metadata(source_path)
+            .map_err(|e| format!("Erro ao ler metadados do arquivo: {}", e))?;
+        metadata.len() >= 50 * 1024 * 1024 // Pelo menos 50MB
+    };
+    
+    if !is_gguf {
+        // Verificar se é um arquivo grande sem extensão (pode ser GGUF)
+        let metadata = fs::metadata(source_path)
+            .map_err(|e| format!("Erro ao ler metadados do arquivo: {}", e))?;
+        if metadata.len() < 50 * 1024 * 1024 {
+            return Err("Arquivo muito pequeno ou não é um modelo GGUF válido".to_string());
+        }
+        // Se for grande o suficiente, aceitar mesmo sem extensão
+    }
+    
+    // Validar tamanho mínimo (100MB)
+    let metadata = fs::metadata(source_path)
+        .map_err(|e| format!("Erro ao ler metadados do arquivo: {}", e))?;
+    let min_size = 100 * 1024 * 1024; // 100MB
+    if metadata.len() < min_size {
+        return Err("Arquivo muito pequeno. Modelos GGUF geralmente têm pelo menos 100MB".to_string());
+    }
+    
+    // Determinar nome do modelo
+    let final_model_name = if let Some(name) = model_name {
+        name.trim().to_string()
+    } else {
+        // Extrair nome do arquivo sem extensão
+        source_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("model")
+            .to_string()
+    };
+    
+    if final_model_name.is_empty() {
+        return Err("Nome do modelo não pode estar vazio".to_string());
+    }
+    
+    // Obter diretório de modelos do Ollama
+    // Ollama armazena modelos em ~/.ollama/models (Linux/Mac) ou %USERPROFILE%\.ollama\models (Windows)
+    let models_dir = dirs::home_dir()
+        .ok_or_else(|| "Não foi possível determinar diretório home".to_string())?
+        .join(".ollama")
+        .join("models");
+    
+    // Criar diretório se não existir
+    fs::create_dir_all(&models_dir)
+        .map_err(|e| format!("Erro ao criar diretório de modelos: {}", e))?;
+    
+    // Criar diretório para o modelo específico
+    let model_dir = models_dir.join(&final_model_name);
+    fs::create_dir_all(&model_dir)
+        .map_err(|e| format!("Erro ao criar diretório do modelo: {}", e))?;
+    
+    // Nome do arquivo de destino (usar nome do modelo + .gguf)
+    let dest_file = model_dir.join(format!("{}.gguf", final_model_name));
+    
+    // Copiar arquivo
+    log::info!("Copiando arquivo GGUF de {} para {}", file_path, dest_file.display());
+    fs::copy(source_path, &dest_file)
+        .map_err(|e| format!("Erro ao copiar arquivo: {}", e))?;
+    
+    log::info!("Arquivo copiado com sucesso. Tentando registrar no Ollama...");
+    
+    // Tentar criar Modelfile e importar modelo no Ollama
+    // Ollama pode importar modelos GGUF usando: ollama create <name> -f <modelfile>
+    // Mas para GGUF direto, podemos usar: ollama create <name> --file <path>
+    // Ou simplesmente copiar para o diretório e o Ollama detecta automaticamente
+    
+    // Tentar criar Modelfile e registrar modelo no Ollama
+    // Ollama requer um Modelfile para criar modelos GGUF
+    let modelfile_path = model_dir.join("Modelfile");
+    let modelfile_content = format!("FROM {}\n", dest_file.display());
+    
+    // Escrever Modelfile
+    if let Err(e) = fs::write(&modelfile_path, &modelfile_content) {
+        log::warn!("Erro ao criar Modelfile: {}. Tentando método alternativo...", e);
+    }
+    
+    // Tentar usar ollama create com Modelfile
+    let create_output = Command::new("ollama")
+        .arg("create")
+        .arg(&final_model_name)
+        .arg("-f")
+        .arg(&modelfile_path)
+        .output();
+    
+    match create_output {
+        Ok(output) => {
+            if output.status.success() {
+                log::info!("Modelo {} registrado com sucesso no Ollama", final_model_name);
+                Ok(final_model_name)
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                // Se o modelo já existe, ainda consideramos sucesso
+                if stderr.contains("already exists") || stderr.contains("model already exists") {
+                    log::info!("Modelo {} já existe no Ollama", final_model_name);
+                    Ok(final_model_name)
+                } else {
+                    // Tentar método alternativo: usar FROM diretamente
+                    log::warn!("Primeira tentativa falhou: {}. Tentando método alternativo...", stderr);
+                    
+                    // Método alternativo: criar modelo usando FROM diretamente
+                    let alt_output = Command::new("ollama")
+                        .arg("create")
+                        .arg(&final_model_name)
+                        .arg("--file")
+                        .arg(&dest_file)
+                        .output();
+                    
+                    match alt_output {
+                        Ok(alt_out) => {
+                            if alt_out.status.success() {
+                                log::info!("Modelo {} registrado com sucesso (método alternativo)", final_model_name);
+                                Ok(final_model_name)
+                            } else {
+                                let alt_stderr = String::from_utf8_lossy(&alt_out.stderr);
+                                // Se falhar, ainda retornamos sucesso pois o arquivo foi copiado
+                                log::warn!("Não foi possível registrar modelo automaticamente: {}. Arquivo copiado para: {}. Você pode registrar manualmente usando: ollama create {} -f {}", alt_stderr, dest_file.display(), final_model_name, modelfile_path.display());
+                                Ok(final_model_name)
+                            }
+                        }
+                        Err(_) => {
+                            // Se ambos falharem, ainda retornamos sucesso pois o arquivo foi copiado
+                            log::warn!("Não foi possível registrar modelo automaticamente. Arquivo copiado para: {}. Você pode registrar manualmente usando: ollama create {} -f {}", dest_file.display(), final_model_name, modelfile_path.display());
+                            Ok(final_model_name)
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            // Se ollama create falhar, ainda retornamos sucesso pois o arquivo foi copiado
+            // O usuário pode registrar manualmente depois
+            log::warn!("Não foi possível registrar modelo automaticamente: {}. Arquivo copiado para: {}. Você pode registrar manualmente usando: ollama create {} -f {}", e, dest_file.display(), final_model_name, modelfile_path.display());
+            Ok(final_model_name)
+        }
     }
 }
 
@@ -1599,6 +1763,7 @@ async fn search_web_metadata(
     query: String,
     limit: Option<usize>,
     search_config: Option<SearchConfig>,
+    engine_order: Option<Vec<String>>,
 ) -> Result<Vec<SearchResultMetadata>, String> {
     if query.trim().is_empty() {
         return Err("Query não pode estar vazia".to_string());
@@ -1606,23 +1771,63 @@ async fn search_web_metadata(
 
     let lim = limit.unwrap_or(5);
 
-    if let Some(config) = search_config {
-        // Usar smart_search para obter URLs e convertê-las em metadados simples
-        match smart_search(&query, &config).await {
-            Ok(mut urls) => {
-                urls.truncate(lim);
-                let metas = urls
-                    .into_iter()
-                    .map(|u| SearchResultMetadata { title: u.clone(), url: u, snippet: String::new() })
-                    .collect::<Vec<_>>();
-                Ok(metas)
-            }
-            Err(e) => Err(format!("Erro ao executar smart_search: {}", e)),
-        }
+    // Converter engine_order (strings) para Vec<SearchEngine>
+    let engines: Vec<SearchEngine> = if let Some(order) = engine_order {
+        order.iter()
+            .filter_map(|s| SearchEngine::from_str(s))
+            .collect()
     } else {
-        search_duckduckgo_metadata(&query, lim)
+        // Ordem padrão: Google primeiro, depois outros
+        vec![
+            SearchEngine::Google,
+            SearchEngine::Bing,
+            SearchEngine::Yahoo,
+            SearchEngine::DuckDuckGo,
+            SearchEngine::Startpage,
+        ]
+    };
+
+    // Se não há engines configuradas, usar DuckDuckGo como fallback
+    if engines.is_empty() {
+        log::warn!("No valid engines in order, using DuckDuckGo as fallback");
+        return search_duckduckgo_metadata(&query, lim)
             .await
-            .map_err(|e| format!("Erro ao buscar metadados: {}", e))
+            .map_err(|e| format!("Erro ao buscar metadados: {}", e));
+    }
+
+    // Usar multi-engine search
+    let min_results = 1; // Mínimo de 1 resultado para considerar sucesso
+    match search_multi_engine_metadata(&query, lim, &engines, min_results).await {
+        Ok(results) => {
+            if results.is_empty() && search_config.is_some() {
+                // Fallback para smart_search se multi-engine retornou vazio
+                log::info!("Multi-engine returned empty, trying smart_search fallback");
+                if let Some(config) = search_config {
+                    match smart_search(&query, &config).await {
+                        Ok(mut urls) => {
+                            urls.truncate(lim);
+                            let metas = urls
+                                .into_iter()
+                                .map(|u| SearchResultMetadata { title: u.clone(), url: u, snippet: String::new() })
+                                .collect::<Vec<_>>();
+                            Ok(metas)
+                        }
+                        Err(e) => Err(format!("Erro ao executar smart_search: {}", e)),
+                    }
+                } else {
+                    Ok(results)
+                }
+            } else {
+                Ok(results)
+            }
+        }
+        Err(e) => {
+            // Se multi-engine falhou completamente, tentar DuckDuckGo como último recurso
+            log::warn!("Multi-engine search failed: {}, trying DuckDuckGo fallback", e);
+            search_duckduckgo_metadata(&query, lim)
+                .await
+                .map_err(|e| format!("Erro ao buscar metadados: {}", e))
+        }
     }
 }
 
@@ -1847,6 +2052,45 @@ fn get_app_data_dir(app_handle: AppHandle) -> Result<String, String> {
     let app_data_dir = app_handle.path().app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
     Ok(format!("{}", app_data_dir.display()))
+}
+
+/// Salva um arquivo temporário e retorna o caminho
+#[command]
+fn save_temp_file(app_handle: AppHandle, data: Vec<u8>, extension: String) -> Result<String, String> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    
+    // Obter diretório temporário
+    let temp_dir = std::env::temp_dir();
+    
+    // Criar nome de arquivo único
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let filename = format!("ollama_model_{}.{}", timestamp, extension);
+    let temp_path = temp_dir.join(&filename);
+    
+    // Escrever arquivo
+    fs::write(&temp_path, data)
+        .map_err(|e| format!("Erro ao salvar arquivo temporário: {}", e))?;
+    
+    Ok(temp_path.to_string_lossy().to_string())
+}
+
+/// Abre um dialog de seleção de arquivo GGUF usando dialog nativo do sistema
+#[command]
+async fn open_gguf_file_dialog() -> Result<Option<String>, String> {
+    use rfd::FileDialog;
+    
+    // No rfd, o filtro "*" não funciona corretamente no Windows.
+    // Para garantir que todos os arquivos sejam mostrados, vamos criar
+    // um dialog sem filtro algum. O dialog nativo do Windows mostrará
+    // todos os arquivos por padrão quando não há filtro.
+    let file = FileDialog::new()
+        .set_title("Selecionar modelo GGUF")
+        .pick_file();
+    
+    Ok(file.map(|p| p.to_string_lossy().to_string()))
 }
 
 // ========== Sources Config Commands ==========
@@ -2264,6 +2508,12 @@ fn get_system_stats(
     Ok(monitor.get_stats())
 }
 
+/// Obtém estatísticas detalhadas de uma GPU específica
+#[command]
+fn get_gpu_stats(gpu_id: Option<String>) -> Result<Option<GpuStats>, String> {
+    Ok(system_monitor::get_gpu_stats(gpu_id.as_deref()))
+}
+
 // ========== Task Scheduler Commands ==========
 
 #[command]
@@ -2434,8 +2684,12 @@ pub fn run() {
         get_operating_system,
         check_if_model_installed,
         pull_model,
+        install_gguf_model,
+        save_temp_file,
+        open_gguf_file_dialog,
         start_ollama_server,
         start_system_monitor,
+        get_gpu_stats,
         list_local_models,
         delete_model,
         save_chat_session,

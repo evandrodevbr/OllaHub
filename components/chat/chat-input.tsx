@@ -112,14 +112,14 @@ export function ChatInput({
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Pergunte qualquer coisa..."
-            className={`min-h-[56px] max-h-[200px] w-full resize-none bg-transparent py-4 pl-6 pr-32 text-base sm:text-lg rounded-[2rem] border-0 focus-visible:ring-0 shadow-none placeholder:text-muted-foreground/50 ${
+            className={`min-h-[52px] sm:min-h-[56px] max-h-[200px] w-full resize-none bg-transparent py-3 sm:py-4 pl-4 sm:pl-6 pr-28 sm:pr-32 text-[16px] sm:text-lg rounded-[2rem] border-0 focus-visible:ring-0 shadow-none placeholder:text-muted-foreground/50 ${
               input.trim() && !isValid ? 'text-destructive' : ''
             }`}
             rows={1}
           />
           
           {/* Right Actions */}
-          <div className="absolute right-3 bottom-2.5 flex items-center gap-1.5">
+          <div className="absolute right-2 sm:right-3 bottom-2 sm:bottom-2.5 flex items-center gap-1 sm:gap-1.5">
             {onWebSearchToggle && (
               <TooltipProvider>
                 <Tooltip delayDuration={300}>

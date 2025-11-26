@@ -27,6 +27,10 @@ export interface SettingsState {
     totalSourcesLimit: number;
     categories: SearchCategory[];
     userCustomSites: string[];
+    engineOrder: string[]; // Ordem dos motores de busca: ['google', 'bing', 'yahoo', 'duckduckgo', 'startpage']
+    minResultsPerEngine: number; // Mínimo de resultados para considerar sucesso
+    enableSemanticExpansion: boolean; // Habilitar expansão semântica de queries
+    semanticExpansionLanguage: string; // Idioma para expansão: 'pt-BR', 'en', 'es'
   };
 
   // Content Processing
@@ -72,6 +76,10 @@ export interface SettingsState {
   setWebSearchTimeout: (timeout: number) => void;
   setWebSearchMaxConcurrentTabs: (max: number) => void;
   setWebSearchTotalSourcesLimit: (limit: number) => void;
+  setWebSearchEngineOrder: (order: string[]) => void;
+  setWebSearchMinResultsPerEngine: (min: number) => void;
+  setWebSearchSemanticExpansion: (enabled: boolean) => void;
+  setWebSearchSemanticExpansionLanguage: (language: string) => void;
   addExcludedDomain: (domain: string) => void;
   removeExcludedDomain: (domain: string) => void;
   toggleCategory: (categoryId: string) => void;
@@ -196,12 +204,16 @@ const initialState = {
   webSearch: {
     enabled: true,
     maxResults: 10,
-    timeout: 10,
+    timeout: 15000, // Timeout em milissegundos (15 segundos)
     excludedDomains: ['youtube.com', 'linkedin.com'],
     maxConcurrentTabs: 5,
     totalSourcesLimit: 100,
     categories: defaultCategories,
     userCustomSites: [],
+    engineOrder: ['google', 'bing', 'yahoo', 'duckduckgo', 'startpage'], // Ordem padrão
+    minResultsPerEngine: 1, // Mínimo de 1 resultado para considerar sucesso
+    enableSemanticExpansion: true, // Habilitado por padrão
+    semanticExpansionLanguage: 'pt-BR', // Português brasileiro por padrão
   },
   sourcesConfig: null,
   autoStart: false,
@@ -265,6 +277,22 @@ export const useSettingsStore = create<SettingsState>()(
       setWebSearchTotalSourcesLimit: (limit) =>
         set((state) => ({
           webSearch: { ...state.webSearch, totalSourcesLimit: limit },
+        })),
+      setWebSearchEngineOrder: (order) =>
+        set((state) => ({
+          webSearch: { ...state.webSearch, engineOrder: order },
+        })),
+      setWebSearchMinResultsPerEngine: (min) =>
+        set((state) => ({
+          webSearch: { ...state.webSearch, minResultsPerEngine: min },
+        })),
+      setWebSearchSemanticExpansion: (enabled) =>
+        set((state) => ({
+          webSearch: { ...state.webSearch, enableSemanticExpansion: enabled },
+        })),
+      setWebSearchSemanticExpansionLanguage: (language) =>
+        set((state) => ({
+          webSearch: { ...state.webSearch, semanticExpansionLanguage: language },
         })),
       addExcludedDomain: (domain) =>
         set((state) => {

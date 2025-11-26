@@ -147,7 +147,13 @@ export function useWebSearch() {
 
       // Etapa 1: metadados
       setState(prev => ({ ...prev, status: 'searching' }));
-      const { metadata, contents } = await webSearchService.smartSearchRag(query, limit, searchConfig);
+      const timeoutMs = settings.webSearch.timeout || 15000;
+      const { metadata, contents } = await webSearchService.smartSearchRag(
+        query, 
+        limit, 
+        searchConfig,
+        timeoutMs
+      );
 
       // Etapa 2: scraping
       setState(prev => ({ ...prev, status: 'scraping' }));
@@ -162,16 +168,22 @@ export function useWebSearch() {
         error: null,
       }));
 
+      // Retornar resultados mesmo se parciais (não quebrar o fluxo)
       return contents;
     } catch (error) {
+      // Se houver erro, logar mas retornar array vazio (não quebrar o fluxo)
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido no smartSearchRag';
+      console.warn('Erro em smartSearchRag (retornando vazio):', errorMessage);
+      
       setState(prev => ({
         ...prev,
         status: 'error',
         error: errorMessage,
         scrapedSources: [],
       }));
-      throw error;
+      
+      // Retornar vazio em vez de throw para não quebrar o fluxo
+      return [];
     }
   }, []);
 

@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { MessageSquare, Settings, Server, Moon, Sun, PanelLeftClose, PanelLeftOpen, Loader2, ChevronDown, Plus, ScrollText, Copy, Check } from "lucide-react";
+import { MessageSquare, Settings, Server, Moon, Sun, PanelLeftClose, PanelLeftOpen, Loader2, ChevronDown, Plus, ScrollText, Copy, Check, Globe } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ChatInput } from "@/components/chat/chat-input";
 import { ChatMessage } from "@/components/chat/chat-message";
  
@@ -120,7 +121,7 @@ export default function ChatPage() {
   const initializedRef = useRef(false);
   // Initialize with default format prompt
   const [systemPrompt, setSystemPrompt] = useState(defaultFormatPrompt || "Você é um assistente útil e prestativo.");
-  const [isChatsSidebarCollapsed, setIsChatsSidebarCollapsed] = useState(false);
+  const [isChatsSidebarCollapsed, setIsChatsSidebarCollapsed] = useState(true); // Iniciar colapsada
   const [thinkingStep, setThinkingStep] = useState<ThinkingStep | null>(null);
   const [processSteps, setProcessSteps] = useState<ProcessStep[]>([]);
   const [error, setError] = useState<string | Error | null>(null);
@@ -398,7 +399,11 @@ export default function ChatPage() {
              });
              
              try {
-               // Executar busca progressiva
+               // Obter contexto e queries enriquecidas do deep research
+               const context = deepResearch.state.context;
+               const enrichedQueries = deepResearch.state.enrichedQueries;
+               
+               // Executar busca progressiva com semantic search se disponível
                const fallbackResult = await executeProgressiveSearch(
                  query,
                  async (q, limit) => {
@@ -410,7 +415,10 @@ export default function ChatPage() {
                    maxResultsPerRound: maxResults,
                    maxTotalResults: 30, // Máximo 30 resultados por query
                    minRelevanceScore: 0.3,
-                   enableQueryExpansion: true,
+                   enableQueryExpansion: !enrichedQueries, // Desabilitar expansão tradicional se usar enriquecimento
+                   useSemanticSearch: !!enrichedQueries, // Usar semantic search se temos queries enriquecidas
+                   context: context || undefined,
+                   enrichedQueries: enrichedQueries || undefined,
                  }
                );
                
@@ -442,9 +450,25 @@ export default function ChatPage() {
                  });
                }
                
+               // Se houve falhas mas ainda tem resultados, avisar discretamente
+               const failedRounds = fallbackResult.attempts.filter(a => a.results.length === 0);
+               if (failedRounds.length > 0 && fallbackResult.scrapedSources.length > 0) {
+                 updateThinkingMessage('web-research', {
+                   details: `Consulta ${idx + 1}: Algumas tentativas falharam, mas ${fallbackResult.scrapedSources.length} resultados foram encontrados.`,
+                 });
+               }
+               
                return { query, results: fallbackResult.scrapedSources, fallbackResult };
              } catch (err) {
-               chatLog.error(`  ✗ Progressive search ${idx + 1} failed: ${err}`);
+               // Logar erro mas continuar (não quebrar o fluxo)
+               const errorMsg = err instanceof Error ? err.message : String(err);
+               chatLog.warn(`  ⚠️ Progressive search ${idx + 1} failed (continuando): ${errorMsg}`);
+               
+               // Atualizar mensagem de processo com aviso
+               updateThinkingMessage('web-research', {
+                 details: `Consulta ${idx + 1}: Erro na busca (${errorMsg}). Continuando com outras consultas...`,
+               });
+               
                return { query, results: [] as ScrapedContent[], fallbackResult: null };
              }
            });
@@ -563,25 +587,19 @@ export default function ChatPage() {
         }
 
       } catch (error) {
+        // Tratar erro graciosamente sem quebrar o fluxo
         const errorMsg = error instanceof Error ? error.message : String(error);
-        chatLog.error(`❌ Error in Deep Research pipeline: ${errorMsg}`);
+        chatLog.warn(`⚠️ Error in Deep Research pipeline (continuing with partial results): ${errorMsg}`);
         
-        // Atualizar mensagem de processo com erro
+        // Atualizar mensagem de processo com aviso (não erro fatal)
         updateThinkingMessage('web-research', {
-          status: 'error',
-          error: errorMsg,
+          status: 'completed', // Marcar como completed mesmo com erro parcial
+          details: `Alguns erros ocorreram durante a pesquisa: ${errorMsg}. Continuando com resultados parciais...`,
           duration: Date.now() - webResearchStart,
         });
         
-        // Atualizar step com erro (para compatibilidade)
-        setProcessSteps(prev => prev.map(s => 
-          s.id === 'web-research' 
-            ? { ...s, status: 'error' as const, error: errorMsg }
-            : s
-        ));
-        
-        // Definir erro global
-        setError(error);
+        // Não definir erro global - permitir que o fluxo continue
+        // O sistema continuará com conhecimento interno se necessário
       }
     } else {
       if (!webSearch.isEnabled) {
@@ -849,7 +867,12 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
     const panel = chatsSidebarRef.current;
     if (panel) {
       if (isChatsSidebarCollapsed) {
-        panel.expand();
+        // No mobile, apenas atualizar estado (overlay será mostrado)
+        if (typeof window !== 'undefined' && window.innerWidth < 768) {
+          setIsChatsSidebarCollapsed(false);
+        } else {
+          panel.expand();
+        }
       } else {
         panel.collapse();
       }
@@ -905,7 +928,7 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
           defaultSize={4} 
           minSize={4} 
           maxSize={4}
-          className="border-r flex flex-col items-center py-4 gap-4 bg-muted/20 w-[60px]"
+          className="border-r flex flex-col items-center py-4 gap-4 bg-muted/20 w-[60px] min-w-[60px] max-w-[60px] flex-shrink-0"
         >
           <Button variant="ghost" size="icon" className="rounded-lg bg-primary/10 text-primary">
             <MessageSquare className="w-5 h-5" />
@@ -932,48 +955,63 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
           </Button>
         </ResizablePanel>
 
-        <ResizableHandle />
+        <ResizableHandle className="hidden md:block" />
 
-        {/* Sessions List */}
+        {/* Sessions List - Desktop: ResizablePanel, Mobile: Overlay */}
         <ResizablePanel 
           ref={chatsSidebarRef}
-          defaultSize={15} 
-          minSize={10} 
+          defaultSize={0}
+          minSize={0} 
           maxSize={25} 
           collapsible={true}
           collapsedSize={0}
           onCollapse={() => setIsChatsSidebarCollapsed(true)}
           onExpand={() => setIsChatsSidebarCollapsed(false)}
-          className="min-w-[200px]"
+          className="min-w-0 md:min-w-[220px] md:max-w-[360px] hidden md:block"
+          style={{
+            minWidth: 'clamp(220px, 20vw, 360px)',
+            maxWidth: '360px',
+          }}
         >
           <SidebarList 
             sessions={sessions}
             currentSessionId={currentSessionId}
-            onSelectSession={handleSelectSession}
+            onSelectSession={(id) => {
+              handleSelectSession(id);
+              // Fechar sidebar no mobile após seleção
+              if (typeof window !== 'undefined' && window.innerWidth < 768) {
+                setIsChatsSidebarCollapsed(true);
+                chatsSidebarRef.current?.collapse();
+              }
+            }}
             onDeleteSession={deleteSession}
             onNewChat={handleNewChat}
           />
         </ResizablePanel>
 
-        <ResizableHandle />
+        <ResizableHandle className="hidden md:block" />
 
         {/* Main Chat Area */}
-        <ResizablePanel defaultSize={60} minSize={40}>
+        <ResizablePanel defaultSize={100} minSize={75} className="transition-all duration-300">
           <div className="h-full flex flex-col">
             {/* Header */}
-            <div className="h-14 border-b flex items-center px-4 justify-between bg-background/50 backdrop-blur gap-4">
+            <div className="h-14 border-b flex items-center px-3 sm:px-4 justify-between bg-background/50 backdrop-blur gap-2 sm:gap-4 flex-shrink-0" style={{ paddingLeft: 'clamp(12px, 2vw, 16px)', paddingRight: 'clamp(12px, 2vw, 16px)' }}>
               <div className="flex items-center gap-2">
-                {isChatsSidebarCollapsed ? (
-                  <Button variant="ghost" size="icon" onClick={toggleChatsSidebar} className="h-8 w-8">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={toggleChatsSidebar} 
+                  className="h-8 w-8 flex-shrink-0"
+                  aria-label={isChatsSidebarCollapsed ? "Abrir conversas" : "Fechar conversas"}
+                >
+                  {isChatsSidebarCollapsed ? (
                     <PanelLeftOpen className="w-4 h-4" />
-                  </Button>
-                ) : (
-                  <Button variant="ghost" size="icon" onClick={toggleChatsSidebar} className="h-8 w-8 text-muted-foreground">
+                  ) : (
                     <PanelLeftClose className="w-4 h-4" />
-                  </Button>
-                )}
-                <div className="font-semibold flex items-center gap-2">
-                  Chat
+                  )}
+                </Button>
+                <div className="font-semibold flex items-center gap-2 text-sm sm:text-base">
+                  <span className="hidden sm:inline">Chat</span>
                   {isGeneratingTitle && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
                   {isDownloading && (
                     <span className="text-xs text-muted-foreground flex items-center gap-1">
@@ -984,40 +1022,62 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                 </div>
               </div>
 
-              <div className="flex-1 max-w-[420px] flex items-center gap-2">
-                <div className="flex-1">
-                  <Select 
-                    value={selectedModel || undefined} 
-                    onValueChange={(v) => {
-                      if (v === "__add_model__") {
-                        setShowDownloadDialog(true);
-                        // Não alterar selectedModel quando abrir dialog
-                      } else {
-                        setSelectedModel(v);
-                        settings.setSelectedModel(v);
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="h-9">
-                      <SelectValue placeholder="Selecione um modelo..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {models.map(m => (
-                        <SelectItem key={m.name} value={m.name}>
-                          <span className="flex items-center justify-between w-full">
-                            <span className="truncate">{m.name}</span>
-                            <span className="ml-3 text-xs text-muted-foreground">{m.size}</span>
+              <div className="flex-1 max-w-full sm:max-w-[420px] flex items-center gap-2 min-w-0">
+                <div className="flex-1 min-w-0">
+                  <TooltipProvider>
+                    <Select 
+                      value={selectedModel || undefined} 
+                      onValueChange={(v) => {
+                        if (v === "__add_model__") {
+                          setShowDownloadDialog(true);
+                          // Não alterar selectedModel quando abrir dialog
+                        } else {
+                          setSelectedModel(v);
+                          settings.setSelectedModel(v);
+                        }
+                      }}
+                    >
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <SelectTrigger className="h-9 min-w-0 max-w-full">
+                            <SelectValue placeholder="Selecione um modelo..." className="truncate" />
+                          </SelectTrigger>
+                        </TooltipTrigger>
+                        {selectedModel && (
+                          <TooltipContent side="top" className="max-w-[70vw] break-words">
+                            <p className="text-sm">{selectedModel}</p>
+                          </TooltipContent>
+                        )}
+                      </Tooltip>
+                      <SelectContent className="max-w-[90vw] sm:max-w-[420px]">
+                        {models.map(m => (
+                          <Tooltip key={m.name}>
+                            <TooltipTrigger asChild>
+                              <SelectItem value={m.name} className="min-w-0">
+                                <span className="flex items-center justify-between w-full min-w-0 gap-2">
+                                  <span className="truncate flex-1 min-w-0" style={{ maxWidth: '70vw' }}>
+                                    {m.name}
+                                  </span>
+                                  <span className="ml-2 text-xs text-muted-foreground shrink-0">{m.size}</span>
+                                </span>
+                              </SelectItem>
+                            </TooltipTrigger>
+                            {m.name.length > 40 && (
+                              <TooltipContent side="right" className="max-w-[70vw] break-words">
+                                <p className="text-sm">{m.name}</p>
+                              </TooltipContent>
+                            )}
+                          </Tooltip>
+                        ))}
+                        <SelectItem value="__add_model__" className="text-primary font-medium">
+                          <span className="flex items-center gap-2">
+                            <Plus className="h-4 w-4" />
+                            Adicionar modelo...
                           </span>
                         </SelectItem>
-                      ))}
-                      <SelectItem value="__add_model__" className="text-primary font-medium">
-                        <span className="flex items-center gap-2">
-                          <Plus className="h-4 w-4" />
-                          Adicionar modelo...
-                        </span>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
+                      </SelectContent>
+                    </Select>
+                  </TooltipProvider>
                 </div>
                 <Button variant="outline" size="icon" className="h-9 w-9" onClick={refresh} title="Atualizar modelos">
                   <Loader2 className="w-4 h-4" />
@@ -1028,8 +1088,8 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
             {/* Messages Area with Floating Input Layout */}
             <div className="flex-1 relative h-full overflow-hidden flex flex-col">
               {/* Scrollable Content Area */}
-              <div className="flex-1 overflow-y-auto scroll-smooth w-full">
-                <div className="max-w-3xl mx-auto w-full px-4 md:px-0 pt-6 pb-4">
+              <div className="flex-1 overflow-y-auto scroll-smooth w-full min-h-0">
+                <div className="max-w-3xl mx-auto w-full px-3 sm:px-4 md:px-6 pt-4 sm:pt-6 pb-4 transition-all duration-300" style={{ paddingLeft: 'clamp(12px, 4vw, 24px)', paddingRight: 'clamp(12px, 4vw, 24px)' }}>
                   {messages.length === 0 ? (
                     <div className="min-h-[50vh] flex flex-col items-center justify-center text-muted-foreground space-y-6">
                       <div className="p-6 rounded-2xl bg-muted/30 ring-1 ring-border/50 shadow-sm">
@@ -1041,7 +1101,7 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                       </div>
                     </div>
                   ) : (
-                    <div className="flex flex-col gap-6">
+                    <div className="flex flex-col gap-4 sm:gap-6">
                       {messages.map((msg, i) => {
                         const isLastMessage = i === messages.length - (isLoading ? 1 : 0); // Ajuste simples
                         // Streaming logica mantida simples
@@ -1062,11 +1122,7 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                       )}
                     </div>
                   )}
-              
-              {/* Elemento invisível para scroll automático */}
-              <div ref={messagesEndRef} className="h-1" />
-            </div>
-            
+
                   {/* Debug Info (Moved inside scroll) */}
                   {(deepResearch.state.logs.length > 0 || lastWebContext) && (
                     <div className="mt-12 pt-6 border-t border-dashed border-muted/50 opacity-70 hover:opacity-100 transition-opacity">
@@ -1138,12 +1194,12 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
               </div>
 
               {/* Fixed Input Container */}
-              <div className="absolute bottom-0 left-0 right-0 z-20 pointer-events-none">
+              <div className="absolute bottom-0 left-0 right-0 z-30 pointer-events-none">
                 {/* Gradient Overlay */}
                 <div className="absolute inset-0 -top-20 bg-gradient-to-t from-background via-background/90 to-transparent pointer-events-none" />
                 
                 {/* Input Wrapper */}
-                <div className="relative max-w-3xl mx-auto px-4 pb-6 pt-4 pointer-events-auto">
+                <div className="relative max-w-3xl mx-auto px-3 sm:px-4 md:px-6 pb-4 sm:pb-6 pt-4 pointer-events-auto transition-all duration-300" style={{ paddingLeft: 'clamp(12px, 4vw, 24px)', paddingRight: 'clamp(12px, 4vw, 24px)' }}>
                    <ChatInput 
                       onSend={handleSend} 
                       onStop={stop} 
@@ -1163,8 +1219,37 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                 </div>
               </div>
             </div>
+          </div>
         </ResizablePanel>
       </ResizablePanelGroup>
+
+      {/* Mobile Sidebar Overlay */}
+      {!isChatsSidebarCollapsed && (
+        <>
+          <div 
+            className="fixed inset-0 bg-black/50 z-40 md:hidden transition-opacity"
+            onClick={() => {
+              setIsChatsSidebarCollapsed(true);
+              chatsSidebarRef.current?.collapse();
+            }}
+          />
+          <div className="fixed left-0 top-0 bottom-0 w-[280px] min-w-[220px] max-w-[85vw] bg-background border-r z-50 md:hidden shadow-xl animate-in slide-in-from-left duration-300 overflow-y-auto">
+            <SidebarList 
+              sessions={sessions}
+              currentSessionId={currentSessionId}
+              onSelectSession={(id) => {
+                handleSelectSession(id);
+                setIsChatsSidebarCollapsed(true);
+              }}
+              onDeleteSession={deleteSession}
+              onNewChat={() => {
+                handleNewChat();
+                setIsChatsSidebarCollapsed(true);
+              }}
+            />
+          </div>
+        </>
+      )}
 
       <ModelDownloadDialog
         open={showDownloadDialog}

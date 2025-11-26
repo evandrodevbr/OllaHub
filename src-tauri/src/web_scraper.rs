@@ -8,6 +8,7 @@ use url::Url;
 use rand::Rng;
 use tokio::sync::Semaphore;
 use regex::Regex;
+use std::time::Instant;
 
 /// Resultado da extração de conteúdo de uma URL
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -55,6 +56,178 @@ fn default_max_concurrent() -> usize {
 
 fn default_total_sources() -> usize {
     100
+}
+
+/// Enum para identificar diferentes motores de busca
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchEngine {
+    Google,
+    Bing,
+    Yahoo,
+    DuckDuckGo,
+    Startpage,
+}
+
+impl SearchEngine {
+    /// Converte string para SearchEngine
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "google" => Some(SearchEngine::Google),
+            "bing" => Some(SearchEngine::Bing),
+            "yahoo" => Some(SearchEngine::Yahoo),
+            "duckduckgo" | "duck_duck_go" => Some(SearchEngine::DuckDuckGo),
+            "startpage" => Some(SearchEngine::Startpage),
+            _ => None,
+        }
+    }
+
+    /// Retorna nome do motor como string
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SearchEngine::Google => "Google",
+            SearchEngine::Bing => "Bing",
+            SearchEngine::Yahoo => "Yahoo",
+            SearchEngine::DuckDuckGo => "DuckDuckGo",
+            SearchEngine::Startpage => "Startpage",
+        }
+    }
+
+    /// Retorna URL base de busca
+    fn base_url(&self) -> &'static str {
+        match self {
+            SearchEngine::Google => "https://www.google.com/search",
+            SearchEngine::Bing => "https://www.bing.com/search",
+            SearchEngine::Yahoo => "https://search.yahoo.com/search",
+            SearchEngine::DuckDuckGo => "https://html.duckduckgo.com/html",
+            SearchEngine::Startpage => "https://www.startpage.com/sp/search",
+        }
+    }
+
+    /// Retorna selectors CSS específicos para cada motor
+    fn selectors(&self) -> SearchSelectors {
+        match self {
+            SearchEngine::Google => SearchSelectors {
+                container: vec![
+                    "div.g",
+                    "div[data-ved]",
+                    ".tF2Cxc",
+                ],
+                title: vec![
+                    "h3",
+                    ".LC20lb",
+                    ".DKV0Md",
+                ],
+                url: vec![
+                    "a[href]",
+                    "cite",
+                ],
+                snippet: vec![
+                    ".VwiC3b",
+                    ".s",
+                    ".st",
+                ],
+            },
+            SearchEngine::Bing => SearchSelectors {
+                container: vec![
+                    ".b_algo",
+                    "li.b_algo",
+                ],
+                title: vec![
+                    "h2 a",
+                    ".b_title a",
+                ],
+                url: vec![
+                    "h2 a[href]",
+                    ".b_title a[href]",
+                ],
+                snippet: vec![
+                    ".b_caption p",
+                    ".b_caption",
+                ],
+            },
+            SearchEngine::Yahoo => SearchSelectors {
+                container: vec![
+                    ".dd.algo",
+                    ".Sr",
+                ],
+                title: vec![
+                    "h3 a",
+                    ".ac-algo h3 a",
+                ],
+                url: vec![
+                    "h3 a[href]",
+                    ".ac-algo h3 a[href]",
+                ],
+                snippet: vec![
+                    ".ac-algo .ac-text",
+                    ".compText",
+                ],
+            },
+            SearchEngine::DuckDuckGo => SearchSelectors {
+                container: vec![
+                    ".result",
+                    ".web-result",
+                    ".result__body",
+                ],
+                title: vec![
+                    ".result__a",
+                    ".web-result__link",
+                    "a.result__a",
+                ],
+                url: vec![
+                    ".result__a[href]",
+                    ".web-result__link[href]",
+                ],
+                snippet: vec![
+                    ".result__snippet",
+                    ".result__snippet.js-result-snippet",
+                    ".web-result__snippet",
+                ],
+            },
+            SearchEngine::Startpage => SearchSelectors {
+                container: vec![
+                    ".w-gl__result",
+                    ".result",
+                ],
+                title: vec![
+                    ".w-gl__result-title a",
+                    "h3 a",
+                ],
+                url: vec![
+                    ".w-gl__result-title a[href]",
+                    "h3 a[href]",
+                ],
+                snippet: vec![
+                    ".w-gl__result-snippet",
+                    ".snippet",
+                ],
+            },
+        }
+    }
+
+    /// Normaliza query para o motor específico
+    fn normalize_query(&self, query: &str) -> String {
+        // Todos os motores usam encoding padrão, mas alguns podem ter requisitos específicos
+        query.trim().to_string()
+    }
+}
+
+/// Estrutura para selectors CSS de cada motor
+struct SearchSelectors {
+    container: Vec<&'static str>,
+    title: Vec<&'static str>,
+    url: Vec<&'static str>,
+    snippet: Vec<&'static str>,
+}
+
+/// Log de tentativa de busca em um motor
+struct SearchAttemptLog {
+    engine: SearchEngine,
+    query: String,
+    success: bool,
+    results_count: usize,
+    duration_ms: u64,
+    error: Option<String>,
 }
 
 /// Pool de User-Agents para rotação (evita bloqueios 429)
@@ -126,6 +299,389 @@ pub async fn search_duckduckgo(query: &str, limit: usize) -> Result<Vec<String>>
     }
     links.truncate(limit);
     Ok(links)
+}
+
+/// Busca no Google retornando apenas metadados (título, URL, snippet)
+pub async fn search_google_metadata(query: &str, limit: usize) -> Result<Vec<SearchResultMetadata>> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()?;
+
+    let url = format!("{}?q={}&num={}",
+        SearchEngine::Google.base_url(),
+        urlencoding::encode(query),
+        limit.min(100)
+    );
+
+    let user_agent = get_random_user_agent();
+    let start_time = Instant::now();
+    
+    log::info!("[SearchEngine:Google] Query: '{}', Attempting...", query);
+    
+    let res = match client
+        .get(&url)
+        .header(USER_AGENT, user_agent)
+        .send()
+        .await
+    {
+        Ok(r) => r.text().await?,
+        Err(e) => {
+            let duration = start_time.elapsed().as_millis() as u64;
+            log::warn!("[SearchEngine:Google] Failed: {} ({}ms)", e, duration);
+            return Err(anyhow::anyhow!("Google search failed: {}", e));
+        }
+    };
+
+    let mut results: Vec<SearchResultMetadata> = Vec::new();
+    let selectors = SearchEngine::Google.selectors();
+    let document = Html::parse_document(&res);
+
+    for cont_sel in &selectors.container {
+        if results.len() >= limit { break; }
+        if let Ok(container) = Selector::parse(cont_sel) {
+            for node in document.select(&container) {
+                if results.len() >= limit { break; }
+                
+                let mut found_url: Option<String> = None;
+                let mut found_title: Option<String> = None;
+                
+                // Buscar título
+                for tsel in &selectors.title {
+                    if let Ok(ts) = Selector::parse(tsel) {
+                        if let Some(a) = node.select(&ts).next() {
+                            // Extrair URL
+                            if let Some(href) = a.value().attr("href") {
+                                let cleaned = clean_url(href);
+                                if cleaned.is_some() {
+                                    found_url = cleaned;
+                                }
+                            }
+                            // Extrair título
+                            let text = a.text().collect::<Vec<_>>().join(" ").trim().to_string();
+                            if !text.is_empty() { found_title = Some(text); }
+                        }
+                        if found_url.is_some() && found_title.is_some() { break; }
+                    }
+                }
+
+                if found_url.is_none() { continue; }
+
+                // Buscar snippet
+                let mut snippet_text = String::new();
+                for ssel in &selectors.snippet {
+                    if let Ok(ss) = Selector::parse(ssel) {
+                        if let Some(s) = node.select(&ss).next() {
+                            let t = s.text().collect::<Vec<_>>().join(" ");
+                            let norm = t.split_whitespace().collect::<Vec<_>>().join(" ");
+                            if !norm.is_empty() { snippet_text = norm; break; }
+                        }
+                    }
+                }
+
+                let url_final = found_url.unwrap();
+                if is_ad_or_tracker_url(&url_final) || url_final.is_empty() { continue; }
+
+                results.push(SearchResultMetadata {
+                    title: found_title.unwrap_or_else(|| url_final.clone()),
+                    url: url_final,
+                    snippet: snippet_text,
+                });
+            }
+        }
+    }
+
+    let duration = start_time.elapsed().as_millis() as u64;
+    if results.is_empty() {
+        log::warn!("[SearchEngine:Google] No results found ({}ms)", duration);
+    } else {
+        log::info!("[SearchEngine:Google] Found {} results ({}ms)", results.len(), duration);
+    }
+
+    Ok(results)
+}
+
+/// Busca no Bing retornando apenas metadados (título, URL, snippet)
+pub async fn search_bing_metadata(query: &str, limit: usize) -> Result<Vec<SearchResultMetadata>> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()?;
+
+    let url = format!("{}?q={}&count={}",
+        SearchEngine::Bing.base_url(),
+        urlencoding::encode(query),
+        limit.min(50)
+    );
+
+    let user_agent = get_random_user_agent();
+    let start_time = Instant::now();
+    
+    log::info!("[SearchEngine:Bing] Query: '{}', Attempting...", query);
+    
+    let res = match client
+        .get(&url)
+        .header(USER_AGENT, user_agent)
+        .send()
+        .await
+    {
+        Ok(r) => r.text().await?,
+        Err(e) => {
+            let duration = start_time.elapsed().as_millis() as u64;
+            log::warn!("[SearchEngine:Bing] Failed: {} ({}ms)", e, duration);
+            return Err(anyhow::anyhow!("Bing search failed: {}", e));
+        }
+    };
+
+    let mut results: Vec<SearchResultMetadata> = Vec::new();
+    let selectors = SearchEngine::Bing.selectors();
+    let document = Html::parse_document(&res);
+
+    for cont_sel in &selectors.container {
+        if results.len() >= limit { break; }
+        if let Ok(container) = Selector::parse(cont_sel) {
+            for node in document.select(&container) {
+                if results.len() >= limit { break; }
+                
+                let mut found_url: Option<String> = None;
+                let mut found_title: Option<String> = None;
+                
+                for tsel in &selectors.title {
+                    if let Ok(ts) = Selector::parse(tsel) {
+                        if let Some(a) = node.select(&ts).next() {
+                            if let Some(href) = a.value().attr("href") {
+                                let cleaned = clean_url(href);
+                                if cleaned.is_some() {
+                                    found_url = cleaned;
+                                }
+                            }
+                            let text = a.text().collect::<Vec<_>>().join(" ").trim().to_string();
+                            if !text.is_empty() { found_title = Some(text); }
+                        }
+                        if found_url.is_some() && found_title.is_some() { break; }
+                    }
+                }
+
+                if found_url.is_none() { continue; }
+
+                let mut snippet_text = String::new();
+                for ssel in &selectors.snippet {
+                    if let Ok(ss) = Selector::parse(ssel) {
+                        if let Some(s) = node.select(&ss).next() {
+                            let t = s.text().collect::<Vec<_>>().join(" ");
+                            let norm = t.split_whitespace().collect::<Vec<_>>().join(" ");
+                            if !norm.is_empty() { snippet_text = norm; break; }
+                        }
+                    }
+                }
+
+                let url_final = found_url.unwrap();
+                if is_ad_or_tracker_url(&url_final) || url_final.is_empty() { continue; }
+
+                results.push(SearchResultMetadata {
+                    title: found_title.unwrap_or_else(|| url_final.clone()),
+                    url: url_final,
+                    snippet: snippet_text,
+                });
+            }
+        }
+    }
+
+    let duration = start_time.elapsed().as_millis() as u64;
+    if results.is_empty() {
+        log::warn!("[SearchEngine:Bing] No results found ({}ms)", duration);
+    } else {
+        log::info!("[SearchEngine:Bing] Found {} results ({}ms)", results.len(), duration);
+    }
+
+    Ok(results)
+}
+
+/// Busca no Yahoo retornando apenas metadados (título, URL, snippet)
+pub async fn search_yahoo_metadata(query: &str, limit: usize) -> Result<Vec<SearchResultMetadata>> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()?;
+
+    let url = format!("{}?p={}&n={}",
+        SearchEngine::Yahoo.base_url(),
+        urlencoding::encode(query),
+        limit.min(40)
+    );
+
+    let user_agent = get_random_user_agent();
+    let start_time = Instant::now();
+    
+    log::info!("[SearchEngine:Yahoo] Query: '{}', Attempting...", query);
+    
+    let res = match client
+        .get(&url)
+        .header(USER_AGENT, user_agent)
+        .send()
+        .await
+    {
+        Ok(r) => r.text().await?,
+        Err(e) => {
+            let duration = start_time.elapsed().as_millis() as u64;
+            log::warn!("[SearchEngine:Yahoo] Failed: {} ({}ms)", e, duration);
+            return Err(anyhow::anyhow!("Yahoo search failed: {}", e));
+        }
+    };
+
+    let mut results: Vec<SearchResultMetadata> = Vec::new();
+    let selectors = SearchEngine::Yahoo.selectors();
+    let document = Html::parse_document(&res);
+
+    for cont_sel in &selectors.container {
+        if results.len() >= limit { break; }
+        if let Ok(container) = Selector::parse(cont_sel) {
+            for node in document.select(&container) {
+                if results.len() >= limit { break; }
+                
+                let mut found_url: Option<String> = None;
+                let mut found_title: Option<String> = None;
+                
+                for tsel in &selectors.title {
+                    if let Ok(ts) = Selector::parse(tsel) {
+                        if let Some(a) = node.select(&ts).next() {
+                            if let Some(href) = a.value().attr("href") {
+                                let cleaned = clean_url(href);
+                                if cleaned.is_some() {
+                                    found_url = cleaned;
+                                }
+                            }
+                            let text = a.text().collect::<Vec<_>>().join(" ").trim().to_string();
+                            if !text.is_empty() { found_title = Some(text); }
+                        }
+                        if found_url.is_some() && found_title.is_some() { break; }
+                    }
+                }
+
+                if found_url.is_none() { continue; }
+
+                let mut snippet_text = String::new();
+                for ssel in &selectors.snippet {
+                    if let Ok(ss) = Selector::parse(ssel) {
+                        if let Some(s) = node.select(&ss).next() {
+                            let t = s.text().collect::<Vec<_>>().join(" ");
+                            let norm = t.split_whitespace().collect::<Vec<_>>().join(" ");
+                            if !norm.is_empty() { snippet_text = norm; break; }
+                        }
+                    }
+                }
+
+                let url_final = found_url.unwrap();
+                if is_ad_or_tracker_url(&url_final) || url_final.is_empty() { continue; }
+
+                results.push(SearchResultMetadata {
+                    title: found_title.unwrap_or_else(|| url_final.clone()),
+                    url: url_final,
+                    snippet: snippet_text,
+                });
+            }
+        }
+    }
+
+    let duration = start_time.elapsed().as_millis() as u64;
+    if results.is_empty() {
+        log::warn!("[SearchEngine:Yahoo] No results found ({}ms)", duration);
+    } else {
+        log::info!("[SearchEngine:Yahoo] Found {} results ({}ms)", results.len(), duration);
+    }
+
+    Ok(results)
+}
+
+/// Busca no Startpage retornando apenas metadados (título, URL, snippet)
+pub async fn search_startpage_metadata(query: &str, limit: usize) -> Result<Vec<SearchResultMetadata>> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()?;
+
+    let url = format!("{}?query={}&page=1",
+        SearchEngine::Startpage.base_url(),
+        urlencoding::encode(query)
+    );
+
+    let user_agent = get_random_user_agent();
+    let start_time = Instant::now();
+    
+    log::info!("[SearchEngine:Startpage] Query: '{}', Attempting...", query);
+    
+    let res = match client
+        .get(&url)
+        .header(USER_AGENT, user_agent)
+        .send()
+        .await
+    {
+        Ok(r) => r.text().await?,
+        Err(e) => {
+            let duration = start_time.elapsed().as_millis() as u64;
+            log::warn!("[SearchEngine:Startpage] Failed: {} ({}ms)", e, duration);
+            return Err(anyhow::anyhow!("Startpage search failed: {}", e));
+        }
+    };
+
+    let mut results: Vec<SearchResultMetadata> = Vec::new();
+    let selectors = SearchEngine::Startpage.selectors();
+    let document = Html::parse_document(&res);
+
+    for cont_sel in &selectors.container {
+        if results.len() >= limit { break; }
+        if let Ok(container) = Selector::parse(cont_sel) {
+            for node in document.select(&container) {
+                if results.len() >= limit { break; }
+                
+                let mut found_url: Option<String> = None;
+                let mut found_title: Option<String> = None;
+                
+                for tsel in &selectors.title {
+                    if let Ok(ts) = Selector::parse(tsel) {
+                        if let Some(a) = node.select(&ts).next() {
+                            if let Some(href) = a.value().attr("href") {
+                                let cleaned = clean_url(href);
+                                if cleaned.is_some() {
+                                    found_url = cleaned;
+                                }
+                            }
+                            let text = a.text().collect::<Vec<_>>().join(" ").trim().to_string();
+                            if !text.is_empty() { found_title = Some(text); }
+                        }
+                        if found_url.is_some() && found_title.is_some() { break; }
+                    }
+                }
+
+                if found_url.is_none() { continue; }
+
+                let mut snippet_text = String::new();
+                for ssel in &selectors.snippet {
+                    if let Ok(ss) = Selector::parse(ssel) {
+                        if let Some(s) = node.select(&ss).next() {
+                            let t = s.text().collect::<Vec<_>>().join(" ");
+                            let norm = t.split_whitespace().collect::<Vec<_>>().join(" ");
+                            if !norm.is_empty() { snippet_text = norm; break; }
+                        }
+                    }
+                }
+
+                let url_final = found_url.unwrap();
+                if is_ad_or_tracker_url(&url_final) || url_final.is_empty() { continue; }
+
+                results.push(SearchResultMetadata {
+                    title: found_title.unwrap_or_else(|| url_final.clone()),
+                    url: url_final,
+                    snippet: snippet_text,
+                });
+            }
+        }
+    }
+
+    let duration = start_time.elapsed().as_millis() as u64;
+    if results.is_empty() {
+        log::warn!("[SearchEngine:Startpage] No results found ({}ms)", duration);
+    } else {
+        log::info!("[SearchEngine:Startpage] Found {} results ({}ms)", results.len(), duration);
+    }
+
+    Ok(results)
 }
 
 /// Busca no DuckDuckGo retornando apenas metadados (título, URL, snippet)
@@ -235,6 +791,216 @@ pub async fn search_duckduckgo_metadata(query: &str, limit: usize) -> Result<Vec
     }
 
     Ok(results)
+}
+
+/// Calcula score de relevância baseado em matches de palavras-chave
+fn calculate_relevance_score(result: &SearchResultMetadata, query: &str) -> f32 {
+    let query_lower = query.to_lowercase();
+    let query_words: Vec<&str> = query_lower.split_whitespace()
+        .filter(|w| w.len() > 2)
+        .collect();
+    
+    if query_words.is_empty() {
+        return 0.5; // Score neutro se não há palavras-chave
+    }
+    
+    let title_lower = result.title.to_lowercase();
+    let snippet_lower = result.snippet.to_lowercase();
+    let combined = format!("{} {}", title_lower, snippet_lower);
+    
+    let mut matches = 0;
+    for word in &query_words {
+        if combined.contains(word) {
+            matches += 1;
+        }
+    }
+    
+    let base_score = matches as f32 / query_words.len() as f32;
+    
+    // Bônus se palavra está no título
+    let title_matches = query_words.iter()
+        .filter(|w| title_lower.contains(*w))
+        .count();
+    let title_bonus = (title_matches as f32 / query_words.len() as f32) * 0.3;
+    
+    // Bônus se snippet não está vazio
+    let snippet_bonus = if !result.snippet.is_empty() { 0.1 } else { 0.0 };
+    
+    (base_score + title_bonus + snippet_bonus).min(1.0)
+}
+
+/// Busca multi-engine com fallback automático
+pub async fn search_multi_engine_metadata(
+    query: &str,
+    limit: usize,
+    engine_order: &[SearchEngine],
+    min_results: usize,
+) -> Result<Vec<SearchResultMetadata>> {
+    let mut all_results: Vec<SearchResultMetadata> = Vec::new();
+    let mut seen_urls = std::collections::HashSet::new();
+    let mut attempt_logs: Vec<SearchAttemptLog> = Vec::new();
+    
+    log::info!("[MultiEngine] Starting search for: '{}'", query);
+    log::info!("[MultiEngine] Engine order: {:?}", engine_order.iter().map(|e| e.as_str()).collect::<Vec<_>>());
+    log::info!("[MultiEngine] Min results required: {}", min_results);
+    
+    for engine in engine_order {
+        let start_time = Instant::now();
+        let mut attempt_log = SearchAttemptLog {
+            engine: *engine,
+            query: query.to_string(),
+            success: false,
+            results_count: 0,
+            duration_ms: 0,
+            error: None,
+        };
+        
+        let result = match *engine {
+            SearchEngine::Google => search_google_metadata(query, limit).await,
+            SearchEngine::Bing => search_bing_metadata(query, limit).await,
+            SearchEngine::Yahoo => search_yahoo_metadata(query, limit).await,
+            SearchEngine::DuckDuckGo => search_duckduckgo_metadata(query, limit).await,
+            SearchEngine::Startpage => search_startpage_metadata(query, limit).await,
+        };
+        
+        attempt_log.duration_ms = start_time.elapsed().as_millis() as u64;
+        
+        match result {
+            Ok(mut engine_results) => {
+                // Filtrar duplicatas
+                engine_results.retain(|r| {
+                    if seen_urls.contains(&r.url) {
+                        false
+                    } else {
+                        seen_urls.insert(r.url.clone());
+                        true
+                    }
+                });
+                
+                attempt_log.results_count = engine_results.len();
+                attempt_log.success = true;
+                
+                if !engine_results.is_empty() {
+                    log::info!("[MultiEngine:{}] Found {} unique results ({}ms)", 
+                        engine.as_str(), engine_results.len(), attempt_log.duration_ms);
+                    all_results.extend(engine_results);
+                    
+                    // Se atingiu mínimo necessário, pode parar
+                    if all_results.len() >= min_results {
+                        log::info!("[MultiEngine] Minimum results ({}) reached, stopping early", min_results);
+                        break;
+                    }
+                } else {
+                    log::warn!("[MultiEngine:{}] No results found ({}ms), trying next engine...", 
+                        engine.as_str(), attempt_log.duration_ms);
+                }
+            }
+            Err(e) => {
+                let error_msg = format!("{}", e);
+                attempt_log.error = Some(error_msg.clone());
+                log::warn!("[MultiEngine:{}] Failed: {} ({}ms), trying next engine...", 
+                    engine.as_str(), error_msg, attempt_log.duration_ms);
+            }
+        }
+        
+        attempt_logs.push(attempt_log);
+    }
+    
+    // Ranquear resultados por relevância
+    let mut scored_results: Vec<(SearchResultMetadata, f32)> = all_results
+        .into_iter()
+        .map(|r| {
+            let score = calculate_relevance_score(&r, query);
+            (r, score)
+        })
+        .collect();
+    
+    // Ordenar por score (maior primeiro)
+    scored_results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    
+    // Retornar top limit resultados
+    let final_results: Vec<SearchResultMetadata> = scored_results
+        .into_iter()
+        .take(limit)
+        .map(|(r, _)| r)
+        .collect();
+    
+    // Log resumo
+    log::info!("[MultiEngine] Final results: {} (from {} engines)", 
+        final_results.len(), attempt_logs.len());
+    for log_entry in &attempt_logs {
+        if log_entry.success {
+            log::info!("  ✓ {}: {} results ({}ms)", 
+                log_entry.engine.as_str(), log_entry.results_count, log_entry.duration_ms);
+        } else {
+            log::warn!("  ✗ {}: Failed - {} ({}ms)", 
+                log_entry.engine.as_str(), 
+                log_entry.error.as_ref().unwrap_or(&"Unknown error".to_string()),
+                log_entry.duration_ms);
+        }
+    }
+    
+    Ok(final_results)
+}
+
+/// Expande query semanticamente (adiciona sinônimos, remove stopwords)
+pub fn expand_query_semantic(query: &str, language: &str) -> Vec<String> {
+    let mut variants = Vec::new();
+    
+    // Query original sempre incluída
+    variants.push(query.trim().to_string());
+    
+    // Stopwords por idioma
+    let stopwords: Vec<&str> = match language {
+        "pt-BR" | "pt" => vec!["o", "a", "os", "as", "de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas", "para", "por", "com", "sem", "que", "qual", "quais"],
+        "en" => vec!["the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by"],
+        "es" => vec!["el", "la", "los", "las", "de", "del", "en", "un", "una", "para", "por", "con", "sin"],
+        _ => vec![],
+    };
+    
+    // Remover stopwords
+    let words: Vec<&str> = query.split_whitespace()
+        .filter(|w| !stopwords.contains(&w.to_lowercase().as_str()))
+        .collect();
+    
+    if words.len() > 1 {
+        let without_stopwords = words.join(" ");
+        if without_stopwords != query.trim() {
+            variants.push(without_stopwords);
+        }
+    }
+    
+    // Sinônimos comuns (básico - pode ser expandido)
+    let synonyms: Vec<(&str, &str)> = match language {
+        "pt-BR" | "pt" => vec![
+            ("pesquisa", "estudo investigação"),
+            ("resultado", "achado descoberta"),
+            ("acadêmico", "científico universitário"),
+        ],
+        "en" => vec![
+            ("research", "study investigation"),
+            ("result", "finding discovery"),
+            ("academic", "scientific scholarly"),
+        ],
+        _ => vec![],
+    };
+    
+    // Adicionar variantes com sinônimos
+    for (original, replacements) in synonyms {
+        if query.to_lowercase().contains(original) {
+            for replacement in replacements.split_whitespace() {
+                let variant = query.to_lowercase().replace(original, replacement);
+                if variant != query.to_lowercase() {
+                    variants.push(variant);
+                }
+            }
+        }
+    }
+    
+    // Remover duplicatas e retornar
+    variants.sort();
+    variants.dedup();
+    variants
 }
 
 /// Extrai a URL real do redirecionamento do DuckDuckGo

@@ -10,6 +10,36 @@ pub struct GpuInfo {
     pub memory_mb: Option<u64>,
 }
 
+/// Estatísticas detalhadas de uma GPU
+#[derive(Serialize, Clone, Debug, Default)]
+pub struct GpuStats {
+    pub id: String,
+    pub name: String,
+    pub vendor: Option<String>,
+    // Memória VRAM
+    pub vram_used_mb: Option<u64>,
+    pub vram_total_mb: Option<u64>,
+    pub vram_percent: Option<f32>,
+    // Uso de processamento
+    pub compute_usage_percent: Option<f32>,
+    pub graphics_usage_percent: Option<f32>,
+    pub overall_usage_percent: Option<f32>,
+    // Temperatura
+    pub temperature_celsius: Option<f32>,
+    pub temperature_max_celsius: Option<f32>,
+    // Energia
+    pub power_watts: Option<f32>,
+    pub power_max_watts: Option<f32>,
+    // Ventilador
+    pub fan_speed_rpm: Option<u32>,
+    pub fan_speed_percent: Option<f32>,
+    // Processos
+    pub processes_count: Option<usize>,
+    // Driver/API
+    pub driver_version: Option<String>,
+    pub api: Option<String>, // CUDA, Vulkan, OpenCL, etc.
+}
+
 /// Estatísticas do sistema em tempo real
 #[derive(Serialize, Clone, Debug)]
 pub struct SystemStats {
@@ -613,5 +643,160 @@ fn parse_memory_string(s: &str) -> Option<u64> {
     }
     
     None
+}
+
+/// Obtém estatísticas detalhadas de uma GPU específica
+pub fn get_gpu_stats(gpu_id: Option<&str>) -> Option<GpuStats> {
+    let gpus = detect_all_gpus();
+    
+    // Se gpu_id fornecido, buscar GPU específica, senão usar primeira GPU
+    let target_gpu = if let Some(id) = gpu_id {
+        gpus.iter().find(|g| g.id == id)
+    } else {
+        gpus.first()
+    }?;
+    
+    // Tentar obter stats detalhados baseado no vendor
+    if let Some(vendor) = &target_gpu.vendor {
+        match vendor.as_str() {
+            "NVIDIA" => get_nvidia_gpu_stats(target_gpu),
+            "AMD" => get_amd_gpu_stats(target_gpu),
+            "Intel" => get_intel_gpu_stats(target_gpu),
+            _ => get_generic_gpu_stats(target_gpu),
+        }
+    } else {
+        get_generic_gpu_stats(target_gpu)
+    }
+}
+
+/// Obtém estatísticas detalhadas de GPU NVIDIA via nvidia-smi
+fn get_nvidia_gpu_stats(gpu: &GpuInfo) -> Option<GpuStats> {
+    use std::process::Command;
+    
+    log::info!("Coletando stats detalhados da GPU NVIDIA: {}", gpu.name);
+    
+    // Query nvidia-smi para obter todas as métricas
+    let query = "name,memory.used,memory.total,utilization.gpu,utilization.memory,temperature.gpu,temperature.max,power.draw,power.limit,fan.speed,driver_version";
+    
+    let output = Command::new("nvidia-smi")
+        .args(&[
+            "--query-gpu", query,
+            "--format=csv,noheader,nounits"
+        ])
+        .output()
+        .ok()?;
+    
+    if !output.status.success() {
+        log::warn!("nvidia-smi falhou ao coletar stats");
+        return get_generic_gpu_stats(gpu);
+    }
+    
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    let line = stdout.lines().next()?;
+    let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+    
+    if parts.len() < 11 {
+        log::warn!("nvidia-smi retornou formato inesperado");
+        return get_generic_gpu_stats(gpu);
+    }
+    
+    // Parse dos valores
+    let vram_used_mb = parts[1].parse::<u64>().ok();
+    let vram_total_mb = parts[2].parse::<u64>().ok();
+    let vram_percent = if let (Some(used), Some(total)) = (vram_used_mb, vram_total_mb) {
+        if total > 0 {
+            Some((used as f32 / total as f32) * 100.0)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    
+    let compute_usage_percent = parts[3].parse::<f32>().ok();
+    let memory_usage_percent = parts[4].parse::<f32>().ok();
+    let overall_usage_percent = compute_usage_percent;
+    
+    let temperature_celsius = parts[5].parse::<f32>().ok();
+    let temperature_max_celsius = parts[6].parse::<f32>().ok();
+    
+    let power_watts = parts[7].parse::<f32>().ok();
+    let power_max_watts = parts[8].parse::<f32>().ok();
+    
+    let fan_speed_percent = parts[9].parse::<f32>().ok();
+    let fan_speed_rpm = None; // nvidia-smi não retorna RPM diretamente
+    
+    let driver_version = Some(parts[10].to_string());
+    
+    // Contar processos usando GPU
+    let processes_count = count_nvidia_gpu_processes().unwrap_or(0);
+    
+    Some(GpuStats {
+        id: gpu.id.clone(),
+        name: gpu.name.clone(),
+        vendor: gpu.vendor.clone(),
+        vram_used_mb,
+        vram_total_mb,
+        vram_percent,
+        compute_usage_percent,
+        graphics_usage_percent: compute_usage_percent, // NVIDIA não diferencia
+        overall_usage_percent,
+        temperature_celsius,
+        temperature_max_celsius,
+        power_watts,
+        power_max_watts,
+        fan_speed_rpm,
+        fan_speed_percent,
+        processes_count: Some(processes_count),
+        driver_version,
+        api: Some("CUDA".to_string()),
+    })
+}
+
+/// Conta processos usando GPU NVIDIA
+fn count_nvidia_gpu_processes() -> Result<usize, String> {
+    use std::process::Command;
+    
+    let output = Command::new("nvidia-smi")
+        .args(&["--query-compute-apps=pid", "--format=csv,noheader"])
+        .output()
+        .map_err(|e| format!("nvidia-smi não encontrado: {}", e))?;
+    
+    if !output.status.success() {
+        return Ok(0);
+    }
+    
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|e| format!("Erro ao parsear output: {}", e))?;
+    
+    // Contar linhas não vazias
+    let count = stdout.lines().filter(|l| !l.trim().is_empty()).count();
+    Ok(count)
+}
+
+/// Obtém estatísticas de GPU AMD (implementação básica)
+fn get_amd_gpu_stats(gpu: &GpuInfo) -> Option<GpuStats> {
+    log::info!("Coletando stats da GPU AMD: {} (suporte limitado)", gpu.name);
+    // AMD requer rocm-smi ou outras ferramentas específicas
+    // Por enquanto, retornar stats genéricos
+    get_generic_gpu_stats(gpu)
+}
+
+/// Obtém estatísticas de GPU Intel (implementação básica)
+fn get_intel_gpu_stats(gpu: &GpuInfo) -> Option<GpuStats> {
+    log::info!("Coletando stats da GPU Intel: {} (suporte limitado)", gpu.name);
+    // Intel requer intel_gpu_top ou outras ferramentas específicas
+    get_generic_gpu_stats(gpu)
+}
+
+/// Retorna stats genéricos quando não há suporte específico
+fn get_generic_gpu_stats(gpu: &GpuInfo) -> Option<GpuStats> {
+    Some(GpuStats {
+        id: gpu.id.clone(),
+        name: gpu.name.clone(),
+        vendor: gpu.vendor.clone(),
+        vram_total_mb: gpu.memory_mb,
+        ..Default::default()
+    })
 }
 

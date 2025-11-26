@@ -4,6 +4,8 @@ import type { ScrapedContent } from '@/services/webSearch';
 import { deepResearchLog as log } from '@/lib/terminal-logger';
 import { condenseKnowledgeBase, validateCondensedContext } from '@/lib/knowledge-base-processor';
 import type { CondensationResult } from '@/lib/knowledge-base-processor';
+import { analyzeQueryContext, type QueryContext } from '@/lib/contextual-analyzer';
+import { enrichQueries, type EnrichedQueries } from '@/lib/query-enricher';
 
 export type DeepResearchStep = 'idle' | 'planning' | 'searching' | 'aggregating' | 'validating' | 'formulating' | 'complete' | 'error';
 
@@ -32,6 +34,8 @@ export interface DeepResearchState {
   validationReport: string;
   error?: string;
   logs: DeepResearchLog[];
+  context?: QueryContext;
+  enrichedQueries?: EnrichedQueries;
 }
 
 // ========== LOGGING UTILITIES ==========
@@ -177,6 +181,49 @@ export function useDeepResearch() {
     }
   };
 
+  // --- CONTEXTUAL ANALYSIS ---
+  const analyzeContext = useCallback(async (query: string, model: string): Promise<QueryContext | null> => {
+    logStep('--- Contextual Analysis ---');
+    try {
+      const context = await analyzeQueryContext(query, model);
+      logData('Context Analysis', {
+        intent: context.intent,
+        entities: context.entities.length,
+        topics: context.topics.length,
+        keywords: context.keywords.length,
+      });
+      setState(s => ({ ...s, context }));
+      return context;
+    } catch (error) {
+      log.warn('Contextual analysis failed, continuing without context:', error);
+      return null;
+    }
+  }, []);
+
+  // --- QUERY ENRICHMENT ---
+  const enrich = useCallback(async (query: string, context: QueryContext | null, model: string): Promise<EnrichedQueries | null> => {
+    if (!context) {
+      return null;
+    }
+    
+    logStep('--- Query Enrichment ---');
+    try {
+      const enriched = await enrichQueries(query, context, model);
+      logData('Enriched Queries', {
+        literal: enriched.literal.length,
+        semantic: enriched.semantic.length,
+        related: enriched.related.length,
+        expanded: enriched.expanded.length,
+        contextual: enriched.contextual.length,
+      });
+      setState(s => ({ ...s, enrichedQueries: enriched }));
+      return enriched;
+    } catch (error) {
+      log.warn('Query enrichment failed, continuing without enrichment:', error);
+      return null;
+    }
+  }, []);
+
   // --- DECOMPOSITION ---
   const decompose = useCallback(async (query: string, model: string) => {
     logSection('DECOMPOSITION');
@@ -186,6 +233,12 @@ export function useDeepResearch() {
     setState(s => ({ ...s, step: 'planning', error: undefined, logs: [], knowledgeBase: [] }));
     
     try {
+      // Análise contextual (opcional, não bloqueia se falhar)
+      const context = await analyzeContext(query, model);
+      
+      // Enriquecimento de queries (opcional, não bloqueia se falhar)
+      const enriched = context ? await enrich(query, context, model) : null;
+      
       const prompt = DEEP_RESEARCH_PROMPTS.DECOMPOSITION.replace('{{userQuery}}', query);
       logStep('Sending decomposition prompt to LLM...');
       const response = await callLLM(model, prompt, true);

@@ -3,10 +3,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Label } from "@/components/ui/label";
-import { Download, Loader2, X } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Download, Loader2, X, Upload, Globe, AlertCircle, File } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+// Usar file dialog do Tauri v2
 
 interface ModelDownloadDialogProps {
   open: boolean;
@@ -24,6 +26,7 @@ interface DownloadInfo {
 }
 
 export function ModelDownloadDialog({ open, onOpenChange, onSuccess }: ModelDownloadDialogProps) {
+  const [activeTab, setActiveTab] = useState<"download" | "local">("download");
   const [modelName, setModelName] = useState("");
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
@@ -33,6 +36,12 @@ export function ModelDownloadDialog({ open, onOpenChange, onSuccess }: ModelDown
   const [isInstalled, setIsInstalled] = useState(false);
   const isDownloadingRef = useRef(false);
   const modelNameRef = useRef("");
+  
+  // Estados para instalação local
+  const [isInstallingLocal, setIsInstallingLocal] = useState(false);
+  const [localInstallProgress, setLocalInstallProgress] = useState(0);
+  const [localInstallError, setLocalInstallError] = useState<string | null>(null);
+  const [localModelName, setLocalModelName] = useState("");
 
   // Atualizar refs quando estado muda
   useEffect(() => {
@@ -43,6 +52,7 @@ export function ModelDownloadDialog({ open, onOpenChange, onSuccess }: ModelDown
   // Resetar estado quando dialog abre/fecha
   useEffect(() => {
     if (open) {
+      setActiveTab("download");
       setModelName("");
       setIsDownloading(false);
       setDownloadProgress(0);
@@ -52,6 +62,11 @@ export function ModelDownloadDialog({ open, onOpenChange, onSuccess }: ModelDown
       setIsInstalled(false);
       isDownloadingRef.current = false;
       modelNameRef.current = "";
+      // Reset estados locais
+      setIsInstallingLocal(false);
+      setLocalInstallProgress(0);
+      setLocalInstallError(null);
+      setLocalModelName("");
     }
   }, [open]);
 
@@ -243,6 +258,69 @@ export function ModelDownloadDialog({ open, onOpenChange, onSuccess }: ModelDown
     }
   };
 
+  const handleSelectFileButton = async () => {
+    try {
+      // Usar comando Rust para abrir dialog nativo do sistema
+      // Isso evita limitações do input file HTML5 com arquivos grandes
+      const selectedPath = await invoke<string | null>('open_gguf_file_dialog');
+      
+      if (!selectedPath) {
+        // Usuário cancelou
+        return;
+      }
+      
+      setIsInstallingLocal(true);
+      setLocalInstallError(null);
+      setLocalInstallProgress(0);
+      
+      try {
+        setLocalInstallProgress(10);
+        
+        // Extrair nome do arquivo do caminho
+        const pathParts = selectedPath.split(/[/\\]/);
+        const fileName = pathParts[pathParts.length - 1] || 'model';
+        const fileNameLower = fileName.toLowerCase();
+        const hasGgufExtension = fileNameLower.endsWith('.gguf');
+        
+        // Extrair nome do modelo (remover extensão se for .gguf, senão manter)
+        const fileNameWithoutExt = hasGgufExtension 
+          ? fileName.replace(/\.gguf$/i, '')
+          : fileName;
+        const modelNameToUse = localModelName.trim() || fileNameWithoutExt;
+        
+        setLocalInstallProgress(30);
+        
+        // Instalar diretamente do caminho (sem precisar copiar para temp primeiro)
+        const installedModelName = await invoke<string>('install_gguf_model', {
+          filePath: selectedPath,
+          modelName: modelNameToUse || undefined,
+        });
+        
+        setLocalInstallProgress(100);
+        
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        if (onSuccess) {
+          onSuccess(installedModelName);
+        }
+        
+        setTimeout(() => {
+          onOpenChange(false);
+        }, 1000);
+        
+      } catch (err: any) {
+        const errorMsg = err?.message || 'Erro ao instalar modelo GGUF';
+        setLocalInstallError(errorMsg);
+        console.error('Erro ao instalar modelo GGUF:', err);
+      } finally {
+        setIsInstallingLocal(false);
+      }
+    } catch (err: any) {
+      console.error('Erro ao abrir dialog de arquivo:', err);
+      setLocalInstallError('Erro ao abrir seletor de arquivo');
+    }
+  };
+
   const isValid = modelName.trim().length > 0 && !validateModelName(modelName.trim());
 
   return (
@@ -251,114 +329,198 @@ export function ModelDownloadDialog({ open, onOpenChange, onSuccess }: ModelDown
         handleClose();
       }
     }}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[600px]">
         <DialogHeader>
           <DialogTitle>Adicionar Modelo</DialogTitle>
           <DialogDescription>
-            Digite o nome do modelo do Ollama que deseja baixar (ex: llama3.2:1b, mistral:latest)
+            Baixe modelos do Ollama ou instale arquivos GGUF locais
           </DialogDescription>
         </DialogHeader>
         
-        <div className="space-y-4 py-4">
-          <div className="space-y-2">
-            <Label htmlFor="model-name">Nome do Modelo</Label>
-            <Input
-              id="model-name"
-              value={modelName}
-              onChange={(e) => setModelName(e.target.value)}
-              placeholder="ex: llama3.2:1b"
-              disabled={isDownloading}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && isValid && !isDownloading) {
-                  handleDownload();
-                }
-              }}
-            />
-            {error && (
-              <p className="text-sm text-destructive">{error}</p>
-            )}
-            {isInstalled && !isDownloading && (
-              <p className="text-sm text-green-600 dark:text-green-400">
-                ✓ Este modelo já está instalado
-              </p>
-            )}
-          </div>
-
-          {isDownloading && (
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "download" | "local")} className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="download" className="flex items-center gap-2">
+              <Globe className="w-4 h-4" />
+              Baixar do Ollama
+            </TabsTrigger>
+            <TabsTrigger value="local" className="flex items-center gap-2">
+              <Upload className="w-4 h-4" />
+              Instalar Local
+            </TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="download" className="space-y-4 mt-4">
             <div className="space-y-2">
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>{downloadStatus || "Iniciando..."}</span>
-                <span>{downloadProgress}%</span>
-              </div>
-              <Progress value={downloadProgress} className="h-2" />
-              {downloadInfo && (downloadInfo.downloaded || downloadInfo.speed) && (
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>
-                    {downloadInfo.downloaded && downloadInfo.total 
-                      ? `${downloadInfo.downloaded} / ${downloadInfo.total}`
-                      : downloadInfo.downloaded || ""}
-                  </span>
-                  {downloadInfo.speed && (
-                    <span>{downloadInfo.speed}</span>
-                  )}
-                </div>
+              <Label htmlFor="model-name">Nome do Modelo</Label>
+              <Input
+                id="model-name"
+                value={modelName}
+                onChange={(e) => setModelName(e.target.value)}
+                placeholder="ex: llama3.2:1b"
+                disabled={isDownloading}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && isValid && !isDownloading) {
+                    handleDownload();
+                  }
+                }}
+              />
+              {error && (
+                <p className="text-sm text-destructive">{error}</p>
+              )}
+              {isInstalled && !isDownloading && (
+                <p className="text-sm text-green-600 dark:text-green-400">
+                  ✓ Este modelo já está instalado
+                </p>
               )}
             </div>
-          )}
 
-          {isInstalled && !isDownloading && (
-            <div className="bg-muted/50 p-3 rounded-md text-sm">
-              <p className="text-muted-foreground">
-                O modelo está instalado e pronto para uso.
-              </p>
+            {isDownloading && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>{downloadStatus || "Iniciando..."}</span>
+                  <span>{downloadProgress}%</span>
+                </div>
+                <Progress value={downloadProgress} className="h-2" />
+                {downloadInfo && (downloadInfo.downloaded || downloadInfo.speed) && (
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>
+                      {downloadInfo.downloaded && downloadInfo.total 
+                        ? `${downloadInfo.downloaded} / ${downloadInfo.total}`
+                        : downloadInfo.downloaded || ""}
+                    </span>
+                    {downloadInfo.speed && (
+                      <span>{downloadInfo.speed}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {isInstalled && !isDownloading && (
+              <div className="bg-muted/50 p-3 rounded-md text-sm">
+                <p className="text-muted-foreground">
+                  O modelo está instalado e pronto para uso.
+                </p>
+              </div>
+            )}
+          </TabsContent>
+          
+          <TabsContent value="local" className="space-y-4 mt-4">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="local-model-name">Nome do Modelo (opcional)</Label>
+                <Input
+                  id="local-model-name"
+                  value={localModelName}
+                  onChange={(e) => setLocalModelName(e.target.value)}
+                  placeholder="Deixe vazio para usar o nome do arquivo"
+                  disabled={isInstallingLocal}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Se não especificar, o nome será extraído do arquivo
+                </p>
+              </div>
+              
+              <div className="space-y-4">
+                {isInstallingLocal ? (
+                  <div className="border rounded-xl p-6 bg-muted/30 space-y-4">
+                    <div className="flex items-center gap-3">
+                      <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                      <div className="flex-1">
+                        <p className="font-medium text-sm">Instalando modelo...</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Processando arquivo...
+                        </p>
+                      </div>
+                    </div>
+                    
+                    {localInstallProgress > 0 && (
+                      <div className="space-y-2">
+                        <Progress value={localInstallProgress} className="h-2" />
+                        <p className="text-xs text-muted-foreground text-center">
+                          {localInstallProgress}%
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <div className="border-2 border-dashed rounded-xl p-8 text-center bg-muted/30">
+                      <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Selecione um arquivo GGUF para instalar localmente
+                      </p>
+                      <Button
+                        onClick={handleSelectFileButton}
+                        disabled={isInstallingLocal}
+                        className="w-full"
+                      >
+                        <File className="w-4 h-4 mr-2" />
+                        Selecionar arquivo GGUF
+                      </Button>
+                    </div>
+                    
+                    {localInstallError && (
+                      <div className="border border-destructive/50 rounded-xl p-4 bg-destructive/5 space-y-2">
+                        <div className="flex items-start gap-2">
+                          <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <p className="font-medium text-sm text-destructive">Erro ao instalar modelo</p>
+                            <p className="text-xs text-destructive/80 mt-1">{localInstallError}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+              
+              <div className="bg-muted/30 border border-border/50 rounded-lg p-3 text-xs text-muted-foreground">
+                <p className="font-medium mb-1">ℹ️ Modelos instalados localmente</p>
+                <p>Funcionam sem conexão à internet. O arquivo será copiado para o diretório do Ollama.</p>
+              </div>
             </div>
-          )}
-        </div>
+          </TabsContent>
+        </Tabs>
 
         <DialogFooter>
           <Button
             variant="outline"
             onClick={handleCancel}
+            disabled={isInstallingLocal}
           >
-            {isDownloading ? (
-              <>
-                <X className="mr-2 h-4 w-4" />
-                Cancelar Download
-              </>
-            ) : (
-              <>
-                <X className="mr-2 h-4 w-4" />
-                Cancelar
-              </>
-            )}
+            <X className="mr-2 h-4 w-4" />
+            Cancelar
           </Button>
-          <Button
-            onClick={() => {
-              if (isInstalled && !isDownloading) {
-                handleSuccess(modelName.trim());
-                onOpenChange(false);
-              } else {
-                handleDownload();
-              }
-            }}
-            disabled={!isValid || isDownloading}
-          >
-            {isDownloading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Baixando...
-              </>
-            ) : isInstalled ? (
-              <>
-                Usar Modelo
-              </>
-            ) : (
-              <>
-                <Download className="mr-2 h-4 w-4" />
-                Baixar
-              </>
-            )}
-          </Button>
+          {activeTab === "download" && (
+            <Button
+              onClick={() => {
+                if (isInstalled && !isDownloading) {
+                  handleSuccess(modelName.trim());
+                  onOpenChange(false);
+                } else {
+                  handleDownload();
+                }
+              }}
+              disabled={!isValid || isDownloading}
+            >
+              {isDownloading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Baixando...
+                </>
+              ) : isInstalled ? (
+                <>
+                  Usar Modelo
+                </>
+              ) : (
+                <>
+                  <Download className="mr-2 h-4 w-4" />
+                  Baixar
+                </>
+              )}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

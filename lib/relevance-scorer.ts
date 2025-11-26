@@ -1,4 +1,5 @@
 import type { Chunk } from './content-condenser';
+import type { QueryContext } from './contextual-analyzer';
 import { normalizeText } from './text-normalization';
 
 /**
@@ -73,13 +74,161 @@ export function calculateSimilarity(query: string, chunk: string): number {
 }
 
 /**
+ * Calcula similaridade semântica avançada usando contexto completo
+ * Considera entidades, tópicos, relacionamentos e intenção
+ * 
+ * @param context - Contexto analisado da query
+ * @param chunk - Chunk de conteúdo
+ * @returns Score de similaridade semântica (0-1)
+ */
+export function calculateSemanticSimilarity(
+  context: QueryContext,
+  chunk: string
+): number {
+  if (!chunk || !context) {
+    return 0;
+  }
+
+  const normalizedChunk = normalizeText(chunk).toLowerCase();
+  let totalScore = 0;
+  let weightSum = 0;
+
+  // 1. Match de keywords (peso: 0.3)
+  if (context.keywords.length > 0) {
+    let keywordMatches = 0;
+    for (const keyword of context.keywords) {
+      const keywordLower = keyword.toLowerCase();
+      if (normalizedChunk.includes(keywordLower)) {
+        keywordMatches++;
+      }
+    }
+    const keywordScore = keywordMatches / context.keywords.length;
+    totalScore += keywordScore * 0.3;
+    weightSum += 0.3;
+  }
+
+  // 2. Match de entidades (peso: 0.3)
+  if (context.entities.length > 0) {
+    let entityMatches = 0;
+    for (const entity of context.entities) {
+      const entityLower = entity.value.toLowerCase();
+      // Buscar entidade completa (case-insensitive)
+      if (normalizedChunk.includes(entityLower)) {
+        entityMatches += entity.confidence; // Ponderar por confiança
+      }
+    }
+    const entityScore = entityMatches / context.entities.length;
+    totalScore += entityScore * 0.3;
+    weightSum += 0.3;
+  }
+
+  // 3. Match de tópicos (peso: 0.2)
+  if (context.topics.length > 0) {
+    let topicMatches = 0;
+    for (const topic of context.topics) {
+      const topicLower = topic.toLowerCase();
+      // Verificar se tópico aparece no chunk (pode ser parcial)
+      const topicWords = topicLower.split(/\s+/);
+      const matches = topicWords.filter(word => 
+        word.length > 3 && normalizedChunk.includes(word)
+      );
+      if (matches.length >= topicWords.length * 0.5) { // 50% das palavras do tópico
+        topicMatches++;
+      }
+    }
+    const topicScore = context.topics.length > 0 
+      ? topicMatches / context.topics.length 
+      : 0;
+    totalScore += topicScore * 0.2;
+    weightSum += 0.2;
+  }
+
+  // 4. Match de sinônimos (peso: 0.1)
+  if (context.synonyms.length > 0) {
+    let synonymMatches = 0;
+    for (const synonym of context.synonyms) {
+      const synonymLower = synonym.toLowerCase();
+      if (normalizedChunk.includes(synonymLower)) {
+        synonymMatches++;
+      }
+    }
+    const synonymScore = context.synonyms.length > 0
+      ? Math.min(synonymMatches / context.synonyms.length, 0.5) // Cap em 0.5 para não dominar
+      : 0;
+    totalScore += synonymScore * 0.1;
+    weightSum += 0.1;
+  }
+
+  // 5. Relevância contextual (peso: 0.1)
+  // Verificar se contexto temporal/geográfico aparece no chunk
+  let contextualScore = 0;
+  if (context.temporalContext?.period) {
+    if (normalizedChunk.includes(context.temporalContext.period)) {
+      contextualScore += 0.5;
+    }
+  }
+  if (context.temporalContext?.relative) {
+    const relativeTerms = ['recente', 'atual', 'novo', 'último', 'atualizado'];
+    if (relativeTerms.some(term => normalizedChunk.includes(term))) {
+      contextualScore += 0.3;
+    }
+  }
+  if (context.geographicContext?.location) {
+    const locationLower = context.geographicContext.location.toLowerCase();
+    if (normalizedChunk.includes(locationLower)) {
+      contextualScore += 0.5;
+    }
+  }
+  totalScore += Math.min(contextualScore, 1) * 0.1;
+  weightSum += 0.1;
+
+  // Normalizar pelo peso total
+  const finalScore = weightSum > 0 ? totalScore / weightSum : 0;
+
+  // Garantir que score esteja entre 0 e 1
+  return Math.min(Math.max(finalScore, 0), 1);
+}
+
+/**
+ * Calcula similaridade combinada (keywords + semântica)
+ * 
+ * @param query - Query original
+ * @param context - Contexto analisado (opcional)
+ * @param chunk - Chunk de conteúdo
+ * @returns Score combinado (0-1)
+ */
+export function calculateCombinedSimilarity(
+  query: string,
+  chunk: string,
+  context?: QueryContext
+): number {
+  // Score baseado em keywords
+  const keywordScore = calculateSimilarity(query, chunk);
+
+  // Se temos contexto, calcular score semântico também
+  if (context) {
+    const semanticScore = calculateSemanticSimilarity(context, chunk);
+    
+    // Combinar: 60% keywords, 40% semântica
+    return keywordScore * 0.6 + semanticScore * 0.4;
+  }
+
+  return keywordScore;
+}
+
+/**
  * Calcula scores de relevância para todos os chunks
  * 
  * @param chunks - Array de chunks
  * @param query - Query do usuário
+ * @param context - Contexto analisado (opcional, para ranqueamento semântico)
  * @returns Chunks com scores atribuídos, ordenados por relevância
  */
-export function scoreChunks(chunks: Chunk[], query: string): Chunk[] {
+export function scoreChunks(
+  chunks: Chunk[],
+  query: string,
+  context?: QueryContext
+): Chunk[] {
   if (!query || chunks.length === 0) {
     return chunks;
   }
@@ -87,7 +236,9 @@ export function scoreChunks(chunks: Chunk[], query: string): Chunk[] {
   // Calcular score para cada chunk
   const scoredChunks = chunks.map(chunk => ({
     ...chunk,
-    score: calculateSimilarity(query, chunk.content),
+    score: context
+      ? calculateCombinedSimilarity(query, chunk.content, context)
+      : calculateSimilarity(query, chunk.content),
   }));
 
   // Ordenar por score (maior primeiro)
@@ -170,16 +321,18 @@ export function filterByMinScore(chunks: Chunk[], minScore: number = 0.1): Chunk
  * @param query - Query do usuário
  * @param maxTokens - Limite máximo de tokens
  * @param minScore - Score mínimo (opcional)
+ * @param context - Contexto analisado (opcional, para ranqueamento semântico)
  * @returns Chunks selecionados e ordenados por relevância
  */
 export function scoreAndSelectChunks(
   chunks: Chunk[],
   query: string,
   maxTokens: number,
-  minScore?: number
+  minScore?: number,
+  context?: QueryContext
 ): Chunk[] {
   // Calcular scores
-  let scoredChunks = scoreChunks(chunks, query);
+  let scoredChunks = scoreChunks(chunks, query, context);
 
   // Filtrar por score mínimo se especificado
   if (minScore !== undefined) {

@@ -6,6 +6,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Cpu, MemoryStick, HardDrive, Activity, Clock, Monitor } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { GpuDashboard } from './GpuDashboard';
 
 interface SystemStats {
   cpu_usage: number;
@@ -85,7 +86,8 @@ export function HardwareDashboard() {
   };
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+    <div className="space-y-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
       {/* CPU Card */}
       <Card>
         <CardHeader className="pb-3">
@@ -131,25 +133,6 @@ export function HardwareDashboard() {
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{formatBytes(stats.ram_used)} / {formatBytes(stats.ram_total)}</span>
             <span>{formatBytes(stats.ram_total - stats.ram_used)} livre</span>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* GPU Card */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Monitor className="w-4 h-4" />
-            GPU
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-sm">
-            {stats.gpu_name ? (
-              <span className="text-muted-foreground">{stats.gpu_name}</span>
-            ) : (
-              <span className="text-muted-foreground italic">Não detectada</span>
-            )}
           </div>
         </CardContent>
       </Card>
@@ -207,6 +190,10 @@ export function HardwareDashboard() {
           </div>
         </CardContent>
       </Card>
+      </div>
+
+      {/* GPU Dashboard - Substitui o card simples */}
+      <GpuDashboard pollInterval={2000} />
     </div>
   );
 }

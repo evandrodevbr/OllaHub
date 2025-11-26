@@ -11,6 +11,7 @@ import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Dialog,
   DialogContent,
@@ -304,21 +305,43 @@ export default function SettingsPage() {
                     Carregando modelos...
                   </div>
                 ) : availableModels.length > 0 ? (
-                  <Select
-                    value={settings.selectedModel}
-                    onValueChange={settings.setSelectedModel}
-                  >
-                    <SelectTrigger id="model-select">
-                      <SelectValue placeholder="Selecione um modelo..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableModels.map((model) => (
-                        <SelectItem key={model.name} value={model.name}>
-                          {model.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <TooltipProvider>
+                    <Select
+                      value={settings.selectedModel}
+                      onValueChange={settings.setSelectedModel}
+                    >
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <SelectTrigger id="model-select" className="min-w-0 max-w-full">
+                            <SelectValue placeholder="Selecione um modelo..." className="truncate" />
+                          </SelectTrigger>
+                        </TooltipTrigger>
+                        {settings.selectedModel && (
+                          <TooltipContent side="top" className="max-w-[70vw] break-words">
+                            <p className="text-sm">{settings.selectedModel}</p>
+                          </TooltipContent>
+                        )}
+                      </Tooltip>
+                      <SelectContent className="max-w-[90vw]">
+                        {availableModels.map((model) => (
+                          <Tooltip key={model.name}>
+                            <TooltipTrigger asChild>
+                              <SelectItem value={model.name} className="min-w-0">
+                                <span className="truncate block" style={{ maxWidth: '70vw' }}>
+                                  {model.name}
+                                </span>
+                              </SelectItem>
+                            </TooltipTrigger>
+                            {model.name.length > 40 && (
+                              <TooltipContent side="right" className="max-w-[70vw] break-words">
+                                <p className="text-sm">{model.name}</p>
+                              </TooltipContent>
+                            )}
+                          </Tooltip>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </TooltipProvider>
                 ) : (
                   <Input
                     id="model-input"
@@ -463,12 +486,12 @@ export default function SettingsPage() {
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span>10s</span>
-                    <span className="font-medium">{settings.webSearch.timeout}s</span>
+                    <span className="font-medium">{settings.webSearch.timeout / 1000}s</span>
                     <span>60s</span>
                   </div>
                   <Slider
-                    value={[settings.webSearch.timeout]}
-                    onValueChange={([value]) => settings.setWebSearchTimeout(value)}
+                    value={[settings.webSearch.timeout / 1000]}
+                    onValueChange={([value]) => settings.setWebSearchTimeout(value * 1000)}
                     min={10}
                     max={60}
                     step={5}
@@ -485,6 +508,142 @@ export default function SettingsPage() {
                 onAdd={settings.addExcludedDomain}
                 onRemove={settings.removeExcludedDomain}
               />
+            </CardContent>
+          </Card>
+
+          {/* Card: Search Engines Configuration */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Motores de Busca</CardTitle>
+              <CardDescription>
+                Configure a ordem e comportamento dos motores de busca
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <Label>Ordem dos Motores</Label>
+                <p className="text-xs text-muted-foreground">
+                  Arraste para reordenar. O sistema tentará cada motor na ordem especificada até encontrar resultados suficientes.
+                </p>
+                <div className="space-y-2 border rounded-lg p-4">
+                  {settings.webSearch.engineOrder.map((engine, index) => (
+                    <div
+                      key={engine}
+                      className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="font-mono text-xs">
+                          {index + 1}
+                        </Badge>
+                        <span className="text-sm font-medium capitalize">{engine}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {index > 0 && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => {
+                              const newOrder = [...settings.webSearch.engineOrder];
+                              [newOrder[index], newOrder[index - 1]] = [newOrder[index - 1], newOrder[index]];
+                              settings.setWebSearchEngineOrder(newOrder);
+                            }}
+                          >
+                            <ArrowLeft className="w-3 h-3" />
+                          </Button>
+                        )}
+                        {index < settings.webSearch.engineOrder.length - 1 && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => {
+                              const newOrder = [...settings.webSearch.engineOrder];
+                              [newOrder[index], newOrder[index + 1]] = [newOrder[index + 1], newOrder[index]];
+                              settings.setWebSearchEngineOrder(newOrder);
+                            }}
+                          >
+                            <ArrowLeft className="w-3 h-3 rotate-180" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="min-results-per-engine">Mínimo de Resultados por Motor</Label>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <Input
+                      id="min-results-per-engine"
+                      type="number"
+                      value={settings.webSearch.minResultsPerEngine}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value || '1', 10);
+                        const clamped = Math.min(10, Math.max(1, isNaN(v) ? 1 : v));
+                        settings.setWebSearchMinResultsPerEngine(clamped);
+                      }}
+                      className="w-24"
+                      min={1}
+                      max={10}
+                      disabled={!settings.webSearch.enabled}
+                    />
+                    <div className="flex-1">
+                      <Slider
+                        value={[settings.webSearch.minResultsPerEngine]}
+                        onValueChange={([value]) => settings.setWebSearchMinResultsPerEngine(value)}
+                        min={1}
+                        max={10}
+                        step={1}
+                        disabled={!settings.webSearch.enabled}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Número mínimo de resultados para considerar um motor como bem-sucedido. Se um motor retornar menos resultados, o sistema tentará o próximo.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="semantic-expansion">Expansão Semântica de Queries</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Adiciona sinônimos e variantes às queries para melhorar resultados
+                  </p>
+                </div>
+                <Switch
+                  id="semantic-expansion"
+                  checked={settings.webSearch.enableSemanticExpansion}
+                  onCheckedChange={settings.setWebSearchSemanticExpansion}
+                  disabled={!settings.webSearch.enabled}
+                />
+              </div>
+
+              {settings.webSearch.enableSemanticExpansion && (
+                <div className="space-y-2">
+                  <Label htmlFor="semantic-language">Idioma para Expansão Semântica</Label>
+                  <Select
+                    value={settings.webSearch.semanticExpansionLanguage}
+                    onValueChange={settings.setWebSearchSemanticExpansionLanguage}
+                    disabled={!settings.webSearch.enabled}
+                  >
+                    <SelectTrigger id="semantic-language">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pt-BR">Português (Brasil)</SelectItem>
+                      <SelectItem value="en">English</SelectItem>
+                      <SelectItem value="es">Español</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Idioma usado para identificar stopwords e sinônimos durante a expansão semântica.
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
