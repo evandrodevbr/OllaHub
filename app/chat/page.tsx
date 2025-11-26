@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { MessageSquare, Settings, Server, Moon, Sun, PanelLeftClose, PanelLeftOpen, Loader2, ChevronDown } from "lucide-react";
+import { MessageSquare, Settings, Server, Moon, Sun, PanelLeftClose, PanelLeftOpen, Loader2, ChevronDown, Plus, ScrollText, Copy, Check } from "lucide-react";
 import { ChatInput } from "@/components/chat/chat-input";
 import { ChatMessage } from "@/components/chat/chat-message";
  
@@ -15,17 +15,25 @@ import { useLocalModels } from "@/hooks/use-local-models";
 import { useChatStorage } from "@/hooks/use-chat-storage";
 import { useAutoLabelingModel } from "@/hooks/use-auto-labeling-model";
 import { useWebSearch } from "@/hooks/use-web-search";
-import { SearchProgress } from "@/components/chat/search-progress";
-import { ThinkingIndicator, ThinkingStep } from "@/components/chat/thinking-indicator";
+// SearchProgress removido - informações agora nas mensagens de processo
+// ThinkingIndicator removido - usando mensagens de processo integradas
+// Componentes de processamento removidos - agora usando mensagens de processo integradas na timeline
 import { useQueryGenerator } from "@/hooks/use-query-generator";
+import { useDeepResearch } from "@/hooks/use-deep-research";
+import { DEEP_RESEARCH_PROMPTS } from "@/data/prompts/deep-research";
 import { useSettingsStore } from "@/store/settings-store";
 import type { ScrapedContent } from "@/services/webSearch";
 import { invoke } from "@tauri-apps/api/core";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useTheme } from "next-themes";
 import { useRouter } from "next/navigation";
 import { ImperativePanelHandle } from "react-resizable-panels";
+import { ModelDownloadDialog } from "@/components/chat/model-download-dialog";
 import { sanitizeWebSources } from "@/lib/sanitize-web-content";
+import { chatLog } from "@/lib/terminal-logger";
+import { useQueryPreprocessor, type PreprocessedQuery } from "@/hooks/use-query-preprocessor";
+import type { Message, ThinkingMessageMetadata, ThinkingStepType, ThinkingStepStatus } from "@/hooks/use-chat";
+import { executeProgressiveSearch, type FallbackResult } from "@/lib/web-search-fallback";
 // @ts-ignore
 import defaultFormatPrompt from "@/data/prompts/default-format.md";
 
@@ -50,7 +58,62 @@ export default function ChatPage() {
   const { isDownloading, progress } = useAutoLabelingModel();
   const webSearch = useWebSearch();
   const { generateQuery, isGenerating: isGeneratingQuery } = useQueryGenerator();
+  const deepResearch = useDeepResearch();
   const settings = useSettingsStore();
+  const { preprocess } = useQueryPreprocessor();
+  
+  // Funções auxiliares para gerenciar mensagens de processo
+  const addThinkingMessage = useCallback((
+    stepType: ThinkingStepType,
+    label: string,
+    status: ThinkingStepStatus = 'running',
+    details?: string,
+    progress?: number
+  ): string => {
+    const messageId = `thinking-${stepType}-${Date.now()}`;
+    const thinkingMessage: Message = {
+      role: 'system',
+      content: '',
+      metadata: {
+        type: 'thinking',
+        stepType,
+        status,
+        label,
+        details,
+        progress,
+        timestamp: Date.now(),
+      } as ThinkingMessageMetadata,
+    };
+    
+    setMessages(prev => [...prev, thinkingMessage]);
+    return messageId;
+  }, []);
+
+  const updateThinkingMessage = useCallback((
+    stepType: ThinkingStepType,
+    updates: Partial<ThinkingMessageMetadata>
+  ) => {
+    setMessages(prev => prev.map(msg => {
+      const metadata = msg.metadata as ThinkingMessageMetadata | undefined;
+      if (metadata?.type === 'thinking' && metadata.stepType === stepType) {
+        return {
+          ...msg,
+          metadata: {
+            ...metadata,
+            ...updates,
+          } as ThinkingMessageMetadata,
+        };
+      }
+      return msg;
+    }));
+  }, []);
+
+  const removeThinkingMessage = useCallback((stepType: ThinkingStepType) => {
+    setMessages(prev => prev.filter(msg => {
+      const metadata = msg.metadata as ThinkingMessageMetadata | undefined;
+      return !(metadata?.type === 'thinking' && metadata.stepType === stepType);
+    }));
+  }, []);
   
   const [selectedModel, setSelectedModel] = useState("");
   const [mounted, setMounted] = useState(false);
@@ -59,14 +122,20 @@ export default function ChatPage() {
   const [systemPrompt, setSystemPrompt] = useState(defaultFormatPrompt || "Você é um assistente útil e prestativo.");
   const [isChatsSidebarCollapsed, setIsChatsSidebarCollapsed] = useState(false);
   const [thinkingStep, setThinkingStep] = useState<ThinkingStep | null>(null);
+  const [processSteps, setProcessSteps] = useState<ProcessStep[]>([]);
+  const [error, setError] = useState<string | Error | null>(null);
   
   const chatsSidebarRef = useRef<ImperativePanelHandle>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedMessagesRef = useRef<number>(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [showContextDebug, setShowContextDebug] = useState(false);
+  const [showProcessDebug, setShowProcessDebug] = useState(false);
   const [lastWebContext, setLastWebContext] = useState('');
   const [lastContextSources, setLastContextSources] = useState<ScrapedContent[]>([]);
+  const [showDownloadDialog, setShowDownloadDialog] = useState(false);
+  const [logsCopied, setLogsCopied] = useState(false);
+  const [lastUserQuery, setLastUserQuery] = useState('');
 
   // Auto-select first model
   useEffect(() => {
@@ -133,96 +202,441 @@ export default function ChatPage() {
   }, [isLoading, currentSessionId, messages, saveSession]);
 
 
+  // Função auxiliar para pré-processar query (memoizada com useCallback)
+  const preprocessQuery = useCallback(async (content: string): Promise<{
+    preprocessed: PreprocessedQuery;
+    finalContent: string;
+  }> => {
+    const preprocessingConfig = settings.queryPreprocessing || {
+      enabled: true,
+      minLength: 3,
+      maxLength: 2000,
+      autoSplitQuestions: true,
+      irrelevantPatterns: [],
+    };
+    
+    let preprocessed: PreprocessedQuery;
+    if (preprocessingConfig.enabled) {
+      chatLog.info('\n========== PRE-PROCESSING ==========');
+      preprocessed = await preprocess(content);
+      chatLog.info(`Original: "${preprocessed.original}"`);
+      chatLog.info(`Normalized: "${preprocessed.normalized}"`);
+      chatLog.info(`Intent: ${preprocessed.intent}`);
+      chatLog.info(`Should Search: ${preprocessed.shouldSearch}`);
+      chatLog.info(`Questions Split: ${preprocessed.splitResult.splitCount}`);
+      
+      // Se inválida, retornar erro
+      if (!preprocessed.validation.isValid) {
+        chatLog.error('Query validation failed:', preprocessed.validation.errors);
+        throw new Error(`Query validation failed: ${preprocessed.validation.errors.join(', ')}`);
+      }
+      
+      // Se múltiplas perguntas detectadas, usar apenas a primeira (com aviso)
+      let finalContent = preprocessed.original;
+      if (preprocessed.questions.length > 1) {
+        chatLog.warn(`Multiple questions detected (${preprocessed.questions.length}). Processing first question only.`);
+        finalContent = preprocessed.questions[0];
+      }
+      
+      return { preprocessed, finalContent };
+    } else {
+      // Se pré-processamento desabilitado, criar objeto básico
+      preprocessed = {
+        original: content,
+        normalized: content,
+        questions: [content],
+        intent: 'unknown' as const,
+        validation: { isValid: true, errors: [], warnings: [], normalizedLength: content.length },
+        shouldSearch: webSearch.isEnabled,
+        splitResult: { questions: [content], originalText: content, splitCount: 1 },
+      };
+      return { preprocessed, finalContent: content };
+    }
+  }, [settings.queryPreprocessing, webSearch.isEnabled]);
+
   const handleSend = async (content: string) => {
     if (!selectedModel) return;
+    
+    // ========== ADICIONAR MENSAGENS IMEDIATAMENTE ==========
+    // Adicionar mensagem do usuário ao estado antes de qualquer processamento
+    // para feedback visual instantâneo
+    setMessages(prev => [...prev, { role: 'user', content }]);
+    
+    // Adicionar mensagem de processo: Pré-processamento
+    addThinkingMessage('preprocessing', 'Pré-processamento', 'running');
+    
+    // Resetar e inicializar steps do processo (para compatibilidade com componentes antigos)
+    setProcessSteps([
+      { id: 'preprocessing', label: 'Pré-processamento', status: 'running', timestamp: Date.now() },
+    ]);
+    
+    // Limpar erros anteriores
+    setError(null);
+    
+    // ========== PRÉ-PROCESSAMENTO ==========
+    let preprocessed: PreprocessedQuery;
+    let finalContent: string;
+    const preprocessingStart = Date.now();
+    try {
+      const result = await preprocessQuery(content);
+      preprocessed = result.preprocessed;
+      finalContent = result.finalContent;
+      content = finalContent; // Atualizar content para uso posterior
+      
+      // Atualizar mensagem de processo: Pré-processamento concluído
+      updateThinkingMessage('preprocessing', {
+        status: 'completed',
+        duration: Date.now() - preprocessingStart,
+      });
+    } catch (error) {
+      // Se validação falhar, remover mensagens adicionadas e mostrar erro
+      setMessages(prev => {
+        const newMessages = [...prev];
+        // Remover última mensagem de processo e última do usuário
+        return newMessages.slice(0, -2);
+      });
+      
+      // Atualizar step com erro
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      updateThinkingMessage('preprocessing', {
+        status: 'error',
+        error: errorMessage,
+        duration: Date.now() - preprocessingStart,
+      });
+      
+      setProcessSteps(prev => prev.map(s => 
+        s.id === 'preprocessing' 
+          ? { ...s, status: 'error' as const, error: errorMessage }
+          : s
+      ));
+      
+      // Definir erro global
+      setError(error);
+      
+      chatLog.error('Preprocessing failed:', error);
+      // Erro já será mostrado no chat-input, apenas retornar
+      return;
+    }
+    
+    // ========== TERMINAL LOGGING ==========
+    chatLog.info('\n========== NEW QUERY ==========');
+    chatLog.info(`User Query: "${content}"`);
+    chatLog.info(`Model: ${selectedModel}`);
+    chatLog.info(`Web Search: ${webSearch.isEnabled ? 'ENABLED' : 'DISABLED'}`);
+    chatLog.info(`Intent: ${preprocessed.intent}`);
+    chatLog.info(`Should Search: ${preprocessed.shouldSearch}`);
+    chatLog.info(`Timestamp: ${new Date().toISOString()}`);
+    
     setShowContextDebug(false);
+    setShowProcessDebug(false);
     setLastWebContext('');
     setLastContextSources([]);
+    setLastUserQuery(content); // Store for copy logs
+    setLogsCopied(false);
     
     // Generate ID if new session (but don't create card yet - wait for title)
     if (!currentSessionId) {
       const newId = crypto.randomUUID();
       setCurrentSessionId(newId);
-      // Card will be created after title is generated (after first AI response)
+      chatLog.info(`New session created: ${newId}`);
     }
     
-    // ========== LÓGICA DE AGENTE DE PESQUISA ==========
-    let webContext = '';
-    let searchQuery = '';
-    let scrapedSources: ScrapedContent[] = [];
-    
-    // Iniciar indicador de pensamento
-    setThinkingStep('analyzing');
-    
-    if (webSearch.isEnabled) {
+    // Função auxiliar para executar pesquisa web
+    const executeWebResearch = async (
+      content: string,
+      preprocessed: PreprocessedQuery
+    ): Promise<{
+      knowledgeBaseContext: string;
+      scrapedSources: ScrapedContent[];
+      validationReport: string;
+    }> => {
+      let knowledgeBaseContext = '';
+      let scrapedSources: ScrapedContent[] = [];
+      let validationReport = '';
+      
+      // Roteamento inteligente: só buscar se shouldSearch for true
+      if (webSearch.isEnabled && preprocessed.shouldSearch) {
+      chatLog.info('\n--- STARTING DEEP RESEARCH PIPELINE ---');
+      
+      // Adicionar mensagem de processo: Pesquisa Web
+      addThinkingMessage('web-research', 'Pesquisando na Web...', 'running');
+      const webResearchStart = Date.now();
+      
       try {
-        webSearch.reset(); // Resetar estado anterior
+        webSearch.reset();
+        deepResearch.reset();
+
+        // Passo 1: Decomposição
+        chatLog.info('Step 1: Decomposition');
+        setThinkingStep('planning');
+        const searchPlan = await deepResearch.decompose(content, selectedModel);
+        chatLog.info(`Search Plan: ${JSON.stringify(searchPlan)}`);
         
-        // Passo 1: Gerar query otimizada
-        setThinkingStep('analyzing');
-        searchQuery = await generateQuery(content, selectedModel);
-        
-        // Passo 2: Se precisar de busca, executar
-        if (searchQuery && searchQuery !== 'NO_SEARCH') {
-          setThinkingStep('searching');
-          // Pipeline em duas etapas: metadados → scraping de top URLs
-          const maxResults = settings.webSearch.maxResults;
-          scrapedSources = await webSearch.smartSearchRag(searchQuery, maxResults);
-          
-          // Atualizar indicador enquanto lê fontes
-          setThinkingStep('reading');
-          
-          if (scrapedSources.length > 0) {
-            // Sanitizar e combinar markdown de todas as fontes
-            // Priorizamos o markdown completo (não apenas snippets) para garantir densidade de informação
-            // O scraper Rust já filtra conteúdo muito curto (< 200 chars) automaticamente
-            // Sanitização previne prompt injection e limita tamanho
-            webContext = sanitizeWebSources(scrapedSources, {
-              maxLength: 8000, // ~8k chars por fonte (ajustável)
-              removeControlChars: true,
-              removeHiddenText: true,
-            });
-            
-            // [DEBUG INJECTION START]
-            console.group('🔍 Debug: Web Context Generation');
-            console.log('1. Raw Sources Count:', scrapedSources.length);
-            console.log('2. Web Context Length:', webContext.length);
-            console.log('3. Is Context Empty?', webContext === '');
-            if (webContext.length > 0) {
-              console.log('4. Context Preview:', webContext.substring(0, 200) + '...');
-            } else {
-              console.warn('⚠️ ALERT: Web Context is EMPTY even with sources!');
-              console.log('4. Sources Details:', scrapedSources.map(s => ({
-                url: s.url,
-                title: s.title,
-                hasMarkdown: !!s.markdown,
-                markdownLength: s.markdown?.length || 0
-              })));
-            }
-            console.groupEnd();
-            // [DEBUG INJECTION END]
-            
-            // Log para debug: verificar tamanho do contexto gerado
-            const contextLength = webContext.length;
-            console.debug(`Contexto web gerado (sanitizado): ${contextLength} caracteres de ${scrapedSources.length} fontes`);
-            setLastWebContext(webContext);
-            setLastContextSources(scrapedSources);
-            setShowContextDebug(false);
-          }
+        if (searchPlan && searchPlan.length > 0) {
+           // Passo 2: Executar buscas com fallback progressivo
+           chatLog.info(`\nStep 2: Executing ${searchPlan.length} searches with progressive fallback`);
+           setThinkingStep('searching');
+           
+           // Atualizar progresso: decomposição concluída
+           updateThinkingMessage('web-research', {
+             label: `Buscando ${searchPlan.length} consultas...`,
+             progress: 10,
+             details: `Executando busca progressiva com fallback automático...`,
+           });
+           
+           const maxResults = Math.max(2, Math.floor(settings.webSearch.maxResults / searchPlan.length));
+           chatLog.info(`Max results per query: ${maxResults}`);
+           
+           // Executar busca progressiva para cada query do plano
+           const searchPromises = searchPlan.map(async (query, idx) => {
+             chatLog.info(`  → Starting progressive search ${idx + 1}/${searchPlan.length}: "${query}"`);
+             
+             // Atualizar progresso
+             updateThinkingMessage('web-research', {
+               details: `Buscando consulta ${idx + 1}/${searchPlan.length}: "${query}"...`,
+               progress: 10 + (idx * 20 / searchPlan.length),
+             });
+             
+             try {
+               // Executar busca progressiva
+               const fallbackResult = await executeProgressiveSearch(
+                 query,
+                 async (q, limit) => {
+                   return await webSearch.smartSearchRag(q, limit);
+                 },
+                 selectedModel,
+                 {
+                   maxRounds: 3, // Máximo 3 rodadas por query
+                   maxResultsPerRound: maxResults,
+                   maxTotalResults: 30, // Máximo 30 resultados por query
+                   minRelevanceScore: 0.3,
+                   enableQueryExpansion: true,
+                 }
+               );
+               
+               // Log do resultado
+               chatLog.info(`  ✓ Progressive search ${idx + 1} complete:`);
+               chatLog.info(`     - Success: ${fallbackResult.success}`);
+               chatLog.info(`     - Total results: ${fallbackResult.scrapedSources.length}`);
+               chatLog.info(`     - Total analyzed: ${fallbackResult.totalResultsAnalyzed}`);
+               chatLog.info(`     - Attempts: ${fallbackResult.attempts.length}`);
+               chatLog.info(`     - Used fallback: ${fallbackResult.usedFallback}`);
+               
+               // Log detalhado de cada resultado
+               fallbackResult.scrapedSources.forEach((result, resultIdx) => {
+                 chatLog.info(`    → Result ${resultIdx + 1}: ${result.title}`);
+                 chatLog.info(`       URL: ${result.url}`);
+                 const contentLength = result.markdown?.length || 0;
+                 chatLog.info(`       Content length: ${contentLength} chars`);
+               });
+               
+               // Adicionar resultados à Knowledge Base
+               if (fallbackResult.scrapedSources.length > 0) {
+                 deepResearch.addToKnowledgeBase(query, fallbackResult.scrapedSources);
+               }
+               
+               // Se usou fallback, notificar no frontend
+               if (fallbackResult.usedFallback) {
+                 updateThinkingMessage('web-research', {
+                   details: `Consulta ${idx + 1}: Nenhum resultado relevante encontrado após ${fallbackResult.attempts.length} tentativas. Usando conhecimento interno.`,
+                 });
+               }
+               
+               return { query, results: fallbackResult.scrapedSources, fallbackResult };
+             } catch (err) {
+               chatLog.error(`  ✗ Progressive search ${idx + 1} failed: ${err}`);
+               return { query, results: [] as ScrapedContent[], fallbackResult: null };
+             }
+           });
+
+           await Promise.all(searchPromises);
+           chatLog.info(`All searches complete. Knowledge Base size: ${deepResearch.state.knowledgeBase.length}`);
+           
+           // Coletar todas as fontes para exibição
+           scrapedSources = deepResearch.state.knowledgeBase.map(entry => ({
+             url: entry.sourceUrl,
+             title: entry.title,
+             markdown: entry.content,
+             snippet: entry.content.substring(0, 200)
+           }));
+
+           // Adicionar mensagem: Fontes encontradas
+           if (scrapedSources.length > 0) {
+             addThinkingMessage('sources-found', `Fontes encontradas (${scrapedSources.length})`, 'completed');
+             // Atualizar com fontes
+             updateThinkingMessage('sources-found', {
+               sources: scrapedSources.map(s => ({ url: s.url, title: s.title })),
+             });
+           }
+
+           if (deepResearch.state.knowledgeBase.length > 0) {
+             // Passo 3: Validação e Contexto
+             chatLog.info('\nStep 3: Validation');
+             deepResearch.setStep('aggregating');
+             
+             // Adicionar mensagem: Processamento
+             addThinkingMessage('processing', 'Processando contexto...', 'running');
+             validationReport = await deepResearch.validate(selectedModel, content);
+             chatLog.info(`Validation Report Length: ${validationReport.length} chars`);
+             
+             // Passo 4: Obter contexto curado (usando versão otimizada)
+             chatLog.info('\nStep 4: Getting Curated Context (Optimized)');
+             
+             // Calcular tokens disponíveis dinamicamente
+             const { getModelContextInfo } = await import('@/lib/model-context');
+             const contextInfo = await getModelContextInfo(selectedModel, systemPrompt, messages);
+             const availableTokens = contextInfo.recommendedContextWindow;
+             
+             chatLog.info(`Model Context Window: ${contextInfo.maxContextWindow} tokens`);
+             chatLog.info(`Available Tokens for KB: ${availableTokens} tokens`);
+             
+             const optimizedResult = deepResearch.getCuratedContextOptimized(content, availableTokens);
+             knowledgeBaseContext = optimizedResult.context;
+             
+             chatLog.info(`Knowledge Base Context Length: ${knowledgeBaseContext.length} chars`);
+             chatLog.info(`Condensation Method: ${optimizedResult.result.method}`);
+             chatLog.info(`Chunks Used: ${optimizedResult.result.chunksUsed} / ${optimizedResult.result.chunksTotal}`);
+             chatLog.info(`Compression Ratio: ${(optimizedResult.result.compressionRatio * 100).toFixed(1)}%`);
+             
+             // Log preview do contexto se não for muito longo
+             if (knowledgeBaseContext.length > 0) {
+               if (knowledgeBaseContext.length > 2000) {
+                 chatLog.info(`Context Preview (first 2000 chars):\n${knowledgeBaseContext.substring(0, 2000)}...`);
+               } else {
+                 chatLog.info(`Full Context:\n${knowledgeBaseContext}`);
+               }
+               
+               // Validar contexto
+               const { validateCondensedContext } = await import('@/lib/knowledge-base-processor');
+               const validation = validateCondensedContext(optimizedResult.result, content);
+               
+               if (!validation.isValid) {
+                 chatLog.error('Context validation failed:', validation.warnings.join(', '));
+               } else if (validation.warnings.length > 0) {
+                 validation.warnings.forEach(warning => {
+                   chatLog.warn(`⚠️ ${warning}`);
+                 });
+               } else {
+                 chatLog.info('✓ Context validation passed');
+               }
+             } else {
+               chatLog.warn('⚠️ Knowledge Base Context is empty!');
+             }
+               
+             setLastWebContext(knowledgeBaseContext);
+             setLastContextSources(scrapedSources);
+             
+             // Atualizar mensagem: Processamento concluído
+             updateThinkingMessage('processing', {
+               status: 'completed',
+               label: 'Contexto processado',
+             });
+           } else {
+             chatLog.warn('⚠️ No results found in Knowledge Base');
+           }
+           
+           // Atualizar mensagem: Pesquisa Web concluída
+           updateThinkingMessage('web-research', {
+             status: 'completed',
+             duration: Date.now() - webResearchStart,
+           });
         } else {
-          setLastWebContext('');
-          setLastContextSources([]);
+          // Fallback para busca simples
+           chatLog.info('Decomposition returned empty, falling back to simple search');
+           setThinkingStep('searching');
+           const simpleQuery = await generateQuery(content, selectedModel);
+           chatLog.info(`Simple query generated: "${simpleQuery}"`);
+           if (simpleQuery && simpleQuery !== 'NO_SEARCH') {
+             const results = await webSearch.smartSearchRag(simpleQuery, settings.webSearch.maxResults);
+             chatLog.info(`Simple search results: ${results.length}`);
+             setThinkingStep('reading');
+             if (results.length > 0) {
+               deepResearch.addToKnowledgeBase(simpleQuery, results);
+               knowledgeBaseContext = deepResearch.getCuratedContext();
+               scrapedSources = results;
+               setLastWebContext(knowledgeBaseContext);
+               setLastContextSources(scrapedSources);
+             }
+           } else {
+             chatLog.info('Simple query returned NO_SEARCH, skipping web search');
+           }
         }
+
       } catch (error) {
-        console.error('Erro na pesquisa web:', error);
-        // Continuar mesmo se a pesquisa falhar
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        chatLog.error(`❌ Error in Deep Research pipeline: ${errorMsg}`);
+        
+        // Atualizar mensagem de processo com erro
+        updateThinkingMessage('web-research', {
+          status: 'error',
+          error: errorMsg,
+          duration: Date.now() - webResearchStart,
+        });
+        
+        // Atualizar step com erro (para compatibilidade)
+        setProcessSteps(prev => prev.map(s => 
+          s.id === 'web-research' 
+            ? { ...s, status: 'error' as const, error: errorMsg }
+            : s
+        ));
+        
+        // Definir erro global
+        setError(error);
+      }
+    } else {
+      if (!webSearch.isEnabled) {
+        chatLog.info('Web Search disabled, skipping research pipeline');
+      } else if (!preprocessed.shouldSearch) {
+        chatLog.info(`Intent "${preprocessed.intent}" does not require web search, skipping research pipeline`);
       }
     }
     
-    // Passo 3: Formular resposta
+    return {
+      knowledgeBaseContext,
+      scrapedSources,
+      validationReport,
+    };
+  };
+    
+    // ========== LÓGICA DE DEEP RESEARCH (Knowledge Base Aggregation) ==========
+    // Iniciar indicador de pensamento
+    setThinkingStep('analyzing');
+    
+    // Adicionar step de pesquisa web se necessário
+    if (webSearch.isEnabled && preprocessed.shouldSearch) {
+      setProcessSteps(prev => [
+        ...prev,
+        { id: 'web-research', label: 'Pesquisa Web', status: 'running', timestamp: Date.now() },
+      ]);
+    }
+    
+    const researchStart = Date.now();
+    // Executar pesquisa web
+    const { knowledgeBaseContext, scrapedSources, validationReport } = await executeWebResearch(
+      content,
+      preprocessed
+    );
+    
+    // Atualizar step de pesquisa web
+    if (webSearch.isEnabled && preprocessed.shouldSearch) {
+      setProcessSteps(prev => prev.map(s => 
+        s.id === 'web-research' 
+          ? { ...s, status: 'completed' as const, duration: Date.now() - researchStart }
+          : s
+      ));
+    }
+    
+    // Passo 5: Formular resposta
+    chatLog.info('\nStep 5: Formulating Response');
     setThinkingStep('formulating');
     
-    // ========== MONTAR SYSTEM PROMPT COM CONTEXTO TEMPORAL ==========
+    // Adicionar step de geração de resposta
+    setProcessSteps(prev => [
+      ...prev,
+      { id: 'response-generation', label: 'Geração de Resposta', status: 'running', timestamp: Date.now() },
+    ]);
+    
+    // ========== MONTAR SYSTEM PROMPT COM CONTEXTO TEMPORAL E VALIDAÇÃO ==========
     // Usar timezone do sistema do usuário (não fixo)
     const now = new Date();
     const currentDateTime = now.toLocaleString('pt-BR', {
@@ -237,8 +651,39 @@ export default function ChatPage() {
     
     let enhancedSystemPrompt = systemPrompt;
     
-    // Adicionar contexto temporal e web
-    if (webContext) {
+    // Se tivermos uma Knowledge Base, usar o prompt STRICT_GENERATION
+    // Verificar se houve fallback (nenhum resultado relevante encontrado)
+    const usedFallback = knowledgeBaseContext.length === 0 || knowledgeBaseContext.length < 100;
+    
+    if (knowledgeBaseContext && knowledgeBaseContext.length > 100) {
+       const strictPrompt = DEEP_RESEARCH_PROMPTS.STRICT_GENERATION
+         .replace('{{knowledgeBase}}', knowledgeBaseContext)
+         .replace('{{validationReport}}', validationReport || 'Nenhuma validação disponível.')
+         .replace('{{userQuery}}', content);
+         
+       enhancedSystemPrompt = strictPrompt;
+    } else if (usedFallback) {
+      // Fallback: usar prompt sem contexto web, mas informando que não encontrou fontes
+      enhancedSystemPrompt = `${systemPrompt}
+
+## ⚠️ AVISO IMPORTANTE
+
+Não foi possível encontrar informações relevantes nas fontes web consultadas após múltiplas tentativas de busca.
+
+**INSTRUÇÕES:**
+- Responda usando APENAS seu conhecimento interno (treinamento)
+- Seja honesto e diga: "Não encontrei essa informação nas fontes consultadas."
+- Se tiver conhecimento sobre o tópico, compartilhe, mas deixe claro que não há fontes externas verificadas
+- Não invente informações ou cite fontes que não foram consultadas
+
+## DATA E HORA ATUAL DO SISTEMA
+
+**DATA/HORA FORMATADA:** ${currentDateTime}
+
+Use esta data exata para referências temporais.`;
+    }
+    // Fallback para lógica antiga se não tiver Knowledge Base
+    else if (knowledgeBaseContext) {
       enhancedSystemPrompt = `${systemPrompt}
 
 ## ⚠️ DATA E HORA ATUAL DO SISTEMA (USE ESTA DATA EXATA)
@@ -274,7 +719,7 @@ export default function ChatPage() {
    - Bullets apenas para listar dados brutos (números, estatísticas).
 
 ## CONTEXTO WEB RECUPERADO
-${webContext}
+${knowledgeBaseContext}
 
 ---
 `;
@@ -296,25 +741,49 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
 `;
     }
     
-    // [DEBUG INJECTION START]
-    console.log('5. Enhanced System Prompt Length:', enhancedSystemPrompt.length);
-    console.log('6. Contains "CONTEXTO WEB"?', enhancedSystemPrompt.includes('CONTEXTO WEB RECUPERADO'));
-    if (enhancedSystemPrompt.includes('CONTEXTO WEB RECUPERADO')) {
-      const contextStart = enhancedSystemPrompt.indexOf('CONTEXTO WEB RECUPERADO');
-      console.log('7. Web Context Position:', contextStart);
-      console.log('8. Web Context in Prompt Preview:', enhancedSystemPrompt.substring(contextStart, contextStart + 300) + '...');
-    }
-    // [DEBUG INJECTION END]
+    // ========== TERMINAL LOGGING: PROMPT INFO ==========
+    chatLog.info('\n--- PROMPT CONSTRUCTION ---');
+    chatLog.info(`System Prompt Length: ${enhancedSystemPrompt.length} chars`);
+    chatLog.info(`Has Knowledge Base Context: ${knowledgeBaseContext && knowledgeBaseContext.length > 100 ? 'YES' : 'NO'}`);
+    chatLog.info(`Using STRICT_GENERATION prompt: ${knowledgeBaseContext && knowledgeBaseContext.length > 100 ? 'YES' : 'NO'}`);
     
     let finalUserContent = content;
-    if (webContext) {
-      finalUserContent = `[CONTEXTO WEB OBRIGATÓRIO]\n${webContext}\n[/CONTEXTO WEB]\n\nCom base EXCLUSIVAMENTE no texto acima, responda: ${content}`;
+    if (knowledgeBaseContext && knowledgeBaseContext.length > 100) {
+      finalUserContent = `[KNOWLEDGE BASE - ÚNICA FONTE DE VERDADE]\n${knowledgeBaseContext}\n[/KNOWLEDGE BASE]\n\nResponda a pergunta usando APENAS os dados acima. Se a informação não estiver na Knowledge Base, diga "Não encontrei essa informação nas fontes consultadas."\n\nPergunta: ${content}`;
     }
     
+    chatLog.info(`Final User Content Length: ${finalUserContent.length} chars`);
+    chatLog.info('\n--- SENDING TO LLM ---');
+    chatLog.info('Starting response generation...');
+    
+    // Adicionar mensagem de processo: Geração de Resposta
+    addThinkingMessage('response-generation', 'Gerando resposta...', 'running');
+    
+    // Adicionar mensagem vazia do assistente para feedback visual imediato
+    // Esta será preenchida quando o streaming começar
+    setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
+    
     // Enviar o conteúdo original para UI, mas com override no payload para incluir contexto
+    const responseStart = Date.now();
     await sendMessage(content, selectedModel, enhancedSystemPrompt, {
       payloadContentOverride: finalUserContent,
     });
+    
+    // Atualizar mensagem de processo: Geração concluída
+    updateThinkingMessage('response-generation', {
+      status: 'completed',
+      duration: Date.now() - responseStart,
+    });
+    
+    // Atualizar step de geração de resposta quando streaming completar (para compatibilidade)
+    setProcessSteps(prev => prev.map(s => 
+      s.id === 'response-generation' 
+        ? { ...s, status: 'completed' as const, duration: Date.now() - responseStart }
+        : s
+    ));
+    
+    chatLog.info('✅ Response generation complete');
+    chatLog.info('========== QUERY COMPLETE ==========\n');
     
     // Persistir fontes na mensagem do assistente (metadata)
     if (scrapedSources.length > 0) {
@@ -384,6 +853,46 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
       } else {
         panel.collapse();
       }
+    }
+  };
+
+  // Copy Logs to Clipboard
+  const handleCopyLogs = async () => {
+    const logs = deepResearch.state.logs;
+    const lastAssistantMessage = messages.filter(m => m.role === 'assistant').pop();
+    
+    let logText = `# Deep Research Debug Log\n\n`;
+    logText += `## User Query\n${lastUserQuery}\n\n`;
+    logText += `## Model\n${selectedModel}\n\n`;
+    logText += `## Process Logs\n\n`;
+    
+    logs.forEach((log, idx) => {
+      logText += `### ${idx + 1}. Stage: ${log.stage.toUpperCase()}\n`;
+      logText += `- **Time**: ${new Date(log.timestamp).toLocaleTimeString()}\n`;
+      logText += `- **Input**: ${log.input.substring(0, 500)}${log.input.length > 500 ? '...' : ''}\n`;
+      if (log.rawOutput) {
+        logText += `- **Raw Output**: ${log.rawOutput.substring(0, 500)}${log.rawOutput.length > 500 ? '...' : ''}\n`;
+      }
+      if (log.parsedOutput) {
+        logText += `- **Parsed Output**: \`\`\`json\n${JSON.stringify(log.parsedOutput, null, 2)}\n\`\`\`\n`;
+      }
+      if (log.error) {
+        logText += `- **Error**: ${log.error}\n`;
+      }
+      logText += '\n';
+    });
+    
+    logText += `## AI Response\n`;
+    logText += lastAssistantMessage?.content || '[No response yet]';
+    logText += '\n\n---\n';
+    logText += `Generated at: ${new Date().toISOString()}`;
+    
+    try {
+      await navigator.clipboard.writeText(logText);
+      setLogsCopied(true);
+      setTimeout(() => setLogsCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy logs:', err);
     }
   };
 
@@ -477,7 +986,18 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
 
               <div className="flex-1 max-w-[420px] flex items-center gap-2">
                 <div className="flex-1">
-                  <Select value={selectedModel} onValueChange={(v) => { setSelectedModel(v); settings.setSelectedModel(v); }}>
+                  <Select 
+                    value={selectedModel || undefined} 
+                    onValueChange={(v) => {
+                      if (v === "__add_model__") {
+                        setShowDownloadDialog(true);
+                        // Não alterar selectedModel quando abrir dialog
+                      } else {
+                        setSelectedModel(v);
+                        settings.setSelectedModel(v);
+                      }
+                    }}
+                  >
                     <SelectTrigger className="h-9">
                       <SelectValue placeholder="Selecione um modelo..." />
                     </SelectTrigger>
@@ -490,6 +1010,12 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                           </span>
                         </SelectItem>
                       ))}
+                      <SelectItem value="__add_model__" className="text-primary font-medium">
+                        <span className="flex items-center gap-2">
+                          <Plus className="h-4 w-4" />
+                          Adicionar modelo...
+                        </span>
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -499,167 +1025,167 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
               </div>
             </div>
 
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto scroll-smooth">
-              {messages.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-muted-foreground space-y-4">
-                  <div className="p-4 rounded-full bg-muted/50">
-                    <MessageSquare className="w-8 h-8" />
-                  </div>
-                  <p>Inicie uma conversa com {selectedModel}</p>
-                </div>
-              ) : (
-                <div className="flex flex-col pb-4 max-w-3xl mx-auto w-full space-y-6">
-                  {messages.map((msg, i) => {
-                    // Verificar fontes nos metadados (preferencial)
-                    const msgSources = msg.metadata?.sources || [];
-                    const hasWebSources = msgSources.length > 0;
-                    
-                    // Verificar se devemos mostrar o progresso em tempo real
-                    // Apenas para a interação atual (quando isLoading é true ou acabou de terminar)
-                    const isCurrentInteraction = i === messages.length - (isLoading ? 2 : 1) || i === messages.length - 1;
-                    const showRealtimeProgress = 
-                      msg.role === 'user' &&
-                      isCurrentInteraction &&
-                      (webSearch.status === 'searching' || 
-                       webSearch.status === 'scraping' || 
-                       webSearch.status === 'completed' || 
-                       webSearch.status === 'error') &&
-                       webSearch.currentQuery; // Só mostra se tiver query
-
-                    return (
-                      <div key={i}>
-                        <ChatMessage message={msg} />
-                        {(msg.role === 'user') && showRealtimeProgress && (
-                            <SearchProgress
-                              status={webSearch.status}
-                              query={webSearch.currentQuery}
-                              sources={webSearch.scrapedSources}
-                              error={webSearch.error}
-                            />
-                        )}
-                        {/* Mostrar fontes após resposta do assistente que usou web search */}
-                        {msg.role === 'assistant' && hasWebSources && (
-                          <div className="px-6 pb-4">
-                            <div className="pt-2 border-t border-muted">
-                              <p className="text-xs font-medium text-muted-foreground mb-2">
-                                Fontes consultadas:
-                              </p>
-                              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent">
-                                {msgSources.map((source: ScrapedContent, idx: number) => (
-                                  <a
-                                    key={idx}
-                                    href={source.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex-shrink-0 flex items-center gap-2 px-3 py-2 rounded-md bg-muted/50 hover:bg-muted/80 transition-colors border border-muted text-xs max-w-[200px]"
-                                  >
-                                    <img
-                                      src={`https://www.google.com/s2/favicons?domain=${new URL(source.url).hostname}&sz=16`}
-                                      alt=""
-                                      className="w-4 h-4 rounded"
-                                      onError={(e) => {
-                                        (e.target as HTMLImageElement).style.display = 'none';
-                                      }}
-                                    />
-                                    <span className="truncate font-medium">
-                                      {source.title || `Fonte ${idx + 1}`}
-                                    </span>
-                                  </a>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        )}
+            {/* Messages Area with Floating Input Layout */}
+            <div className="flex-1 relative h-full overflow-hidden flex flex-col">
+              {/* Scrollable Content Area */}
+              <div className="flex-1 overflow-y-auto scroll-smooth w-full">
+                <div className="max-w-3xl mx-auto w-full px-4 md:px-0 pt-6 pb-4">
+                  {messages.length === 0 ? (
+                    <div className="min-h-[50vh] flex flex-col items-center justify-center text-muted-foreground space-y-6">
+                      <div className="p-6 rounded-2xl bg-muted/30 ring-1 ring-border/50 shadow-sm">
+                        <MessageSquare className="w-8 h-8 text-primary/60" />
                       </div>
-                    );
-                  })}
-                  
-                  {isLoading && thinkingStep === 'complete' && (
-                    <div className="px-6 py-4 text-xs text-muted-foreground animate-pulse">
-                      Gerando resposta...
+                      <div className="text-center space-y-2">
+                        <p className="text-lg font-medium text-primary/80">Como posso ajudar você hoje?</p>
+                        <p className="text-sm text-muted-foreground">Selecione um modelo e comece uma conversa.</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-6">
+                      {messages.map((msg, i) => {
+                        const isLastMessage = i === messages.length - (isLoading ? 1 : 0); // Ajuste simples
+                        // Streaming logica mantida simples
+                        const isAssistantStreaming = i === messages.length - 1 && msg.role === 'assistant' && isLoading;
+                        
+                        return (
+                          <div key={i} className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                            <ChatMessage message={msg} isStreaming={isAssistantStreaming} />
+                          </div>
+                        );
+                      })}
+                      
+                      {isLoading && (
+                        <div className="px-4 py-2 text-sm text-muted-foreground animate-pulse flex items-center gap-2">
+                          <div className="w-2 h-2 bg-primary/50 rounded-full animate-bounce" />
+                          <span>Pensando...</span>
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
-              )}
+              
               {/* Elemento invisível para scroll automático */}
               <div ref={messagesEndRef} className="h-1" />
             </div>
-
-            {/* Thinking Indicator - aparece apenas quando não há web search ativo */}
-            {thinkingStep && thinkingStep !== 'complete' && (webSearch.status === 'idle') && (
-              <ThinkingIndicator
-                currentStep={thinkingStep}
-                searchQuery={webSearch.currentQuery}
-                sourcesRead={webSearch.scrapedSources.length}
-                totalSources={settings.webSearch.maxResults}
-              />
-            )}
-
-            {/* Raw Context Debug */}
-            {lastContextSources.length > 0 && (
-              <div className="border-t border-muted px-6 py-4 bg-muted/40 space-y-3">
-                <button
-                  type="button"
-                  onClick={() => setShowContextDebug((prev) => !prev)}
-                  className="w-full flex items-center justify-between text-left text-sm font-medium"
-                >
-                  <span>Ver contexto extraído (debug)</span>
-                  <ChevronDown
-                    className={`w-4 h-4 transition-transform ${showContextDebug ? 'rotate-180' : ''}`}
-                  />
-                </button>
-                {showContextDebug && (
-                  <div className="space-y-3">
-                    <div>
-                      <p className="text-xs font-semibold text-muted-foreground mb-1">
-                        Fontes utilizadas ({lastContextSources.length}):
-                      </p>
-                      <div className="space-y-1 max-h-32 overflow-auto pr-2">
-                        {lastContextSources.map((source, idx) => (
-                          <a
-                            key={`${source.url}-${idx}`}
-                            href={source.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="block text-xs text-primary hover:underline truncate"
-                          >
-                            {source.title || source.url}
-                          </a>
-                        ))}
+            
+                  {/* Debug Info (Moved inside scroll) */}
+                  {(deepResearch.state.logs.length > 0 || lastWebContext) && (
+                    <div className="mt-12 pt-6 border-t border-dashed border-muted/50 opacity-70 hover:opacity-100 transition-opacity">
+                      <div className="space-y-4">
+                         {/* Process Log Toggle */}
+                         {deepResearch.state.logs.length > 0 && (
+                            <div>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowProcessDebug((prev) => !prev)}
+                                    className="flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
+                                >
+                                    <ScrollText className="w-3 h-3" />
+                                    Debug: Processo de Pensamento
+                                    <ChevronDown className={`w-3 h-3 transition-transform ${showProcessDebug ? 'rotate-180' : ''}`} />
+                                </button>
+                                {showProcessDebug && (
+                                    <div className="mt-2 space-y-2 p-4 rounded-lg bg-muted/30 text-xs border border-muted/50 max-h-60 overflow-y-auto">
+                                        <div className="flex justify-end mb-2">
+                                            <Button variant="ghost" size="sm" onClick={handleCopyLogs} className="h-6 px-2 text-[10px]">
+                                                {logsCopied ? <Check className="w-3 h-3 mr-1" /> : <Copy className="w-3 h-3 mr-1" />} Copiar Logs
+                                            </Button>
+                                        </div>
+                                        {deepResearch.state.logs.map((log, idx) => (
+                                            <div key={idx} className="grid grid-cols-[60px_1fr] gap-2 border-b border-muted/20 pb-2 last:border-0">
+                                                <span className="text-muted-foreground uppercase text-[10px]">{log.stage}</span>
+                                                <span>{log.input ? (log.input.length > 50 ? log.input.substring(0, 50) + '...' : log.input) : '-'}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                         )}
+                         
+                         {/* Context Debug Toggle */}
+                         {lastWebContext && (
+                            <div>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowContextDebug((prev) => !prev)}
+                                    className="flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
+                                >
+                                    <Globe className="w-3 h-3" />
+                                    Debug: Contexto Web ({lastContextSources.length} fontes)
+                                    <ChevronDown className={`w-3 h-3 transition-transform ${showContextDebug ? 'rotate-180' : ''}`} />
+                                </button>
+                                {showContextDebug && (
+                                    <div className="mt-2 p-4 rounded-lg bg-muted/30 text-xs border border-muted/50 space-y-3">
+                                        <div className="max-h-32 overflow-y-auto space-y-1">
+                                            {lastContextSources.map((s, i) => (
+                                                <a key={i} href={s.url} target="_blank" className="block hover:underline text-primary truncate">{s.title || s.url}</a>
+                                            ))}
+                                        </div>
+                                        <div className="border-t border-muted/20 pt-2">
+                                            <p className="mb-1 font-semibold">Preview Contexto:</p>
+                                            <pre className="max-h-32 overflow-y-auto p-2 bg-background rounded border text-[10px]">{lastWebContext.substring(0, 500)}...</pre>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                         )}
                       </div>
                     </div>
-                    <div>
-                      <p className="text-xs font-semibold text-muted-foreground mb-1">
-                        Bloco enviado na mensagem do usuário:
-                      </p>
-                      <pre className="text-[11px] leading-relaxed font-mono whitespace-pre-wrap bg-background border border-muted rounded-lg p-3 max-h-64 overflow-auto">
-                        {lastWebContext.trim().length > 0 ? lastWebContext : '[Contexto vazio após sanitização]'}
-                      </pre>
-                    </div>
-                  </div>
-                )}
+                  )}
+
+                  {/* Spacer for Bottom Input */}
+                  <div className="h-32 md:h-40 w-full shrink-0" ref={messagesEndRef} />
+                </div>
               </div>
-            )}
 
-            {/* Input */}
-            <ChatInput 
-              onSend={handleSend} 
-              onStop={stop} 
-              isLoading={isLoading}
-              webSearchEnabled={webSearch.isEnabled}
-              onWebSearchToggle={webSearch.setEnabled}
-              categories={settings.webSearch.categories}
-              onToggleCategory={(id, enabled) => {
-                const cat = settings.webSearch.categories.find(c => c.id === id);
-                if (!cat) return;
-                settings.updateCategory({ ...cat, enabled });
-              }}
-            />
-          </div>
+              {/* Fixed Input Container */}
+              <div className="absolute bottom-0 left-0 right-0 z-20 pointer-events-none">
+                {/* Gradient Overlay */}
+                <div className="absolute inset-0 -top-20 bg-gradient-to-t from-background via-background/90 to-transparent pointer-events-none" />
+                
+                {/* Input Wrapper */}
+                <div className="relative max-w-3xl mx-auto px-4 pb-6 pt-4 pointer-events-auto">
+                   <ChatInput 
+                      onSend={handleSend} 
+                      onStop={stop} 
+                      isLoading={isLoading}
+                      webSearchEnabled={webSearch.isEnabled}
+                      onWebSearchToggle={webSearch.setEnabled}
+                      categories={settings.webSearch.categories}
+                      onToggleCategory={(id, enabled) => {
+                        const cat = settings.webSearch.categories.find(c => c.id === id);
+                        if (!cat) return;
+                        settings.updateCategory({ ...cat, enabled });
+                      }}
+                    />
+                    <div className="text-center mt-2">
+                        <p className="text-[10px] text-muted-foreground/60">OllaHub pode cometer erros. Verifique informações importantes.</p>
+                    </div>
+                </div>
+              </div>
+            </div>
         </ResizablePanel>
-
       </ResizablePanelGroup>
+
+      <ModelDownloadDialog
+        open={showDownloadDialog}
+        onOpenChange={(open) => {
+          setShowDownloadDialog(open);
+          // Se fechando, garantir que o Select não mantenha o valor especial
+          if (!open && selectedModel === "__add_model__") {
+            setSelectedModel("");
+          }
+        }}
+        onSuccess={(modelName) => {
+          // Atualizar lista de modelos
+          refresh();
+          // Selecionar o modelo recém-baixado após um pequeno delay para garantir que a lista foi atualizada
+          setTimeout(() => {
+            setSelectedModel(modelName);
+            settings.setSelectedModel(modelName);
+          }, 500);
+        }}
+      />
     </div>
   );
 }
+

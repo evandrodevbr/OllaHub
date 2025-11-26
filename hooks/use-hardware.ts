@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { SystemSpecs } from '@/lib/recommendation';
+import { SystemSpecs, GpuInfo } from '@/lib/recommendation';
 
 export function useHardware() {
   const [specs, setSpecs] = useState<SystemSpecs | null>(null);
@@ -23,6 +23,10 @@ export function useHardware() {
     fetchSpecs();
   }, []);
 
-  return { specs, loading };
+  return { 
+    specs, 
+    loading,
+    gpus: specs?.gpus || []
+  };
 }
 

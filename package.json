@@ -26,6 +26,7 @@
     "@types/react-syntax-highlighter": "^15.5.13",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "emoji-regex": "^10.6.0",
     "framer-motion": "^12.23.24",
     "lucide-react": "^0.554.0",
     "next": "16.0.3",
@@ -36,6 +37,7 @@
     "react-resizable-panels": "^3.0.6",
     "react-syntax-highlighter": "^16.1.0",
     "remark-gfm": "^4.0.1",
+    "remove-accents": "^0.5.0",
     "tailwind-merge": "^3.4.0",
     "zustand": "^5.0.8"
   },

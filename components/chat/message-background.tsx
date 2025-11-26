@@ -18,11 +18,19 @@ export function MessageBackground({
   children,
   ...props
 }: MessageBackgroundProps) {
-  const base = "group flex w-full gap-3 md:gap-4 relative transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50";
+  const base = "group flex w-full gap-4 md:gap-6 relative transition-all duration-200";
+  
+  // User: Fundo sutil, alinhado à direita (se quiséssemos, mas o layout atual é lista). 
+  // Vamos manter layout lista mas com estilo clean.
+  // Perplexity usa: User message apenas texto bold/destacado, Assistant texto normal.
+  
   const roleCl = role === "user"
-    ? "rounded-2xl bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 px-4 py-3"
-    : "bg-transparent px-0 py-0";
-  const stateCl = state === "selected" ? "ring-2 ring-primary/40" : state === "highlighted" ? "ring-1 ring-accent/30" : "";
+    ? "bg-transparent text-foreground px-0 py-2" // Minimalista
+    : "bg-transparent text-foreground/90 px-0 py-2";
+
+  // Estado de seleção sutil
+  const stateCl = state === "selected" ? "bg-muted/30 -mx-4 px-4 rounded-lg" : "";
+  
   const hc = highContrast ? "hc:bg-message-high-contrast hc:text-foreground" : "";
 
   return (

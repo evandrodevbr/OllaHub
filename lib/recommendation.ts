@@ -1,7 +1,15 @@
+export interface GpuInfo {
+  id: string;
+  name: string;
+  vendor: string | null;
+  memory_mb: number | null;
+}
+
 export interface SystemSpecs {
   total_memory: number; // Bytes
   cpu_count: number;
   os_name: string;
+  gpus: GpuInfo[];
 }
 
 export interface ModelRecommendation {

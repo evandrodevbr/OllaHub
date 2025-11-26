@@ -1,6 +1,7 @@
 use std::process::{Command, Stdio, Child};
-use std::io::{BufRead, BufReader, Write};
-use std::time::Duration;
+use std::io::{BufRead, BufReader, Write, Read};
+use std::time::{Duration, Instant};
+use futures_util::StreamExt;
 use std::fs;
 use std::path::PathBuf;
 use std::collections::HashMap;
@@ -18,6 +19,7 @@ mod task_executor;
 mod scheduler_loop;
 mod sources_config;
 mod system_monitor;
+mod intent_classifier;
 
 use web_scraper::{
     ScrapedContent,
@@ -34,10 +36,9 @@ use web_scraper::{
 use headless_chrome::Browser;
 use scheduler::{SentinelTask, SchedulerService, SchedulerState, TaskAction};
 use sources_config::{SourcesConfig, load_sources_config, save_sources_config};
-use system_monitor::{SystemStats, SystemMonitorState};
+use system_monitor::{SystemStats, SystemMonitorState, GpuInfo};
 
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
+// CommandExt é importado localmente onde necessário
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 struct Message {
@@ -45,6 +46,27 @@ struct Message {
     content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     metadata: Option<serde_json::Value>,
+}
+
+#[derive(serde::Serialize)]
+struct DownloadProgress {
+    status: String,          // "pulling", "verifying", "success"
+    percent: Option<u8>,     // 0-100
+    downloaded: Option<String>, // "552 MB"
+    total: Option<String>,      // "1.2 GB"
+    speed: Option<String>,      // "25 MB/s"
+    raw: String,             // linha original para fallback
+}
+
+#[derive(serde::Deserialize)]
+struct PullProgress {
+    status: String,
+    #[serde(default)]
+    digest: String, // Mantido para compatibilidade com API, mas não usado atualmente
+    #[serde(default)]
+    total: u64,
+    #[serde(default)]
+    completed: u64,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -75,6 +97,7 @@ struct SystemSpecs {
     total_memory: u64,
     cpu_count: usize,
     os_name: String,
+    gpus: Vec<GpuInfo>,
 }
 
 // SystemStats movido para system_monitor.rs
@@ -440,11 +463,37 @@ fn get_system_specs() -> SystemSpecs {
     let mut sys = System::new_all();
     sys.refresh_all();
 
+    // Detectar todas as GPUs
+    let gpus = system_monitor::detect_all_gpus();
+
     SystemSpecs {
         total_memory: sys.total_memory(),
         cpu_count: sys.cpus().len(),
         os_name: System::name().unwrap_or("Unknown".to_string()),
+        gpus,
     }
+}
+
+/// Retorna o sistema operacional atual: 'windows', 'mac', ou 'linux'
+#[command]
+fn get_operating_system() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        return "windows".to_string();
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        return "mac".to_string();
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        return "linux".to_string();
+    }
+    
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    return "unknown".to_string();
 }
 
 #[command]
@@ -542,34 +591,248 @@ fn check_if_model_installed(name: String) -> bool {
     }
 }
 
-#[command]
-async fn pull_model(window: Window, name: String) -> Result<(), String> {
-    let mut child = Command::new("ollama")
-        .arg("pull")
-        .arg(&name)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| e.to_string())?;
-
-    let stdout = child.stdout.take().ok_or("Failed to open stdout")?;
-    let reader = BufReader::new(stdout);
-
-    for line in reader.lines() {
-        match line {
-            Ok(l) => {
-                window.emit("download-progress", l).unwrap_or(());
+// Função auxiliar para ler linha até encontrar \r ou \n (mantida para fallback)
+#[allow(dead_code)]
+fn read_line_until_delimiter<R: Read>(reader: &mut BufReader<R>, buffer: &mut Vec<u8>) -> Result<usize, std::io::Error> {
+    buffer.clear();
+    let mut byte = [0u8; 1];
+    let mut count = 0;
+    
+    loop {
+        match reader.read(&mut byte)? {
+            0 => break, // EOF
+            _ => {
+                if byte[0] == b'\r' {
+                    // Se for \r, verificar se o próximo é \n e pular ambos
+                    let mut peek = [0u8; 1];
+                    if reader.read(&mut peek).unwrap_or(0) > 0 && peek[0] == b'\n' {
+                        // É \r\n, já consumimos ambos
+                    } else {
+                        // É apenas \r, já consumimos
+                    }
+                    break;
+                } else if byte[0] == b'\n' {
+                    break;
+                }
+                buffer.push(byte[0]);
+                count += 1;
             }
-            Err(_) => break,
         }
     }
-
-    let status = child.wait().map_err(|e| e.to_string())?;
     
-    if status.success() {
-        Ok(())
+    Ok(count)
+}
+
+// Função auxiliar para formatar bytes em formato legível
+fn format_bytes(bytes: u64) -> Option<String> {
+    if bytes == 0 {
+        return None;
+    }
+    
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+    
+    Some(if bytes >= GB {
+        format!("{:.1} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.1} KB", bytes as f64 / KB as f64)
     } else {
-        Err("Failed to pull model".to_string())
+        format!("{} B", bytes)
+    })
+}
+
+// Função para parsear linha do Ollama e extrair informações (mantida para fallback)
+#[allow(dead_code)]
+fn parse_ollama_progress(line: &str) -> DownloadProgress {
+    let line_lower = line.to_lowercase();
+    let mut status = "downloading".to_string();
+    let mut percent: Option<u8> = None;
+    let mut downloaded: Option<String> = None;
+    let mut total: Option<String> = None;
+    let mut speed: Option<String> = None;
+    
+    // Determinar status
+    if line_lower.contains("pulling manifest") || line_lower.contains("pulling") {
+        status = "pulling".to_string();
+    } else if line_lower.contains("verifying") {
+        status = "verifying".to_string();
+    } else if line_lower.contains("writing manifest") {
+        status = "writing".to_string();
+    } else if line_lower.contains("success") || line_lower.contains("complete") || line_lower.contains("pulled") {
+        status = "success".to_string();
+    }
+    
+    // Extrair porcentagem: "45%" ou "45 %"
+    if let Some(caps) = regex::Regex::new(r"(\d+)\s*%").unwrap().captures(line) {
+        if let Ok(p) = caps[1].parse::<u8>() {
+            percent = Some(p);
+        }
+    }
+    
+    // Extrair tamanho baixado/total: "552 MB/1.2 GB" ou "552MB / 1.2GB"
+    if let Some(caps) = regex::Regex::new(r"(\d+(?:\.\d+)?)\s*([KMGT]?B)\s*/\s*(\d+(?:\.\d+)?)\s*([KMGT]?B)").unwrap().captures(line) {
+        downloaded = Some(format!("{} {}", &caps[1], &caps[2]));
+        total = Some(format!("{} {}", &caps[3], &caps[4]));
+    }
+    
+    // Extrair velocidade: "25 MB/s" ou "25MB/s"
+    if let Some(caps) = regex::Regex::new(r"(\d+(?:\.\d+)?)\s*([KMGT]?B/s)").unwrap().captures(line) {
+        speed = Some(format!("{} {}", &caps[1], &caps[2]));
+    }
+    
+    DownloadProgress {
+        status,
+        percent,
+        downloaded,
+        total,
+        speed,
+        raw: line.to_string(),
+    }
+}
+
+#[command]
+async fn pull_model(window: Window, name: String) -> Result<(), String> {
+    let client = reqwest::Client::new();
+    
+    // Fazer requisição POST para API do Ollama com streaming
+    let response = client
+        .post("http://localhost:11434/api/pull")
+        .json(&serde_json::json!({ "name": name, "stream": true }))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to connect to Ollama API: {}", e))?;
+    
+    if !response.status().is_success() {
+        return Err(format!("Ollama API returned error: {}", response.status()));
+    }
+    
+    let mut stream = response.bytes_stream();
+    let mut buffer = String::new();
+    let mut last_completed: u64 = 0;
+    let mut last_time = Instant::now();
+    
+    // Processar stream NDJSON (Newline Delimited JSON)
+    while let Some(chunk_result) = stream.next().await {
+        let chunk = chunk_result.map_err(|e| format!("Stream error: {}", e))?;
+        let chunk_str = String::from_utf8_lossy(&chunk);
+        buffer.push_str(&chunk_str);
+        
+        // Processar linhas completas (separadas por \n)
+        while let Some(pos) = buffer.find('\n') {
+            let line = buffer[..pos].trim().to_string();
+            buffer = buffer[pos + 1..].to_string();
+            
+            if line.is_empty() {
+                continue;
+            }
+            
+            // Tentar deserializar como PullProgress
+            match serde_json::from_str::<PullProgress>(&line) {
+                Ok(json_progress) => {
+                    // Calcular porcentagem se tiver total/completed
+                    let percent = if json_progress.total > 0 {
+                        Some(((json_progress.completed as f64 / json_progress.total as f64) * 100.0) as u8)
+                    } else {
+                        None
+                    };
+                    
+                    // Calcular velocidade
+                    let now = Instant::now();
+                    let delta_time = now.duration_since(last_time).as_secs_f64();
+                    let speed = if delta_time > 0.0 && json_progress.completed > last_completed {
+                        let delta_bytes = json_progress.completed - last_completed;
+                        let bytes_per_sec = delta_bytes as f64 / delta_time;
+                        Some(format_speed(bytes_per_sec))
+                    } else {
+                        None
+                    };
+                    
+                    last_completed = json_progress.completed;
+                    last_time = now;
+                    
+                    // Criar DownloadProgress estruturado
+                    let progress = DownloadProgress {
+                        status: json_progress.status.clone(),
+                        percent,
+                        downloaded: format_bytes(json_progress.completed),
+                        total: format_bytes(json_progress.total),
+                        speed,
+                        raw: line.clone(),
+                    };
+                    
+                    // Emitir evento para frontend
+                    if let Ok(json) = serde_json::to_string(&progress) {
+                        window.emit("download-progress", json).unwrap_or(());
+                    }
+                    
+                    // Se status for "success", finalizar
+                    if json_progress.status == "success" {
+                        let success_progress = DownloadProgress {
+                            status: "success".to_string(),
+                            percent: Some(100),
+                            downloaded: format_bytes(json_progress.completed),
+                            total: format_bytes(json_progress.total),
+                            speed: None,
+                            raw: "success".to_string(),
+                        };
+                        if let Ok(json) = serde_json::to_string(&success_progress) {
+                            window.emit("download-progress", json).unwrap_or(());
+                        }
+                        return Ok(());
+                    }
+                }
+                Err(_) => {
+                    // Se não conseguir parsear como JSON, tratar como linha raw (fallback)
+                    let progress = DownloadProgress {
+                        status: "downloading".to_string(),
+                        percent: None,
+                        downloaded: None,
+                        total: None,
+                        speed: None,
+                        raw: line,
+                    };
+                    if let Ok(json) = serde_json::to_string(&progress) {
+                        window.emit("download-progress", json).unwrap_or(());
+                    }
+                }
+            }
+        }
+    }
+    
+    // Se chegou aqui, o stream terminou sem "success" explícito
+    // Emitir sucesso final
+    let success_progress = DownloadProgress {
+        status: "success".to_string(),
+        percent: Some(100),
+        downloaded: format_bytes(last_completed),
+        total: None,
+        speed: None,
+        raw: "success".to_string(),
+    };
+    if let Ok(json) = serde_json::to_string(&success_progress) {
+        window.emit("download-progress", json).unwrap_or(());
+    }
+    
+    Ok(())
+}
+
+// Função auxiliar para formatar velocidade
+fn format_speed(bytes_per_sec: f64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+    const GB: f64 = MB * 1024.0;
+    
+    if bytes_per_sec >= GB {
+        format!("{:.1} GB/s", bytes_per_sec / GB)
+    } else if bytes_per_sec >= MB {
+        format!("{:.1} MB/s", bytes_per_sec / MB)
+    } else if bytes_per_sec >= KB {
+        format!("{:.1} KB/s", bytes_per_sec / KB)
+    } else {
+        format!("{:.0} B/s", bytes_per_sec)
     }
 }
 
@@ -589,6 +852,84 @@ async fn check_ollama_running() -> bool {
     }
 }
 
+/// Verificação completa do Ollama: instalação e execução
+#[derive(serde::Serialize)]
+struct OllamaCheckResult {
+    installed: bool,
+    running: bool,
+    status: String, // "not_installed" | "installed_stopped" | "running"
+}
+
+/// Inicia o Ollama automaticamente se estiver instalado mas não estiver rodando
+#[command]
+async fn auto_start_ollama() -> Result<bool, String> {
+    // Verificar se está instalado
+    let installed = check_ollama_installed();
+    if !installed {
+        log::info!("Ollama não está instalado, pulando inicialização automática");
+        return Ok(false);
+    }
+    
+    // Verificar se já está rodando
+    let running = check_ollama_running().await;
+    if running {
+        log::info!("Ollama já está rodando");
+        return Ok(true);
+    }
+    
+    // Tentar iniciar
+    log::info!("Iniciando Ollama automaticamente...");
+    match start_ollama_server() {
+        Ok(_) => {
+            // Aguardar um pouco para o servidor iniciar
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            
+            // Verificar se iniciou com sucesso
+            let is_running = check_ollama_running().await;
+            if is_running {
+                log::info!("Ollama iniciado com sucesso");
+                Ok(true)
+            } else {
+                log::warn!("Ollama foi iniciado mas ainda não está respondendo");
+                Ok(false)
+            }
+        }
+        Err(e) => {
+            log::error!("Falha ao iniciar Ollama automaticamente: {}", e);
+            Err(e)
+        }
+    }
+}
+
+#[command]
+async fn check_ollama_full() -> Result<OllamaCheckResult, String> {
+    let installed = check_ollama_installed();
+    
+    if !installed {
+        return Ok(OllamaCheckResult {
+            installed: false,
+            running: false,
+            status: "not_installed".to_string(),
+        });
+    }
+    
+    let running = check_ollama_running().await;
+    
+    if !running {
+        return Ok(OllamaCheckResult {
+            installed: true,
+            running: false,
+            status: "installed_stopped".to_string(),
+        });
+    }
+    
+    Ok(OllamaCheckResult {
+        installed: true,
+        running: true,
+        status: "running".to_string(),
+    })
+}
+
 #[command]
 fn start_ollama_server() -> Result<(), String> {
     let mut cmd = Command::new("ollama");
@@ -596,6 +937,7 @@ fn start_ollama_server() -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
@@ -759,6 +1101,7 @@ fn start_mcp_server(
     
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
@@ -864,6 +1207,7 @@ fn restart_mcp_server(
     
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
@@ -970,6 +1314,7 @@ fn restart_all_mcp_servers(
         
         #[cfg(target_os = "windows")]
         {
+            use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             cmd.creation_flags(CREATE_NO_WINDOW);
         }
@@ -1518,6 +1863,228 @@ fn save_sources_config_command(app_handle: AppHandle, config: SourcesConfig) -> 
     save_sources_config(&app_handle, config)
 }
 
+// ========== Ollama Installer Download Commands ==========
+
+/// Verifica se uma URL de download está disponível
+#[command]
+async fn check_download_url(url: String) -> Result<bool, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    
+    match client.head(&url).send().await {
+        Ok(response) => Ok(response.status().is_success()),
+        Err(_) => Ok(false),
+    }
+}
+
+/// Obtém o caminho do instalador local se existir
+#[command]
+fn get_local_installer_path(filename: String, app_handle: AppHandle) -> Result<Option<String>, String> {
+    // Tentar no diretório do executável (dev e produção)
+    // Em desenvolvimento, os arquivos estão em public/ relativo ao projeto
+    // Em produção, tentamos encontrar o arquivo em vários locais possíveis
+    if let Ok(exe_dir) = app_handle.path().executable_dir() {
+        // Tentar vários caminhos possíveis
+        let possible_paths = vec![
+            // Caminho relativo ao executável (dev) - subir até a raiz do projeto
+            exe_dir.parent()
+                .and_then(|p| p.parent())
+                .map(|p| p.join("public").join("installers").join(&filename)),
+            // Caminho direto do executável (dev)
+            exe_dir.parent()
+                .map(|p| p.join("public").join("installers").join(&filename)),
+            // Caminho absoluto do workspace (dev) - tentar encontrar a raiz
+            exe_dir.parent()
+                .and_then(|p| p.parent())
+                .and_then(|p| p.parent())
+                .map(|p| p.join("public").join("installers").join(&filename)),
+            // Em produção, arquivos podem estar no diretório do executável
+            Some(exe_dir.join("installers").join(&filename)),
+            // Ou no diretório pai do executável
+            exe_dir.parent()
+                .map(|p| p.join("installers").join(&filename)),
+        ];
+        
+        for path_opt in possible_paths {
+            if let Some(path) = path_opt {
+                if path.exists() {
+                    return Ok(Some(path.to_string_lossy().to_string()));
+                }
+            }
+        }
+    }
+    
+    Ok(None)
+}
+
+/// Faz download do instalador da URL oficial ou usa fallback local
+#[command]
+async fn download_installer(
+    url: String,
+    filename: String,
+    window: Window,
+    app_handle: AppHandle,
+) -> Result<String, String> {
+    use std::io::Write;
+    use futures_util::StreamExt;
+    
+    // Primeiro, tentar usar instalador local como fallback
+    if let Some(local_path) = get_local_installer_path(filename.clone(), app_handle.clone())? {
+        let local_path_buf = PathBuf::from(&local_path);
+        if local_path_buf.exists() {
+            // Copiar para app_data_dir/installers
+            let app_data_dir = app_handle.path().app_data_dir()
+                .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+            let installers_dir = app_data_dir.join("installers");
+            
+            if !installers_dir.exists() {
+                fs::create_dir_all(&installers_dir)
+                    .map_err(|e| format!("Failed to create installers directory: {}", e))?;
+            }
+            
+            let dest_path = installers_dir.join(&filename);
+            fs::copy(&local_path_buf, &dest_path)
+                .map_err(|e| format!("Failed to copy local installer: {}", e))?;
+            
+            window.emit("installer-download-progress", serde_json::json!({
+                "progress": 100,
+                "status": "Concluído (versão local)"
+            })).ok();
+            
+            return Ok(dest_path.to_string_lossy().to_string());
+        }
+    }
+    
+    // Fazer download da URL
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(300)) // 5 minutos de timeout
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to download installer: {}", e))?;
+    
+    if !response.status().is_success() {
+        return Err(format!("Download failed with status: {}", response.status()));
+    }
+    
+    // Obter tamanho total do arquivo
+    let total_size = response.content_length().unwrap_or(0);
+    
+    // Criar diretório de instaladores
+    let app_data_dir = app_handle.path().app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    let installers_dir = app_data_dir.join("installers");
+    
+    if !installers_dir.exists() {
+        fs::create_dir_all(&installers_dir)
+            .map_err(|e| format!("Failed to create installers directory: {}", e))?;
+    }
+    
+    let dest_path = installers_dir.join(&filename);
+    let mut file = fs::File::create(&dest_path)
+        .map_err(|e| format!("Failed to create file: {}", e))?;
+    
+    let mut downloaded: u64 = 0;
+    let mut stream = response.bytes_stream();
+    
+    while let Some(item) = stream.next().await {
+        let chunk = item.map_err(|e| format!("Failed to read chunk: {}", e))?;
+        file.write_all(&chunk)
+            .map_err(|e| format!("Failed to write chunk: {}", e))?;
+        
+        downloaded += chunk.len() as u64;
+        
+        // Emitir progresso
+        let progress = if total_size > 0 {
+            (downloaded * 100) / total_size
+        } else {
+            0
+        };
+        
+        window.emit("installer-download-progress", serde_json::json!({
+            "progress": progress,
+            "downloaded": downloaded,
+            "total": total_size,
+            "status": format!("Baixando... {}%", progress)
+        })).ok();
+    }
+    
+    window.emit("installer-download-progress", serde_json::json!({
+        "progress": 100,
+        "status": "Download concluído"
+    })).ok();
+    
+    log::info!("Instalador baixado para: {:?}", dest_path);
+    Ok(dest_path.to_string_lossy().to_string())
+}
+
+/// Executa o instalador baixado
+#[command]
+fn run_installer(file_path: String) -> Result<(), String> {
+    let path = PathBuf::from(&file_path);
+    
+    if !path.exists() {
+        return Err(format!("Instalador não encontrado: {}", file_path));
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        // No Windows, executar o .exe diretamente
+        Command::new(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to run installer: {}", e))?;
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        // No Linux, dar permissão de execução e executar
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&path)
+            .map_err(|e| format!("Failed to get file metadata: {}", e))?
+            .permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&path, perms)
+            .map_err(|e| format!("Failed to set executable permissions: {}", e))?;
+        
+        Command::new(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to run installer: {}", e))?;
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        // No macOS, executar o .zip (precisa ser extraído primeiro)
+        // Por enquanto, apenas abrir o arquivo
+        Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open installer: {}", e))?;
+    }
+    
+    log::info!("Instalador executado: {:?}", path);
+    Ok(())
+}
+
+/// Verifica se o instalador já foi baixado
+#[command]
+fn get_downloaded_installer_path(filename: String, app_handle: AppHandle) -> Result<Option<String>, String> {
+    let app_data_dir = app_handle.path().app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    let installer_path = app_data_dir.join("installers").join(&filename);
+    
+    if installer_path.exists() {
+        Ok(Some(installer_path.to_string_lossy().to_string()))
+    } else {
+        Ok(None)
+    }
+}
+
 // ========== Export & Backup Commands ==========
 
 /// Exporta todos os dados do app (chats, tasks, sources, settings) para um arquivo ZIP
@@ -1671,6 +2238,19 @@ fn get_recent_logs(app_handle: AppHandle, lines: usize) -> Result<Vec<String>, S
     }
 }
 
+/// Recebe logs do frontend e os imprime no terminal
+#[command]
+fn log_to_terminal(level: String, message: String) -> Result<(), String> {
+    match level.as_str() {
+        "info" => log::info!("{}", message),
+        "warn" => log::warn!("{}", message),
+        "error" => log::error!("{}", message),
+        "debug" => log::debug!("{}", message),
+        _ => log::info!("{}", message),
+    }
+    Ok(())
+}
+
 // ========== System Monitor Commands ==========
 
 /// Obtém estatísticas do sistema em tempo real
@@ -1755,6 +2335,20 @@ async fn toggle_task(
     }
 }
 
+#[command]
+fn classify_intent(query: String) -> String {
+    use intent_classifier::{IntentClassifier, QueryIntent};
+    let intent = IntentClassifier::classify(&query);
+    match intent {
+        QueryIntent::Factual => "factual".to_string(),
+        QueryIntent::Conversational => "conversational".to_string(),
+        QueryIntent::Technical => "technical".to_string(),
+        QueryIntent::Opinion => "opinion".to_string(),
+        QueryIntent::Calculation => "calculation".to_string(),
+        QueryIntent::Unknown => "unknown".to_string(),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -1798,6 +2392,17 @@ pub fn run() {
       let app_handle = app.handle().clone();
       let scheduler_clone = scheduler_state.clone();
       
+      // Inicializar Ollama automaticamente se estiver instalado
+      tauri::async_runtime::spawn(async move {
+          // Aguardar um pouco para o app inicializar completamente
+          tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+          
+          // Tentar iniciar Ollama automaticamente
+          if let Err(e) = auto_start_ollama().await {
+              log::warn!("Falha ao iniciar Ollama automaticamente: {}", e);
+          }
+      });
+      
       // BrowserState não é mais necessário - o scheduler criará o browser quando necessário
       // Usar o runtime async do Tauri ao invés de tokio::spawn
       tauri::async_runtime::spawn(async move {
@@ -1826,6 +2431,7 @@ pub fn run() {
         check_ollama_installed, 
         check_ollama_running,
         get_system_specs,
+        get_operating_system,
         check_if_model_installed,
         pull_model,
         start_ollama_server,
@@ -1862,12 +2468,21 @@ pub fn run() {
         load_sources_config_command,
         save_sources_config_command,
         get_recent_logs,
+        log_to_terminal,
         get_system_stats,
         create_task,
         list_tasks,
         update_task,
         delete_task,
-        toggle_task
+        toggle_task,
+        check_download_url,
+        get_local_installer_path,
+        download_installer,
+        run_installer,
+        get_downloaded_installer_path,
+        check_ollama_full,
+        auto_start_ollama,
+        classify_intent
     ])
     .manage(Arc::new(Mutex::new(HashMap::<String, McpProcessHandle>::new())) as McpProcessMap)
     .run(tauri::generate_context!())

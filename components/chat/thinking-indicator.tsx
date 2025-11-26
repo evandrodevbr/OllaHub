@@ -3,8 +3,10 @@ import { cn } from '@/lib/utils';
 
 export type ThinkingStep = 
   | 'analyzing'
+  | 'planning'
   | 'searching' 
   | 'reading'
+  | 'validating'
   | 'formulating'
   | 'complete';
 
@@ -13,6 +15,7 @@ interface ThinkingIndicatorProps {
   searchQuery?: string;
   sourcesRead?: number;
   totalSources?: number;
+  planSize?: number;
   onComplete?: () => void;
 }
 
@@ -21,6 +24,7 @@ export function ThinkingIndicator({
   searchQuery,
   sourcesRead = 0,
   totalSources = 0,
+  planSize = 0,
 }: ThinkingIndicatorProps) {
   const steps: Array<{
     key: ThinkingStep;
@@ -29,20 +33,28 @@ export function ThinkingIndicator({
   }> = [
     {
       key: 'analyzing',
-      label: 'Analisando intenção...',
+      label: 'Analisando...',
+      icon: <Brain className="w-3 h-3" />,
+    },
+    {
+      key: 'planning',
+      label: 'Planejando pesquisa...',
       icon: <Brain className="w-3 h-3" />,
     },
     {
       key: 'searching',
-      label: searchQuery ? `Pesquisando: "${searchQuery}"` : 'Pesquisando na web...',
+      label: planSize > 0 ? `Pesquisando (${planSize} tópicos)...` : 'Pesquisando na web...',
       icon: <Search className="w-3 h-3" />,
     },
     {
       key: 'reading',
-      label: totalSources > 0 
-        ? `Lendo ${sourcesRead}/${totalSources} fontes...`
-        : 'Lendo conteúdo...',
+      label: 'Lendo conteúdo...',
       icon: <BookOpen className="w-3 h-3" />,
+    },
+    {
+      key: 'validating',
+      label: 'Validando dados...',
+      icon: <CheckCircle2 className="w-3 h-3" />,
     },
     {
       key: 'formulating',

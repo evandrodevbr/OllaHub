@@ -1,5 +1,5 @@
 use anyhow::Result;
-use headless_chrome::{Browser, LaunchOptions};
+use headless_chrome::{Browser, LaunchOptions, Tab};
 use reqwest::header::USER_AGENT;
 use scraper::{Html, Selector};
 use std::sync::Arc;
@@ -715,6 +715,21 @@ fn fetch_and_convert_sync(browser: &Browser, url: &str) -> Result<ScrapedContent
         return Err(anyhow::anyhow!("Timeout ao processar página"));
     }
     
+    // Injetar script para bloquear autoplay de mídia
+    // Isso garante que nenhum vídeo/áudio seja reproduzido durante o scraping
+    match disable_media_autoplay(&tab) {
+        Ok(_) => {
+            log::debug!("Autoplay de mídia bloqueado para: {}", url);
+        }
+        Err(e) => {
+            log::warn!("Aviso: Falha ao bloquear autoplay em {}: {}", url, e);
+            // Não falhar o scraping por causa disso, apenas logar
+        }
+    }
+    
+    // Aguardar pequeno delay para garantir que script foi executado
+    std::thread::sleep(Duration::from_millis(100));
+    
     // Extrair HTML renderizado
     let content = match tab.get_content() {
         Ok(c) => c,
@@ -773,10 +788,152 @@ fn fetch_and_convert_sync(browser: &Browser, url: &str) -> Result<ScrapedContent
     }
 }
 
+/// Desabilita autoplay de mídia injetando JavaScript na página
+/// Esta função pausa todos os elementos de vídeo/áudio e previne autoplay
+fn disable_media_autoplay(tab: &Tab) -> Result<()> {
+    let script = r#"
+(function() {
+  // Função para pausar todos os elementos de mídia
+  const pauseAllMedia = () => {
+    const mediaElements = document.querySelectorAll('video, audio');
+    let pausedCount = 0;
+    
+    mediaElements.forEach(media => {
+      if (!media.paused) {
+        media.pause();
+        pausedCount++;
+      }
+      // Remover atributo autoplay
+      media.removeAttribute('autoplay');
+      media.autoplay = false;
+      // Silenciar mídia
+      media.muted = true;
+      media.volume = 0;
+    });
+    
+    return pausedCount;
+  };
+  
+  // Executar imediatamente
+  const initialPaused = pauseAllMedia();
+  
+  // Observar mudanças no DOM para novos elementos de mídia
+  const observer = new MutationObserver(() => {
+    pauseAllMedia();
+  });
+  
+  if (document.body) {
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+  }
+  
+  // Prevenir autoplay interceptando o método play()
+  const originalPlay = HTMLMediaElement.prototype.play;
+  HTMLMediaElement.prototype.play = function() {
+    // Bloquear play se página não estiver em foco ou estiver oculta
+    if (document.hidden || !document.hasFocus()) {
+      return Promise.reject(new Error('Autoplay blocked by scraper'));
+    }
+    // Pausar imediatamente após tentativa de play
+    const result = originalPlay.call(this);
+    if (result && typeof result.then === 'function') {
+      result.then(() => {
+        this.pause();
+        this.muted = true;
+      }).catch(() => {});
+    } else {
+      this.pause();
+      this.muted = true;
+    }
+    return Promise.reject(new Error('Autoplay blocked'));
+  };
+  
+  // Pausar quando página perder foco
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      pauseAllMedia();
+    }
+  });
+  
+  // Bloquear Web Audio API
+  if (window.AudioContext) {
+    const OriginalAudioContext = window.AudioContext;
+    window.AudioContext = function() {
+      console.warn('AudioContext blocked by scraper');
+      return null;
+    };
+    window.AudioContext.prototype = OriginalAudioContext.prototype;
+  }
+  
+  if (window.webkitAudioContext) {
+    const OriginalWebkitAudioContext = window.webkitAudioContext;
+    window.webkitAudioContext = function() {
+      console.warn('webkitAudioContext blocked by scraper');
+      return null;
+    };
+    window.webkitAudioContext.prototype = OriginalWebkitAudioContext.prototype;
+  }
+  
+  // Bloquear mídia em iframes também
+  const iframes = document.querySelectorAll('iframe');
+  iframes.forEach(iframe => {
+    try {
+      const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+      if (iframeDoc) {
+        const iframeMedia = iframeDoc.querySelectorAll('video, audio');
+        iframeMedia.forEach(media => {
+          media.pause();
+          media.muted = true;
+          media.volume = 0;
+          media.removeAttribute('autoplay');
+        });
+      }
+    } catch (e) {
+      // Ignorar erros de cross-origin
+    }
+  });
+  
+  // Retornar contagem para logging
+  return initialPaused;
+})();
+"#;
+    
+    match tab.evaluate(script, false) {
+        Ok(result) => {
+            // Tentar extrair contagem de elementos pausados do resultado
+            if let Some(count) = result.value {
+                log::info!("Script de bloqueio de mídia injetado: {} elementos pausados", count);
+            } else {
+                log::debug!("Script de bloqueio de mídia injetado com sucesso");
+            }
+            Ok(())
+        }
+        Err(e) => {
+            log::warn!("Erro ao injetar script de bloqueio de mídia: {}", e);
+            // Não falhar o scraping por causa disso, apenas logar
+            Ok(())
+        }
+    }
+}
+
 /// Cria uma instância do Browser (singleton para reutilização)
 pub fn create_browser() -> Result<Browser> {
+    use std::ffi::OsStr;
+    
+    // Argumentos do Chrome para bloquear autoplay de mídia
+    // Nota: O bloqueio principal será feito via JavaScript injection, mas esses args ajudam
+    let chrome_args: Vec<&OsStr> = vec![
+        OsStr::new("--autoplay-policy=document-user-activation-required"), // Exige interação do usuário para autoplay
+        OsStr::new("--disable-background-media-playback"), // Desabilita reprodução de mídia em segundo plano
+        OsStr::new("--mute-audio"), // Silencia todo áudio (mais agressivo, mas garante silêncio)
+        OsStr::new("--disable-features=AutoplayIgnoreWebAudio"), // Desabilita autoplay de Web Audio
+    ];
+    
     let options = LaunchOptions {
         headless: true,
+        args: chrome_args,
         ..Default::default()
     };
     

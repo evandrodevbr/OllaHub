@@ -13,6 +13,7 @@ export interface SettingsState {
   // AI & Models
   ollamaUrl: string;
   selectedModel: string;
+  selectedGpu: string | null;
   systemPrompt: string;
   contextWindow: number;
 
@@ -28,6 +29,17 @@ export interface SettingsState {
     userCustomSites: string[];
   };
 
+  // Content Processing
+  contentProcessing: {
+    enabled: boolean;
+    autoSummarize: boolean;
+    chunkingEnabled: boolean;
+    maxChunkSize: number;
+    minRelevanceScore: number;
+    useKeyFactsExtraction: boolean;
+    fallbackToSummarization: boolean;
+  };
+
   // Sources Config (from Rust backend)
   sourcesConfig: SourcesConfig | null;
   
@@ -40,9 +52,19 @@ export interface SettingsState {
     keywords: string[];
   };
 
+  // Query Preprocessing
+  queryPreprocessing: {
+    enabled: boolean;
+    minLength: number;
+    maxLength: number;
+    autoSplitQuestions: boolean;
+    irrelevantPatterns: string[];
+  };
+
   // Actions
   setOllamaUrl: (url: string) => void;
   setSelectedModel: (model: string) => void;
+  setSelectedGpu: (gpuId: string) => void;
   setSystemPrompt: (prompt: string) => void;
   setContextWindow: (ctx: number) => void;
   setWebSearchEnabled: (enabled: boolean) => void;
@@ -65,6 +87,23 @@ export interface SettingsState {
   setNotificationsEnabled: (enabled: boolean) => void;
   addNotificationKeyword: (keyword: string) => void;
   removeNotificationKeyword: (keyword: string) => void;
+  
+  // Query Preprocessing Actions
+  setQueryPreprocessingEnabled: (enabled: boolean) => void;
+  setQueryPreprocessingMinLength: (min: number) => void;
+  setQueryPreprocessingMaxLength: (max: number) => void;
+  setQueryPreprocessingAutoSplit: (autoSplit: boolean) => void;
+  addIrrelevantPattern: (pattern: string) => void;
+  removeIrrelevantPattern: (pattern: string) => void;
+  
+  // Content Processing Actions
+  setContentProcessingEnabled: (enabled: boolean) => void;
+  setContentProcessingAutoSummarize: (enabled: boolean) => void;
+  setContentProcessingChunkingEnabled: (enabled: boolean) => void;
+  setContentProcessingMaxChunkSize: (size: number) => void;
+  setContentProcessingMinRelevanceScore: (score: number) => void;
+  setContentProcessingUseKeyFactsExtraction: (enabled: boolean) => void;
+  setContentProcessingFallbackToSummarization: (enabled: boolean) => void;
 }
 
 const defaultSystemPrompt = `Você é um assistente de IA local integrado ao OllaHub.
@@ -151,6 +190,7 @@ const defaultCategories: SearchCategory[] = [
 const initialState = {
   ollamaUrl: 'http://localhost:11434',
   selectedModel: '',
+  selectedGpu: null,
   systemPrompt: defaultSystemPrompt,
   contextWindow: 4096,
   webSearch: {
@@ -169,6 +209,31 @@ const initialState = {
     enabled: true,
     keywords: [],
   },
+  queryPreprocessing: {
+    enabled: true,
+    minLength: 3,
+    maxLength: 2000,
+    autoSplitQuestions: true,
+    irrelevantPatterns: [
+      'oi',
+      'olá',
+      'ola',
+      'teste',
+      'test',
+      'hello',
+      'hi',
+      'hey',
+    ],
+  },
+  contentProcessing: {
+    enabled: true,
+    autoSummarize: true,
+    chunkingEnabled: true,
+    maxChunkSize: 1024,
+    minRelevanceScore: 0.1,
+    useKeyFactsExtraction: true,
+    fallbackToSummarization: true,
+  },
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -178,6 +243,7 @@ export const useSettingsStore = create<SettingsState>()(
 
       setOllamaUrl: (url) => set({ ollamaUrl: url }),
       setSelectedModel: (model) => set({ selectedModel: model }),
+      setSelectedGpu: (gpuId) => set({ selectedGpu: gpuId }),
       setSystemPrompt: (prompt) => set({ systemPrompt: prompt }),
       setContextWindow: (ctx) => set({ contextWindow: ctx }),
       setWebSearchEnabled: (enabled) =>
@@ -311,6 +377,76 @@ export const useSettingsStore = create<SettingsState>()(
             ...state.notifications,
             keywords: state.notifications.keywords.filter((k) => k !== keyword),
           },
+        })),
+      
+      // Query Preprocessing Actions
+      setQueryPreprocessingEnabled: (enabled) =>
+        set((state) => ({
+          queryPreprocessing: { ...state.queryPreprocessing, enabled },
+        })),
+      setQueryPreprocessingMinLength: (min) =>
+        set((state) => ({
+          queryPreprocessing: { ...state.queryPreprocessing, minLength: min },
+        })),
+      setQueryPreprocessingMaxLength: (max) =>
+        set((state) => ({
+          queryPreprocessing: { ...state.queryPreprocessing, maxLength: max },
+        })),
+      setQueryPreprocessingAutoSplit: (autoSplit) =>
+        set((state) => ({
+          queryPreprocessing: { ...state.queryPreprocessing, autoSplitQuestions: autoSplit },
+        })),
+      addIrrelevantPattern: (pattern) =>
+        set((state) => {
+          const normalized = pattern.toLowerCase().trim();
+          if (!normalized || state.queryPreprocessing.irrelevantPatterns.includes(normalized)) {
+            return state;
+          }
+          return {
+            queryPreprocessing: {
+              ...state.queryPreprocessing,
+              irrelevantPatterns: [...state.queryPreprocessing.irrelevantPatterns, normalized],
+            },
+          };
+        }),
+      removeIrrelevantPattern: (pattern) =>
+        set((state) => ({
+          queryPreprocessing: {
+            ...state.queryPreprocessing,
+            irrelevantPatterns: state.queryPreprocessing.irrelevantPatterns.filter(
+              (p) => p !== pattern.toLowerCase().trim()
+            ),
+          },
+        })),
+      
+      // Content Processing Actions
+      setContentProcessingEnabled: (enabled) =>
+        set((state) => ({
+          contentProcessing: { ...state.contentProcessing, enabled },
+        })),
+      setContentProcessingAutoSummarize: (enabled) =>
+        set((state) => ({
+          contentProcessing: { ...state.contentProcessing, autoSummarize: enabled },
+        })),
+      setContentProcessingChunkingEnabled: (enabled) =>
+        set((state) => ({
+          contentProcessing: { ...state.contentProcessing, chunkingEnabled: enabled },
+        })),
+      setContentProcessingMaxChunkSize: (size) =>
+        set((state) => ({
+          contentProcessing: { ...state.contentProcessing, maxChunkSize: size },
+        })),
+      setContentProcessingMinRelevanceScore: (score) =>
+        set((state) => ({
+          contentProcessing: { ...state.contentProcessing, minRelevanceScore: score },
+        })),
+      setContentProcessingUseKeyFactsExtraction: (enabled) =>
+        set((state) => ({
+          contentProcessing: { ...state.contentProcessing, useKeyFactsExtraction: enabled },
+        })),
+      setContentProcessingFallbackToSummarization: (enabled) =>
+        set((state) => ({
+          contentProcessing: { ...state.contentProcessing, fallbackToSummarization: enabled },
         })),
     }),
     {

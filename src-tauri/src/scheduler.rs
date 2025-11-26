@@ -152,6 +152,7 @@ impl SchedulerService {
 }
 
 /// Helper para obter diretório de tasks
+#[allow(dead_code)]
 pub fn get_tasks_file_path(app_handle: &AppHandle) -> Result<PathBuf, String> {
     let app_data_dir = app_handle
         .path()
