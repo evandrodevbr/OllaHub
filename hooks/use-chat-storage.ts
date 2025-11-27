@@ -38,6 +38,8 @@ export function useChatStorage() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [isGeneratingTitle, setIsGeneratingTitle] = useState(false);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isSearching, setIsSearching] = useState(false);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -47,6 +49,29 @@ export function useChatStorage() {
       console.error("Failed to load sessions:", error);
     }
   }, []);
+  
+  const searchSessions = useCallback(async (query: string) => {
+    if (!query || query.trim().length < 2) {
+      // Se query muito curta, carregar todas as sessões
+      await loadSessions();
+      return;
+    }
+    
+    setIsSearching(true);
+    try {
+      const results = await invoke<SessionSummary[]>('search_chat_sessions', {
+        query: query.trim(),
+        limit: 50
+      });
+      setSessions(results);
+    } catch (error) {
+      console.error("Failed to search sessions:", error);
+      // Em caso de erro, carregar todas as sessões
+      await loadSessions();
+    } finally {
+      setIsSearching(false);
+    }
+  }, [loadSessions]);
 
   const loadSessionHistory = useCallback(async (id: string): Promise<Message[]> => {
     try {
@@ -375,7 +400,11 @@ export function useChatStorage() {
     deleteSession,
     isGeneratingTitle,
     setIsGeneratingTitle,
-    generateTitleFromUserMessage
+    generateTitleFromUserMessage,
+    searchSessions,
+    searchQuery,
+    setSearchQuery,
+    isSearching
   };
 }
 

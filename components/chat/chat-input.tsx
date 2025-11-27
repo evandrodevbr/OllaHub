@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Square, Globe, WifiOff, ChevronUp, AlertCircle } from "lucide-react";
+import { Send, Square, Globe, WifiOff, ChevronUp, AlertCircle, GraduationCap, Newspaper, Terminal, TrendingUp } from "lucide-react";
 import { useState, useRef, useEffect, useMemo } from "react";
 import {
   Tooltip,
@@ -169,15 +169,32 @@ export function ChatInput({
                 <DropdownMenuContent align="end" sideOffset={12} className="w-56 rounded-xl">
                   <DropdownMenuLabel>Fontes de conhecimento</DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  {categories.map((cat) => (
-                    <DropdownMenuCheckboxItem
-                      key={cat.id}
-                      checked={cat.enabled}
-                      onCheckedChange={(checked) => onToggleCategory(cat.id, !!checked)}
-                    >
-                      {cat.name}
-                    </DropdownMenuCheckboxItem>
-                  ))}
+                  {categories.map((cat) => {
+                    // Mapeamento de ícones por categoria
+                    const getCategoryIcon = (categoryId: string) => {
+                      const iconMap: Record<string, React.ReactNode> = {
+                        'academic': <GraduationCap className="w-4 h-4 text-muted-foreground shrink-0" />,
+                        'news': <Newspaper className="w-4 h-4 text-muted-foreground shrink-0" />,
+                        'tech': <Terminal className="w-4 h-4 text-muted-foreground shrink-0" />,
+                        'finance': <TrendingUp className="w-4 h-4 text-muted-foreground shrink-0" />,
+                      };
+                      return iconMap[categoryId] || null;
+                    };
+
+                    return (
+                      <DropdownMenuCheckboxItem
+                        key={cat.id}
+                        checked={cat.enabled}
+                        onCheckedChange={(checked) => onToggleCategory(cat.id, !!checked)}
+                        className="pl-8"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          {getCategoryIcon(cat.id)}
+                          <span>{cat.name}</span>
+                        </div>
+                      </DropdownMenuCheckboxItem>
+                    );
+                  })}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}

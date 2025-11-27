@@ -1,5 +1,6 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { removeMetadataNoise } from '@/lib/metadata';
 import { useSettingsStore } from '@/store/settings-store';
 
@@ -214,11 +215,124 @@ export async function executeToolCall(toolCall: ToolCall): Promise<string> {
   }
 }
 
+// Tipos para eventos Tauri
+interface ChatCreatedEvent {
+  session_id: string;
+  title: string;
+  emoji: string;
+}
+
+interface ChatTokenEvent {
+  session_id: string;
+  content: string;
+  done: boolean;
+}
+
+interface ChatErrorEvent {
+  session_id: string;
+  error: string;
+}
+
 export function useChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const rawContentRef = useRef<string>(''); // Track raw content including metadata during streaming
+  const currentSessionIdRef = useRef<string | null>(null);
+  const lastTokenRef = useRef<string>(''); // Track last token to detect duplicates
+  
+  // Listener para eventos do Rust
+  useEffect(() => {
+    let unlistenCreated: (() => void) | null = null;
+    let unlistenToken: (() => void) | null = null;
+    let unlistenError: (() => void) | null = null;
+    
+    // Listener para chat-created (título gerado)
+    listen<ChatCreatedEvent>('chat-created', (event) => {
+      const { session_id, title, emoji } = event.payload;
+      currentSessionIdRef.current = session_id;
+      // TODO: Atualizar sidebar com novo chat (será implementado no componente de sidebar)
+      console.log('Chat criado:', { session_id, title, emoji });
+    }).then(unlisten => {
+      unlistenCreated = unlisten;
+    });
+    
+    // Listener para chat-token (streaming de tokens)
+    listen<ChatTokenEvent>('chat-token', (event) => {
+      const { content, done } = event.payload;
+      
+      if (content && content.length > 0) {
+        // Verificar se este é o mesmo token do último processado (evitar duplicação)
+        // Isso pode acontecer se o evento for emitido múltiplas vezes
+        if (content === lastTokenRef.current && rawContentRef.current.endsWith(content)) {
+          // Token duplicado, ignorar
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('Token duplicado detectado, ignorando:', content.substring(0, 30));
+          }
+          return;
+        }
+        
+        // Atualizar referência do último token
+        lastTokenRef.current = content;
+        
+        // Accumulate raw content (including metadata) in ref
+        rawContentRef.current += content;
+        
+        setMessages(prev => {
+          const last = prev[prev.length - 1];
+          if (last && last.role === 'assistant') {
+            // For display: strip incomplete metadata tag if present
+            const displayContent = stripMetadataTag(rawContentRef.current);
+            return [
+              ...prev.slice(0, -1),
+              { ...last, content: displayContent }
+            ];
+          }
+          // Se não existe mensagem do assistente, criar uma
+          return [...prev, { role: 'assistant', content: stripMetadataTag(rawContentRef.current) }];
+        });
+      }
+      
+      if (done) {
+        // Stream terminou, processar metadata final
+        setMessages(prev => {
+          const last = prev[prev.length - 1];
+          if (last && last.role === 'assistant') {
+            const rawContent = rawContentRef.current;
+            const { content: finalContent, metadata } = parseMetadata(rawContent);
+            rawContentRef.current = '';
+            lastTokenRef.current = ''; // Reset last token tracker
+            
+            return [
+              ...prev.slice(0, -1),
+              { ...last, content: finalContent || last.content, metadata }
+            ];
+          }
+          return prev;
+        });
+        setIsLoading(false);
+      }
+    }).then(unlisten => {
+      unlistenToken = unlisten;
+    });
+    
+    // Listener para chat-error
+    listen<ChatErrorEvent>('chat-error', (event) => {
+      const { error } = event.payload;
+      console.error('Erro no chat:', error);
+      setIsLoading(false);
+      // TODO: Mostrar erro ao usuário
+    }).then(unlisten => {
+      unlistenError = unlisten;
+    });
+    
+    // Cleanup
+    return () => {
+      unlistenCreated?.();
+      unlistenToken?.();
+      unlistenError?.();
+    };
+  }, []);
 
   const sendMessage = async (
     content: string,
@@ -325,235 +439,47 @@ export function useChat() {
     console.groupEnd();
     // [DEBUG INJECTION END]
 
-    abortControllerRef.current = new AbortController();
+    // Reset raw content buffer for this message
+    rawContentRef.current = '';
+    lastTokenRef.current = ''; // Reset last token tracker
+    
+    // Add empty assistant message to start streaming into
+    setMessages(prev => {
+      const last = prev[prev.length - 1];
+      if (last && last.role === 'assistant' && last.content === '') {
+        // Já existe mensagem vazia, não adicionar outra
+        return prev;
+      }
+      // Adicionar mensagem vazia do assistente
+      return [...prev, { role: 'assistant', content: '' }];
+    });
 
     try {
-      // Função auxiliar para tentar enviar mensagem (usada no retry)
-      const attemptSend = async (): Promise<void> => {
-        // Verificar se Ollama está rodando antes de fazer requisição
-        try {
-          const isRunning = await invoke<boolean>('check_ollama_running');
-          if (!isRunning) {
-            throw new Error('OllamaNotRunning');
-          }
-        } catch (checkError: any) {
-          if (checkError.message === 'OllamaNotRunning') {
-            throw checkError;
-          }
-          console.warn('Erro ao verificar status do Ollama:', checkError);
-          // Continuar mesmo se a verificação falhar
+      // Verificar se Ollama está rodando antes de fazer requisição
+      try {
+        const isRunning = await invoke<boolean>('check_ollama_running');
+        if (!isRunning) {
+          throw new Error('OllamaNotRunning');
         }
-
-        // Timeout configurável (padrão 5 minutos)
-        const timeoutMs = 5 * 60 * 1000; // 5 minutos
-        const timeoutId = setTimeout(() => {
-          if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-          }
-        }, timeoutMs);
-
-        let response: Response;
-        try {
-          response = await fetch('http://localhost:11434/api/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              model,
-              messages: apiMessages,
-              stream: true,
-            }),
-            signal: abortControllerRef.current.signal,
-          });
-        } catch (fetchError: any) {
-          clearTimeout(timeoutId);
-          if (fetchError.name === 'AbortError') {
-            throw new Error('RequestTimeout');
-          }
-          if (fetchError.message?.includes('Failed to fetch') || fetchError.message?.includes('NetworkError')) {
-            throw new Error('ConnectionError');
-          }
-          throw fetchError;
+      } catch (checkError: any) {
+        if (checkError.message === 'OllamaNotRunning') {
+          throw checkError;
         }
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-          if (response.status === 404) {
-            throw new Error('ModelNotFound');
-          }
-          if (response.status === 500) {
-            throw new Error('ServerError');
-          }
-          throw new Error(`HTTPError: ${response.status}`);
-        }
-        if (!response.body) throw new Error('NoResponseBody');
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        
-        // Reset raw content buffer for this message
-        rawContentRef.current = '';
-        
-        // Add empty assistant message to start streaming into
-        // Verificar se já existe uma mensagem vazia do assistente (adicionada pelo handleSend)
-        setMessages(prev => {
-          const last = prev[prev.length - 1];
-          if (last && last.role === 'assistant' && last.content === '') {
-            // Já existe mensagem vazia, não adicionar outra
-            return prev;
-          }
-          // Adicionar mensagem vazia do assistente
-          return [...prev, { role: 'assistant', content: '' }];
-        });
-
-        let streamFinished = false;
-        let metadataProcessed = false;
-        
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) {
-            streamFinished = true;
-            break;
-          }
-
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split('\n').filter(line => line.trim() !== '');
-
-          for (const line of lines) {
-            // Validação básica: verificar se a linha parece ser JSON válido
-            const trimmedLine = line.trim();
-            if (!trimmedLine || trimmedLine.length === 0) {
-              continue; // Linha vazia, ignorar
-            }
-            
-            // Verificar se começa com { e termina com } (formato básico de JSON)
-            if (!trimmedLine.startsWith('{') || !trimmedLine.endsWith('}')) {
-              // Linha parcial ou inválida, ignorar silenciosamente
-              // Isso pode acontecer quando o streaming divide JSON em múltiplas chunks
-              continue;
-            }
-
-            try {
-              const json = JSON.parse(trimmedLine);
-              if (json.message?.content) {
-                // Accumulate raw content (including metadata) in ref
-                rawContentRef.current += json.message.content;
-                
-                setMessages(prev => {
-                  const last = prev[prev.length - 1];
-                  if (last.role === 'assistant') {
-                    // For display: strip incomplete metadata tag if present (opening tag but not closed)
-                    // This prevents showing "<metadata>..." in the UI while streaming
-                    const displayContent = stripMetadataTag(rawContentRef.current);
-                    return [
-                      ...prev.slice(0, -1),
-                      { ...last, content: displayContent }
-                    ];
-                  }
-                  return prev;
-                });
-              }
-              if (json.done) {
-                streamFinished = true;
-                metadataProcessed = true;
-                
-                // Process metadata FIRST before setting isLoading to false
-                // This prevents race condition with saveSession useEffect
-                setMessages(prev => {
-                  const last = prev[prev.length - 1];
-                  if (last.role === 'assistant') {
-                    // Parse metadata from raw accumulated content
-                    const rawContent = rawContentRef.current;
-                    const { content, metadata } = parseMetadata(rawContent);
-                    
-                    // Fallback: if content is empty after parse but we had content before,
-                    // keep the stripped version (without metadata tag) to preserve user-visible text
-                    const finalContent = removeMetadataNoise(content || last.content || stripMetadataTag(rawContent));
-                    
-                    // Clear ref for next message
-                    rawContentRef.current = '';
-                    
-                    return [
-                      ...prev.slice(0, -1),
-                      { ...last, content: finalContent, metadata }
-                    ];
-                  }
-                  return prev;
-                });
-                
-                // Set loading to false AFTER processing metadata
-                setIsLoading(false);
-                break; // Exit inner loop when done
-              }
-            } catch (parseError) {
-              // Log apenas em desenvolvimento para debug, não quebrar o fluxo
-              if (process.env.NODE_ENV === 'development') {
-                const errorMessage = parseError instanceof Error ? parseError.message : String(parseError);
-                if (!errorMessage.includes('Unexpected end') && !errorMessage.includes('Unexpected token')) {
-                  console.warn('Failed to parse JSON chunk:', errorMessage);
-                }
-              }
-              // Continuar processamento mesmo se uma linha falhar
-              continue;
-            }
-          }
-        }
-
-        // If stream finished without explicit json.done, process metadata anyway
-        if (streamFinished && !metadataProcessed && rawContentRef.current) {
-          setMessages(prev => {
-            const last = prev[prev.length - 1];
-            if (last && last.role === 'assistant') {
-              const rawContent = rawContentRef.current;
-              const { content, metadata } = parseMetadata(rawContent);
-              const finalContent = removeMetadataNoise(content || last.content || stripMetadataTag(rawContent));
-              rawContentRef.current = '';
-              
-              return [
-                ...prev.slice(0, -1),
-                { ...last, content: finalContent, metadata }
-              ];
-            }
-            return prev;
-          });
-          setIsLoading(false);
-        } else if (streamFinished && !metadataProcessed) {
-          // Stream finished but no content to process, just set loading to false
-          setIsLoading(false);
-        }
-      };
-
-      // Tentar enviar com retry logic
-      let lastError: any = null;
-      const maxRetries = 2; // Máximo de 2 retries (3 tentativas no total)
-      
-      for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        try {
-          await attemptSend();
-          return; // Sucesso, sair do loop
-        } catch (error: any) {
-          lastError = error;
-          
-          // Não fazer retry para certos erros
-          if (error.message === 'ModelNotFound' || 
-              error.message === 'OllamaNotRunning' ||
-              error.message === 'ConnectionError' ||
-              error.name === 'AbortError' ||
-              attempt === maxRetries) { // Última tentativa
-            break;
-          }
-          
-          // Aguardar antes de tentar novamente (backoff exponencial)
-          if (attempt < maxRetries) {
-            const delay = Math.min(1000 * Math.pow(2, attempt), 5000);
-            console.log(`Tentativa ${attempt + 1} falhou, tentando novamente em ${delay}ms...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-          }
-        }
+        console.warn('Erro ao verificar status do Ollama:', checkError);
+        // Continuar mesmo se a verificação falhar
       }
+
+      // Chamar comando Rust para streaming
+      await invoke('chat_stream', {
+        sessionId: currentSessionIdRef.current || null,
+        messages: apiMessages,
+        model,
+        systemPrompt: systemPrompt || null,
+        enableRag: false, // TODO: Implementar RAG depois
+      });
       
-      // Se chegou aqui, todas as tentativas falharam
-      throw lastError;
+      // O streaming será processado pelos listeners de eventos
+      // Não precisamos fazer mais nada aqui, os eventos cuidam do resto
     } catch (error: any) {
       console.error('Chat error:', error);
       
@@ -598,6 +524,7 @@ export function useChat() {
   const clearChat = () => {
     setMessages([]);
     rawContentRef.current = '';
+    lastTokenRef.current = '';
   };
 
   return { messages, setMessages, sendMessage, isLoading, stop, clearChat };

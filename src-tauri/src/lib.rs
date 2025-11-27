@@ -20,6 +20,7 @@ mod scheduler_loop;
 mod sources_config;
 mod system_monitor;
 mod intent_classifier;
+mod db;
 
 use web_scraper::{
     ScrapedContent,
@@ -48,6 +49,27 @@ struct Message {
     content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     metadata: Option<serde_json::Value>,
+}
+
+// Eventos para comunicação Frontend <-> Rust
+#[derive(serde::Serialize, Clone)]
+struct ChatCreatedEvent {
+    session_id: String,
+    title: String,
+    emoji: String,
+}
+
+#[derive(serde::Serialize, Clone)]
+struct ChatTokenEvent {
+    session_id: String,
+    content: String,
+    done: bool,
+}
+
+#[derive(serde::Serialize, Clone)]
+struct ChatErrorEvent {
+    session_id: String,
+    error: String,
 }
 
 #[derive(serde::Serialize)]
@@ -378,6 +400,82 @@ fn save_chat_session(
 }
 
 #[command]
+fn search_chat_sessions(app_handle: AppHandle, query: String, limit: Option<usize>) -> Result<Vec<SessionSummary>, String> {
+    use db::Database;
+    
+    let db = Database::new(&app_handle)
+        .map_err(|e| format!("Failed to open database: {}", e))?;
+    
+    let search_limit = limit.unwrap_or(50);
+    let sessions = db.search_sessions(&query, search_limit)
+        .map_err(|e| format!("Search failed: {}", e))?;
+    
+    // Validar existência de cada sessão antes de retornar
+    let chats_dir = get_chats_dir(&app_handle)?;
+    let mut summaries = Vec::new();
+    let mut orphan_count = 0;
+    
+    for session in sessions {
+        // Verificar se sessão existe no SQLite (já temos)
+        let exists_in_sqlite = db.get_session(&session.id)
+            .ok()
+            .flatten()
+            .is_some();
+        
+        // Verificar se existe no JSON (sistema legado) para compatibilidade
+        let json_path = chats_dir.join(format!("{}.json", session.id));
+        let exists_in_json = json_path.exists();
+        
+        // Sessão deve existir em pelo menos um sistema
+        if !exists_in_sqlite && !exists_in_json {
+            orphan_count += 1;
+            log::warn!("Found orphan session in search results: {} (title: {})", session.id, session.title);
+            continue; // Pular sessões órfãs
+        }
+        
+        // Buscar primeira mensagem para preview
+        let preview = db.get_messages(&session.id)
+            .ok()
+            .and_then(|msgs| {
+                msgs.iter()
+                    .find(|m| m.role == "user" || m.role == "assistant")
+                    .map(|m| {
+                        m.content.chars().take(50).collect::<String>()
+                    })
+            })
+            .or_else(|| {
+                // Fallback: tentar ler do JSON se não encontrou no SQLite
+                if exists_in_json {
+                    if let Ok(content) = fs::read_to_string(&json_path) {
+                        if let Ok(session_data) = serde_json::from_str::<ChatSession>(&content) {
+                            return session_data.messages.iter()
+                                .find(|m| m.role == "user" || m.role == "assistant")
+                                .map(|m| m.content.chars().take(50).collect::<String>());
+                        }
+                    }
+                }
+                None
+            })
+            .unwrap_or_default();
+        
+        summaries.push(SessionSummary {
+            id: session.id,
+            title: session.title,
+            emoji: session.emoji,
+            updated_at: session.updated_at, // Já é DateTime<Utc>
+            preview,
+            platform: String::new(), // Platform não está no SQLite ainda
+        });
+    }
+    
+    if orphan_count > 0 {
+        log::info!("Filtered out {} orphan sessions from search results", orphan_count);
+    }
+    
+    Ok(summaries)
+}
+
+#[command]
 fn load_chat_sessions(app_handle: AppHandle) -> Result<Vec<SessionSummary>, String> {
     let chats_dir = get_chats_dir(&app_handle)?;
     let mut summaries = Vec::new();
@@ -431,6 +529,60 @@ fn load_chat_sessions(app_handle: AppHandle) -> Result<Vec<SessionSummary>, Stri
 
 #[command]
 fn load_chat_history(app_handle: AppHandle, id: String) -> Result<Vec<Message>, String> {
+    use db::Database;
+    
+    // 1. Tentar carregar do SQLite primeiro (sistema novo)
+    match Database::new(&app_handle) {
+        Ok(db) => {
+            match db.get_messages(&id) {
+                Ok(messages) if !messages.is_empty() => {
+                    // Converter ChatMessage para Message
+                    let result: Vec<Message> = messages.into_iter().map(|msg| {
+                        let role = if msg.role == "user" {
+                            "user"
+                        } else if msg.role == "assistant" {
+                            "assistant"
+                        } else {
+                            "system"
+                        };
+                        
+                        let metadata = msg.metadata.and_then(|m| {
+                            serde_json::from_str::<serde_json::Value>(&m).ok()
+                        });
+                        
+                        let metadata_value = metadata
+                            .and_then(|m| {
+                                if m.is_object() && !m.as_object().unwrap().is_empty() {
+                                    Some(m)
+                                } else {
+                                    None
+                                }
+                            });
+                        
+                        Message {
+                            role: role.to_string(),
+                            content: msg.content,
+                            metadata: metadata_value,
+                        }
+                    }).collect();
+                    
+                    log::info!("Loaded {} messages from SQLite for session {}", result.len(), id);
+                    return Ok(result);
+                }
+                Ok(_) => {
+                    // Sessão existe mas não tem mensagens, continuar para fallback
+                }
+                Err(e) => {
+                    log::debug!("SQLite query failed for session {}: {}, trying JSON fallback", id, e);
+                }
+            }
+        }
+        Err(e) => {
+            log::debug!("Failed to open database: {}, trying JSON fallback", e);
+        }
+    }
+    
+    // 2. Fallback: tentar carregar do sistema legado (arquivos JSON)
     let chats_dir = get_chats_dir(&app_handle)?;
     let file_path = chats_dir.join(format!("{}.json", id));
     
@@ -438,23 +590,65 @@ fn load_chat_history(app_handle: AppHandle, id: String) -> Result<Vec<Message>, 
         return Err("Session not found".to_string());
     }
     
-    let content = fs::read_to_string(file_path)
+    let content = fs::read_to_string(&file_path)
         .map_err(|e| format!("Failed to read session file: {}", e))?;
         
     let session: ChatSession = serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse session: {}", e))?;
-        
+    
+    log::info!("Loaded {} messages from JSON for session {}", session.messages.len(), id);
     Ok(session.messages)
 }
 
 #[command]
 fn delete_chat_session(app_handle: AppHandle, id: String) -> Result<(), String> {
+    use db::Database;
+    
+    let mut errors = Vec::new();
+    
+    // 1. Deletar do sistema legado (arquivos JSON)
     let chats_dir = get_chats_dir(&app_handle)?;
     let file_path = chats_dir.join(format!("{}.json", id));
     
     if file_path.exists() {
-        fs::remove_file(file_path)
-            .map_err(|e| format!("Failed to delete session file: {}", e))?;
+        if let Err(e) = fs::remove_file(&file_path) {
+            errors.push(format!("Failed to delete JSON file: {}", e));
+        } else {
+            log::info!("Deleted session JSON file: {}", id);
+        }
+    }
+    
+    // 2. Deletar do SQLite (sistema novo)
+    match Database::new(&app_handle) {
+        Ok(db) => {
+            if let Err(e) = db.delete_session(&id) {
+                errors.push(format!("Failed to delete from SQLite: {}", e));
+            } else {
+                log::info!("Deleted session from SQLite: {}", id);
+            }
+        }
+        Err(e) => {
+            errors.push(format!("Failed to open database: {}", e));
+        }
+    }
+    
+    // Se ambos falharam, retornar erro
+    if !errors.is_empty() && !file_path.exists() {
+        // Se arquivo JSON não existe, verificar se pelo menos deletou do SQLite
+        match Database::new(&app_handle) {
+            Ok(db) => {
+                if db.get_session(&id).ok().flatten().is_none() {
+                    // Sessão não existe em nenhum lugar, considerar sucesso
+                    return Ok(());
+                }
+            }
+            _ => {}
+        }
+    }
+    
+    // Se houve erros mas pelo menos um sistema foi atualizado, logar mas não falhar
+    if !errors.is_empty() {
+        log::warn!("Some errors during deletion of session {}: {:?}", id, errors);
     }
     
     Ok(())
@@ -2025,8 +2219,11 @@ async fn export_chat_sessions(app_handle: AppHandle) -> Result<String, String> {
 /// Apaga todo o histórico de conversas
 #[command]
 fn clear_chat_history(app_handle: AppHandle) -> Result<(), String> {
+    use db::Database;
+    
     let chats_dir = get_chats_dir(&app_handle)?;
     
+    // 1. Deletar todos os arquivos JSON
     let entries = fs::read_dir(&chats_dir)
         .map_err(|e| format!("Failed to read chats dir: {}", e))?;
     
@@ -2042,8 +2239,67 @@ fn clear_chat_history(app_handle: AppHandle) -> Result<(), String> {
         }
     }
     
+    // 2. Deletar todas as sessões do SQLite
+    match Database::new(&app_handle) {
+        Ok(db) => {
+            match db.list_sessions() {
+                Ok(sessions) => {
+                    let mut sqlite_deleted = 0;
+                    for session in sessions {
+                        if let Err(e) = db.delete_session(&session.id) {
+                            log::warn!("Failed to delete session {} from SQLite: {}", session.id, e);
+                        } else {
+                            sqlite_deleted += 1;
+                        }
+                    }
+                    log::info!("Deleted {} sessions from SQLite", sqlite_deleted);
+                }
+                Err(e) => {
+                    log::warn!("Failed to list sessions from SQLite: {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            log::warn!("Failed to open database: {}", e);
+        }
+    }
+    
     log::info!("Deleted {} chat session files", deleted_count);
     Ok(())
+}
+
+/// Limpa sessões órfãs do SQLite que não têm arquivo JSON correspondente
+#[command]
+fn cleanup_orphan_sessions(app_handle: AppHandle) -> Result<u32, String> {
+    use db::Database;
+    
+    let db = Database::new(&app_handle)
+        .map_err(|e| format!("Failed to open database: {}", e))?;
+    
+    let chats_dir = get_chats_dir(&app_handle)?;
+    let mut orphan_count = 0;
+    
+    // Listar todas as sessões do SQLite
+    let sessions = db.list_sessions()
+        .map_err(|e| format!("Failed to list sessions: {}", e))?;
+    
+    for session in sessions {
+        let json_path = chats_dir.join(format!("{}.json", session.id));
+        
+        // Se não existe arquivo JSON correspondente, é uma sessão órfã
+        if !json_path.exists() {
+            log::info!("Found orphan session: {} (title: {}), removing from SQLite", session.id, session.title);
+            
+            if let Err(e) = db.delete_session(&session.id) {
+                log::warn!("Failed to delete orphan session {}: {}", session.id, e);
+            } else {
+                orphan_count += 1;
+            }
+        }
+    }
+    
+    log::info!("Cleaned up {} orphan sessions from SQLite", orphan_count);
+    Ok(orphan_count)
 }
 
 /// Retorna o caminho do diretório de dados do app
@@ -2599,6 +2855,272 @@ fn classify_intent(query: String) -> String {
     }
 }
 
+/// Comando principal para streaming de chat via Rust
+#[command]
+async fn chat_stream(
+    window: Window,
+    app_handle: AppHandle,
+    session_id: Option<String>,
+    messages: Vec<Message>,
+    model: String,
+    system_prompt: Option<String>,
+    enable_rag: Option<bool>,
+) -> Result<String, String> {
+    use uuid::Uuid;
+    use ollama_client::OllamaClient;
+    use futures_util::StreamExt;
+    use db::{Database, ChatSession, ChatMessage};
+    
+    // Gerar ou usar session_id existente
+    let session_id = session_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+    let enable_rag = enable_rag.unwrap_or(false);
+    
+    // Verificar se é nova sessão (apenas 1 mensagem do usuário)
+    let is_new_session = messages.len() == 1 && messages[0].role == "user";
+    
+    // Variáveis para título e emoji (usadas depois na persistência)
+    let (title, emoji) = if is_new_session {
+        let user_input = &messages[0].content;
+        let ollama_client = OllamaClient::new(None);
+        
+        // Tentar gerar título (com timeout curto)
+        let generated_title = match tokio::time::timeout(
+            tokio::time::Duration::from_secs(5),
+            ollama_client.generate_title(&model, user_input)
+        ).await {
+            Ok(Ok(t)) => t,
+            Ok(Err(e)) => {
+                log::warn!("Erro ao gerar título: {}. Usando fallback.", e);
+                // Fallback: primeiras palavras da pergunta
+                user_input.split_whitespace().take(5).collect::<Vec<_>>().join(" ")
+            },
+            Err(_) => {
+                log::warn!("Timeout ao gerar título. Usando fallback.");
+                user_input.split_whitespace().take(5).collect::<Vec<_>>().join(" ")
+            }
+        };
+        
+        let generated_emoji = OllamaClient::generate_emoji(&generated_title);
+        
+        // Emitir evento de chat criado
+        let created_event = ChatCreatedEvent {
+            session_id: session_id.clone(),
+            title: generated_title.clone(),
+            emoji: generated_emoji.clone(),
+        };
+        
+        if let Err(e) = window.emit("chat-created", &created_event) {
+            log::warn!("Erro ao emitir evento chat-created: {}", e);
+        }
+        
+        (generated_title, generated_emoji)
+    } else {
+        (String::new(), "💬".to_string())
+    };
+    
+    // 2. Preparar mensagens para Ollama
+    let mut ollama_messages = Vec::new();
+    
+    // Adicionar system prompt se fornecido
+    if let Some(sys_prompt) = system_prompt {
+        ollama_messages.push(serde_json::json!({
+            "role": "system",
+            "content": sys_prompt
+        }));
+    }
+    
+    // Converter mensagens para formato Ollama
+    for msg in &messages {
+        ollama_messages.push(serde_json::json!({
+            "role": msg.role,
+            "content": msg.content
+        }));
+    }
+    
+    // 3. TODO: Classificar intent e aplicar RAG se necessário
+    // if enable_rag {
+    //     let intent = classify_intent(messages.last().unwrap().content.clone());
+    //     // Buscar contexto via RAG
+    //     // Injetar no system prompt
+    // }
+    
+    // 4. Fazer requisição streaming para Ollama
+    let ollama_client = OllamaClient::new(None);
+    ollama_client.check_connection().await?;
+    
+    let request = serde_json::json!({
+        "model": model,
+        "messages": ollama_messages,
+        "stream": true
+    });
+    
+    // Usar reqwest diretamente para streaming
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    
+    let url = "http://localhost:11434/api/chat";
+    let response = client
+        .post(url)
+        .json(&request)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to send request to Ollama: {}", e))?;
+    
+    if !response.status().is_success() {
+        let error_msg = format!("Ollama returned status: {}", response.status());
+        let error_event = ChatErrorEvent {
+            session_id: session_id.clone(),
+            error: error_msg.clone(),
+        };
+        let _ = window.emit("chat-error", &error_event);
+        return Err(error_msg);
+    }
+    
+    // 5. Processar stream e emitir tokens
+    // IMPORTANTE: O Ollama envia tokens INCREMENTAIS (cada chunk contém apenas o novo conteúdo)
+    let mut stream = response.bytes_stream();
+    let mut buffer = String::new();
+    let mut full_content = String::new();
+    
+    while let Some(chunk_result) = stream.next().await {
+        let chunk = chunk_result.map_err(|e| format!("Stream error: {}", e))?;
+        let chunk_str = String::from_utf8_lossy(&chunk);
+        buffer.push_str(&chunk_str);
+        
+        // Processar linhas completas (separadas por \n)
+        while let Some(pos) = buffer.find('\n') {
+            let line = buffer[..pos].trim().to_string();
+            buffer = buffer[pos + 1..].to_string();
+            
+            if line.is_empty() {
+                continue;
+            }
+            
+            // Tentar deserializar como JSON do Ollama
+            match serde_json::from_str::<serde_json::Value>(&line) {
+                Ok(json) => {
+                    // Verificar se stream terminou primeiro
+                    let is_done = json.get("done").and_then(|d| d.as_bool()) == Some(true);
+                    
+                    // Extrair conteúdo do chunk (Ollama envia tokens incrementais)
+                    if let Some(message) = json.get("message") {
+                        if let Some(content) = message.get("content").and_then(|c| c.as_str()) {
+                            // O Ollama envia apenas o NOVO conteúdo em cada chunk, não o acumulado
+                            // Então podemos emitir diretamente
+                            if !content.is_empty() {
+                                full_content.push_str(content);
+                                
+                                // Emitir token para frontend
+                                let token_event = ChatTokenEvent {
+                                    session_id: session_id.clone(),
+                                    content: content.to_string(),
+                                    done: false,
+                                };
+                                
+                                if let Err(e) = window.emit("chat-token", &token_event) {
+                                    log::warn!("Erro ao emitir token: {}", e);
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Verificar se stream terminou
+                    if is_done {
+                        // Emitir evento final
+                        let final_event = ChatTokenEvent {
+                            session_id: session_id.clone(),
+                            content: String::new(),
+                            done: true,
+                        };
+                        let _ = window.emit("chat-token", &final_event);
+                        break;
+                    }
+                }
+                Err(e) => {
+                    log::debug!("Failed to parse JSON chunk: {} - Line: {}", e, line);
+                    // Continuar mesmo com erro de parse
+                }
+            }
+        }
+    }
+    
+    // 6. Persistir sessão e mensagens no SQLite
+    match Database::new(&app_handle) {
+        Ok(db) => {
+            let now = Utc::now();
+            
+            // Criar ou atualizar sessão
+            let session = if is_new_session && !title.is_empty() {
+                ChatSession {
+                    id: session_id.clone(),
+                    title,
+                    emoji,
+                    created_at: now,
+                    updated_at: now,
+                }
+            } else {
+                // Buscar sessão existente ou criar nova
+                match db.get_session(&session_id) {
+                    Ok(Some(mut existing)) => {
+                        existing.updated_at = now;
+                        existing
+                    }
+                    _ => ChatSession {
+                        id: session_id.clone(),
+                        title: "Nova Conversa".to_string(),
+                        emoji: "💬".to_string(),
+                        created_at: now,
+                        updated_at: now,
+                    }
+                }
+            };
+            
+            if let Err(e) = db.create_session(&session) {
+                log::warn!("Erro ao salvar sessão: {}", e);
+            }
+            
+            // Salvar mensagens do usuário
+            for msg in &messages {
+                let chat_msg = ChatMessage {
+                    id: None,
+                    session_id: session_id.clone(),
+                    role: msg.role.clone(),
+                    content: msg.content.clone(),
+                    metadata: msg.metadata.as_ref().and_then(|m| serde_json::to_string(m).ok()),
+                    created_at: now,
+                };
+                
+                if let Err(e) = db.add_message(&chat_msg) {
+                    log::warn!("Erro ao salvar mensagem: {}", e);
+                }
+            }
+            
+            // Salvar mensagem final do assistente
+            if !full_content.is_empty() {
+                let assistant_msg = ChatMessage {
+                    id: None,
+                    session_id: session_id.clone(),
+                    role: "assistant".to_string(),
+                    content: full_content,
+                    metadata: None,
+                    created_at: Utc::now(),
+                };
+                
+                if let Err(e) = db.add_message(&assistant_msg) {
+                    log::warn!("Erro ao salvar mensagem do assistente: {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            log::warn!("Erro ao inicializar banco de dados: {}", e);
+        }
+    }
+    
+    Ok(session_id)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -2678,6 +3200,7 @@ pub fn run() {
     .manage(Arc::new(Mutex::new(None::<Arc<Browser>>)) as BrowserState)
     .manage(Arc::new(Mutex::new(HashMap::<String, Arc<Mutex<()>>>::new())) as FileLockMap)
     .invoke_handler(tauri::generate_handler![
+        chat_stream,
         check_ollama_installed, 
         check_ollama_running,
         get_system_specs,
@@ -2694,8 +3217,10 @@ pub fn run() {
         delete_model,
         save_chat_session,
         load_chat_sessions,
+        search_chat_sessions,
         load_chat_history,
         delete_chat_session,
+        cleanup_orphan_sessions,
         load_mcp_config,
         save_mcp_config,
         get_mcp_config_path_command,

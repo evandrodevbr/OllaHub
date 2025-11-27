@@ -121,8 +121,9 @@ export function useWebSearch() {
 
   /**
    * Pipeline em duas etapas: metadados → scraping das top URLs
+   * Agora suporta timeout adaptativo por round
    */
-  const smartSearchRag = useCallback(async (query: string, limit: number = 3): Promise<ScrapedContent[]> => {
+  const smartSearchRag = useCallback(async (query: string, limit: number = 3, round?: number): Promise<ScrapedContent[]> => {
     if (!query || !query.trim()) {
       return [];
     }
@@ -147,12 +148,13 @@ export function useWebSearch() {
 
       // Etapa 1: metadados
       setState(prev => ({ ...prev, status: 'searching' }));
-      const timeoutMs = settings.webSearch.timeout || 15000;
+      const timeoutMs = settings.webSearch.timeout || 10000; // Reduzido de 15s para 10s
       const { metadata, contents } = await webSearchService.smartSearchRag(
         query, 
         limit, 
         searchConfig,
-        timeoutMs
+        timeoutMs,
+        round || 1
       );
 
       // Etapa 2: scraping

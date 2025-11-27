@@ -1,6 +1,15 @@
 import { invoke } from '@tauri-apps/api/core';
 import { SearchCategory, useSettingsStore } from '@/store/settings-store';
-import { retryWithBackoff, withTimeout, isRetryableError, type RetryConfig } from '@/lib/retry-utils';
+import { 
+  retryWithBackoff, 
+  withTimeout, 
+  isRetryableError, 
+  type RetryConfig,
+  calculateEngineTimeout,
+  TIMEOUT_CONFIG
+} from '@/lib/retry-utils';
+import { EngineCircuitBreaker } from './engine-circuit-breaker';
+import { FailureCache } from './failure-cache';
 
 export interface ScrapedContent {
   title: string;
@@ -49,6 +58,8 @@ class WebSearchService {
   private lastSearchTime = 0;
   private pendingRequest: PendingRequest | null = null;
   private rateLimitQueue: PendingRequest[] = [];
+  private circuitBreaker: EngineCircuitBreaker = new EngineCircuitBreaker();
+  private failureCache: FailureCache = new FailureCache();
 
   constructor() {
     // Carregar cache do localStorage na inicialização
@@ -221,16 +232,50 @@ class WebSearchService {
 
   /**
    * Executa busca de metadados (sem scraping)
+   * Agora com timeout adaptativo baseado em tentativas, circuit breaker e cache de falhas
    */
   private async executeMetadataSearch(
     query: string,
     limit: number = 5,
     searchConfig?: SearchConfig,
-    timeoutMs: number = 15000
+    timeoutMs: number = 10000, // Reduzido de 15s para 10s
+    attempt: number = 1 // Tentativa atual para timeout adaptativo
   ): Promise<SearchResultMetadata[]> {
+    // Verificar cache de falhas
+    const failureEntry = this.failureCache.get(query);
+    if (failureEntry) {
+      console.warn(`[WebSearch] Query falhou recentemente (há ${Math.round((Date.now() - failureEntry.timestamp) / 1000)}s), retornando resultados parciais ou vazio`);
+      
+      // Retornar resultados parciais se disponíveis
+      if (failureEntry.partialResults && failureEntry.partialResults.length > 0) {
+        console.log(`[WebSearch] Retornando ${failureEntry.partialResults.length} resultados parciais do cache de falhas`);
+        return failureEntry.partialResults as SearchResultMetadata[];
+      }
+      
+      // Se não há resultados parciais, retornar vazio imediatamente (sem retry)
+      return [];
+    }
     // Obter configurações de motores do store
     const settings = useSettingsStore.getState();
-    const engineOrder = settings.webSearch.engineOrder || ['google', 'bing', 'yahoo', 'duckduckgo', 'startpage'];
+    const defaultEngines = ['google', 'bing', 'yahoo', 'duckduckgo', 'startpage'];
+    let engineOrder = settings.webSearch.engineOrder || defaultEngines;
+    
+    // Priorizar motores usando circuit breaker
+    engineOrder = this.circuitBreaker.prioritizeEngines(engineOrder);
+    
+    // Filtrar motores não disponíveis (circuit breaker aberto)
+    const availableEngines = this.circuitBreaker.getAvailableEngines(engineOrder);
+    
+    if (availableEngines.length === 0) {
+      console.warn(`[WebSearch] Todos os motores estão com circuit breaker aberto, tentando todos mesmo assim`);
+      // Se todos estão abertos, tentar mesmo assim (pode ser temporário)
+      engineOrder = engineOrder;
+    } else {
+      engineOrder = availableEngines;
+      if (availableEngines.length < engineOrder.length) {
+        console.log(`[WebSearch] ${engineOrder.length - availableEngines.length} motor(es) com circuit breaker aberto, usando ${availableEngines.length} disponível(is)`);
+      }
+    }
     
     let rustConfig: any = undefined;
     if (searchConfig) {
@@ -248,15 +293,23 @@ class WebSearchService {
       };
     }
 
+    // Calcular timeout adaptativo baseado na tentativa
+    const adaptiveTimeout = calculateEngineTimeout(attempt, timeoutMs);
+    
     // Log da tentativa
     console.log(`[WebSearch] Executando busca multi-engine para: "${query}"`);
     console.log(`[WebSearch] Engine order: ${engineOrder.join(' → ')}`);
-    console.log(`[WebSearch] Limit: ${limit}, Timeout: ${timeoutMs}ms`);
+    console.log(`[WebSearch] Limit: ${limit}, Timeout: ${adaptiveTimeout}ms (tentativa ${attempt})`);
 
-    // Executar com retry e timeout
+    // Executar com retry e timeout adaptativo
+    let retryAttempt = 0;
     const retryResult = await retryWithBackoff<SearchResultMetadata[]>(
       async () => {
+        retryAttempt++;
         const startTime = Date.now();
+        // Timeout ainda mais reduzido em retries internos
+        const retryTimeout = calculateEngineTimeout(retryAttempt, adaptiveTimeout);
+        
         try {
           const promise = invoke<SearchResultMetadata[]>('search_web_metadata', {
             query: query.trim(),
@@ -267,18 +320,32 @@ class WebSearchService {
           
           const result = await withTimeout(
             promise,
-            timeoutMs,
-            `Timeout ao buscar metadados para "${query}"`
+            retryTimeout,
+            `Timeout ao buscar metadados para "${query}" (tentativa ${retryAttempt})`
           );
           
           const duration = Date.now() - startTime;
           console.log(`[WebSearch] Busca concluída em ${duration}ms: ${result.length} resultados`);
           
+          // Registrar sucesso no circuit breaker para cada motor usado
+          // (assumindo que o primeiro motor disponível foi usado)
+          if (engineOrder.length > 0) {
+            const usedEngine = engineOrder[0]; // Simplificado: primeiro motor da ordem
+            this.circuitBreaker.recordAttempt(usedEngine, true, duration);
+          }
+          
           return result;
         } catch (error) {
           const duration = Date.now() - startTime;
           const errorMsg = error instanceof Error ? error.message : String(error);
-          console.error(`[WebSearch] Erro após ${duration}ms:`, errorMsg);
+          console.error(`[WebSearch] Erro após ${duration}ms (tentativa ${retryAttempt}):`, errorMsg);
+          
+          // Registrar falha no circuit breaker para cada motor tentado
+          // (assumindo que tentou todos os motores na ordem)
+          for (const engine of engineOrder) {
+            this.circuitBreaker.recordAttempt(engine, false, duration);
+          }
+          
           throw error;
         }
       },
@@ -298,25 +365,39 @@ class WebSearchService {
       return results;
     }
 
-    // Se falhou mas é erro recuperável, logar detalhadamente
-    if (retryResult.lastError && isRetryableError(retryResult.lastError)) {
-      console.warn(
-        `[WebSearch] Falha após ${retryResult.attempts} tentativas:`,
-        retryResult.lastError.message
-      );
-      console.warn(`[WebSearch] Query: "${query}", Limit: ${limit}, Timeout: ${timeoutMs}ms`);
-      console.warn(`[WebSearch] Motores tentados: ${engineOrder.join(', ')}`);
-      return [];
-    }
-
-    // Para erros não recuperáveis, logar detalhadamente
+    // Se falhou, registrar no cache de falhas
     if (retryResult.lastError) {
-      console.error(
-        `[WebSearch] Erro não recuperável:`,
-        retryResult.lastError.message
+      const errorMsg = retryResult.lastError.message;
+      const isRetryable = isRetryableError(retryResult.lastError);
+      
+      // Registrar falha no cache (mesmo que seja recuperável, para evitar retentar imediatamente)
+      this.failureCache.recordFailure(
+        query,
+        errorMsg,
+        [], // Sem resultados parciais neste ponto
+        retryResult.attempts
       );
-      console.error(`[WebSearch] Query: "${query}", Limit: ${limit}, Timeout: ${timeoutMs}ms`);
-      console.error(`[WebSearch] Motores tentados: ${engineOrder.join(', ')}`);
+      
+      if (isRetryable) {
+        console.warn(
+          `[WebSearch] Falha após ${retryResult.attempts} tentativas (erro recuperável):`,
+          errorMsg
+        );
+        console.warn(`[WebSearch] Query: "${query}", Limit: ${limit}, Timeout: ${adaptiveTimeout}ms`);
+        console.warn(`[WebSearch] Motores tentados: ${engineOrder.join(', ')}`);
+        console.warn(`[WebSearch] Retornando resultados parciais (se houver) ou array vazio`);
+        // Retornar vazio mas não quebrar o fluxo - o caller pode continuar com outros motores
+        return [];
+      } else {
+        // Para erros não recuperáveis, logar detalhadamente mas retornar vazio
+        console.error(
+          `[WebSearch] Erro não recuperável:`,
+          errorMsg
+        );
+        console.error(`[WebSearch] Query: "${query}", Limit: ${limit}, Timeout: ${adaptiveTimeout}ms`);
+        console.error(`[WebSearch] Motores tentados: ${engineOrder.join(', ')}`);
+        return [];
+      }
     }
 
     return [];
@@ -403,23 +484,30 @@ class WebSearchService {
 
   /**
    * Busca em duas etapas: metadados → scraping das melhores URLs
+   * Agora com timeout adaptativo
    */
   async smartSearchRag(
     query: string,
     limit: number = 3,
     searchConfig?: SearchConfig,
-    timeoutMs: number = 15000
+    timeoutMs: number = TIMEOUT_CONFIG.initialTimeout,
+    round: number = 1 // Round atual para timeout escalonado
   ): Promise<{ metadata: SearchResultMetadata[]; contents: ScrapedContent[] }> {
     if (!query || !query.trim()) {
       return { metadata: [], contents: [] };
     }
 
-    // Buscar metadados com retry e timeout (já implementado em executeMetadataSearch)
+    // Calcular timeout escalonado por round
+    const { calculateAdaptiveTimeout } = await import('@/lib/retry-utils');
+    const roundTimeout = calculateAdaptiveTimeout(round, timeoutMs);
+    
+    // Buscar metadados com retry e timeout adaptativo
     const metas = await this.executeMetadataSearch(
       query, 
       Math.max(limit * 2, 5), 
       searchConfig,
-      timeoutMs
+      roundTimeout,
+      1 // Primeira tentativa
     );
     
     // Continuar mesmo se metadados estiverem vazios (pode ter falhado parcialmente)
@@ -431,20 +519,80 @@ class WebSearchService {
     }
     
     // Tentar fazer scraping mesmo se metadados foram parciais
+    // Usar timeout reduzido para scraping (50% do timeout de busca)
+    const scrapingTimeout = Math.max(roundTimeout * 0.5, 5000);
+    
     try {
       const contents = await withTimeout(
         invoke<ScrapedContent[]>('scrape_urls', { urls: topUrls }),
-        timeoutMs,
+        scrapingTimeout,
         `Timeout ao fazer scraping para "${query}"`
       );
       return { metadata: metas, contents: contents || [] };
     } catch (error) {
       // Logar erro mas retornar metadados disponíveis (resultado parcial)
+      // Graceful degradation: continuar com metadados mesmo se scraping falhar
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.warn('Erro ao fazer scraping em lote (continuando com metadados):', errorMessage);
+      console.warn(`[WebSearch] Erro ao fazer scraping (continuando com metadados): ${errorMessage}`);
+      console.warn(`[WebSearch] Retornando ${metas.length} metadados sem conteúdo scraped (resultado parcial)`);
       
-      // Retornar metadados mesmo se scraping falhou
+      // Retornar metadados mesmo se scraping falhou - resultado parcial é melhor que nada
       return { metadata: metas, contents: [] };
+    }
+  }
+  
+  /**
+   * Versão simplificada que aceita resultados parciais mais rapidamente
+   * Retorna assim que qualquer motor retornar resultados, sem esperar todos
+   */
+  async smartSearchRagPartial(
+    query: string,
+    limit: number = 3,
+    searchConfig?: SearchConfig,
+    timeoutMs: number = TIMEOUT_CONFIG.initialTimeout,
+    round: number = 1
+  ): Promise<{ metadata: SearchResultMetadata[]; contents: ScrapedContent[] }> {
+    if (!query || !query.trim()) {
+      return { metadata: [], contents: [] };
+    }
+
+    // Timeout ainda mais agressivo para resultados parciais
+    const partialTimeout = Math.max(timeoutMs * 0.7, 5000); // 70% do timeout normal
+    
+    try {
+      // Buscar metadados com timeout reduzido
+      const metas = await this.executeMetadataSearch(
+        query, 
+        Math.max(limit * 2, 5), 
+        searchConfig,
+        partialTimeout,
+        1
+      );
+      
+      // Se temos metadados, tentar scraping rápido (timeout ainda menor)
+      if (metas.length > 0) {
+        const topUrls = metas.map(m => m.url).slice(0, limit);
+        const scrapingTimeout = Math.max(partialTimeout * 0.4, 3000); // 40% do timeout parcial
+        
+        try {
+          const contents = await withTimeout(
+            invoke<ScrapedContent[]>('scrape_urls', { urls: topUrls }),
+            scrapingTimeout,
+            `Timeout parcial ao fazer scraping para "${query}"`
+          );
+          return { metadata: metas, contents: contents || [] };
+        } catch (error) {
+          // Aceitar resultado parcial: metadados sem scraping
+          console.warn(`[WebSearch] Scraping parcial falhou, retornando apenas metadados`);
+          return { metadata: metas, contents: [] };
+        }
+      }
+      
+      return { metadata: metas, contents: [] };
+    } catch (error) {
+      // Em caso de erro total, retornar vazio mas não quebrar
+      console.warn(`[WebSearch] Busca parcial falhou completamente:`, error);
+      return { metadata: [], contents: [] };
     }
   }
 

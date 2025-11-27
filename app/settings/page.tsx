@@ -28,6 +28,7 @@ import { CheckCircle2, XCircle, Loader2, Download, Trash2, Copy, ExternalLink, P
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { SourcesConfig, SourceCategory } from '@/lib/types';
+import { TitleBar } from '@/components/titlebar';
 
 interface Model {
   name: string;
@@ -217,32 +218,50 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="container mx-auto py-8 max-w-4xl">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Configurações</h1>
-          <p className="text-muted-foreground mt-2">
-            Gerencie as preferências do OllaHub
-          </p>
+    <div className="h-screen w-full bg-background overflow-hidden flex flex-col">
+      <TitleBar />
+      <div className="flex-1 overflow-y-auto">
+        <div className="container mx-auto py-4 sm:py-6 md:py-8 px-3 sm:px-4 md:px-6 max-w-4xl w-full overflow-x-hidden">
+      <div className="mb-4 sm:mb-6">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl sm:text-3xl font-bold truncate">Configurações</h1>
+            <p className="text-muted-foreground mt-1 sm:mt-2 text-sm sm:text-base">
+              Gerencie as preferências do OllaHub
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => router.push('/chat')}
+            className="rounded-lg shrink-0"
+            title="Fechar configurações"
+          >
+            <X className="w-5 h-5" />
+          </Button>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => router.push('/chat')}
-          className="rounded-lg"
-        >
-          <X className="w-5 h-5" />
-        </Button>
       </div>
 
-      <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-6">
-          <TabsTrigger value="overview">Visão Geral</TabsTrigger>
-          <TabsTrigger value="general">General</TabsTrigger>
-          <TabsTrigger value="web">Web Search</TabsTrigger>
-          <TabsTrigger value="sources">Sources & Knowledge</TabsTrigger>
-          <TabsTrigger value="tasks">Tasks & Scheduler</TabsTrigger>
-          <TabsTrigger value="system">System & Logs</TabsTrigger>
+      <Tabs defaultValue="overview" className="space-y-4 sm:space-y-6">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-1 sm:gap-2 h-auto">
+          <TabsTrigger value="overview" className="text-xs sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2 truncate">
+            Visão Geral
+          </TabsTrigger>
+          <TabsTrigger value="general" className="text-xs sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2 truncate">
+            General
+          </TabsTrigger>
+          <TabsTrigger value="web" className="text-xs sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2 truncate">
+            Web Search
+          </TabsTrigger>
+          <TabsTrigger value="sources" className="text-xs sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2 truncate">
+            Sources
+          </TabsTrigger>
+          <TabsTrigger value="tasks" className="text-xs sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2 truncate">
+            Tasks
+          </TabsTrigger>
+          <TabsTrigger value="system" className="text-xs sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2 truncate">
+            System
+          </TabsTrigger>
         </TabsList>
 
         {/* Tab: Visão Geral (Hardware Dashboard) */}
@@ -272,17 +291,19 @@ export default function SettingsPage() {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="ollama-url">Ollama Endpoint</Label>
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <Input
                     id="ollama-url"
                     value={settings.ollamaUrl}
                     onChange={(e) => settings.setOllamaUrl(e.target.value)}
                     placeholder="http://localhost:11434"
+                    className="flex-1 min-w-0"
                   />
                   <Button
                     onClick={checkConnection}
                     disabled={isCheckingConnection}
                     variant="outline"
+                    className="shrink-0"
                   >
                     {isCheckingConnection ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
@@ -404,8 +425,8 @@ export default function SettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
+                <div className="space-y-0.5 flex-1 min-w-0">
                   <Label htmlFor="autostart">Iniciar com o Sistema</Label>
                   <p className="text-xs text-muted-foreground">
                     O aplicativo será iniciado automaticamente ao fazer login
@@ -415,6 +436,7 @@ export default function SettingsPage() {
                   id="autostart"
                   checked={settings.autoStart}
                   onCheckedChange={settings.toggleAutoStart}
+                  className="shrink-0"
                 />
               </div>
             </CardContent>
@@ -448,7 +470,7 @@ export default function SettingsPage() {
               <div className="space-y-2">
                 <Label htmlFor="max-results">Máximo de Resultados</Label>
                 <div className="space-y-2">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 sm:gap-3">
                     <Input
                       id="max-results"
                       type="number"
@@ -458,12 +480,12 @@ export default function SettingsPage() {
                         const clamped = Math.min(100, Math.max(1, isNaN(v) ? 1 : v));
                         settings.setWebSearchMaxResults(clamped);
                       }}
-                      className="w-24"
+                      className="w-20 sm:w-24 shrink-0"
                       min={1}
                       max={100}
                       disabled={!settings.webSearch.enabled}
                     />
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                       <Slider
                         value={[settings.webSearch.maxResults]}
                         onValueChange={([value]) => settings.setWebSearchMaxResults(value)}
@@ -788,15 +810,15 @@ export default function SettingsPage() {
                       
                       return (
                         <Card key={category.id} className={category.enabled ? 'border-primary' : ''}>
-                          <CardContent className="pt-6">
-                            <div className="flex items-start justify-between">
-                              <div className="flex items-start gap-3 flex-1">
-                                <div className="mt-1">
+                          <CardContent className="pt-4 sm:pt-6">
+                            <div className="flex flex-col sm:flex-row items-start justify-between gap-3 sm:gap-0">
+                              <div className="flex items-start gap-2 sm:gap-3 flex-1 min-w-0 w-full">
+                                <div className="mt-1 shrink-0">
                                   {iconMap[category.id] || <BookOpen className="w-4 h-4" />}
                                 </div>
-                                <div className="flex-1">
+                                <div className="flex-1 min-w-0 overflow-hidden">
                                   <div className="flex items-center gap-2 mb-2">
-                                    <Label className="font-semibold">{category.name}</Label>
+                                    <Label className="font-semibold truncate">{category.name}</Label>
                                     <Switch
                                       checked={category.enabled}
                                       onCheckedChange={async () => {
@@ -834,6 +856,7 @@ export default function SettingsPage() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => setEditingCategory(category)}
+                                className="shrink-0"
                               >
                                 <Edit className="w-4 h-4" />
                               </Button>
@@ -855,7 +878,7 @@ export default function SettingsPage() {
 
           {/* Edit Category Dialog */}
           <Dialog open={!!editingCategory} onOpenChange={(open) => !open && setEditingCategory(null)}>
-            <DialogContent className="max-w-2xl">
+            <DialogContent className="max-w-[95vw] sm:max-w-2xl w-full">
               <DialogHeader>
                 <DialogTitle>Editar Categoria: {editingCategory?.name}</DialogTitle>
                 <DialogDescription>
@@ -1077,18 +1100,19 @@ export default function SettingsPage() {
 
       {/* Clear History Dialog */}
       <Dialog open={showClearDialog} onOpenChange={setShowClearDialog}>
-        <DialogContent>
+        <DialogContent className="max-w-[95vw] sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Confirmar Exclusão</DialogTitle>
             <DialogDescription>
               Esta ação não pode ser desfeita. Todos os chats serão permanentemente removidos.
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button
               variant="outline"
               onClick={() => setShowClearDialog(false)}
               disabled={isClearing}
+              className="w-full sm:w-auto"
             >
               Cancelar
             </Button>
@@ -1096,6 +1120,7 @@ export default function SettingsPage() {
               variant="destructive"
               onClick={handleClearHistory}
               disabled={isClearing}
+              className="w-full sm:w-auto"
             >
               {isClearing ? (
                 <>
@@ -1109,6 +1134,8 @@ export default function SettingsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+        </div>
+      </div>
     </div>
   );
 }

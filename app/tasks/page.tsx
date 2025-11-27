@@ -6,7 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Plus, Trash2, Clock, Play, Pause, CheckCircle2, XCircle } from 'lucide-react';
+import { Plus, Trash2, Clock, Play, Pause, CheckCircle2, XCircle, X, ArrowLeft } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { TitleBar } from '@/components/titlebar';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -32,6 +34,7 @@ interface Task {
 }
 
 export default function TasksPage() {
+  const router = useRouter();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -100,36 +103,28 @@ export default function TasksPage() {
   };
   
   return (
-    <div className="container mx-auto p-6 max-w-6xl">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-bold">Tarefas Agendadas</h1>
-          <p className="text-muted-foreground mt-1">
-            Gerencie tarefas que executam automaticamente em segundo plano
-          </p>
+    <div className="h-screen w-full bg-background overflow-hidden flex flex-col">
+      <TitleBar />
+      <div className="flex-1 overflow-y-auto">
+        <div className="container mx-auto p-4 sm:p-6 max-w-6xl w-full overflow-x-hidden">
+      <div className="mb-4 sm:mb-6">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl sm:text-3xl font-bold truncate">Tarefas Agendadas</h1>
+            <p className="text-muted-foreground mt-1 text-sm sm:text-base">
+              Gerencie tarefas que executam automaticamente em segundo plano
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => router.push('/chat')}
+            className="rounded-lg shrink-0"
+            title="Voltar para o chat"
+          >
+            <X className="w-5 h-5" />
+          </Button>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="w-4 h-4 mr-2" />
-              Nova Task
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Criar Nova Task</DialogTitle>
-              <DialogDescription>
-                Configure uma tarefa para executar automaticamente
-              </DialogDescription>
-            </DialogHeader>
-            <TaskFormDialog 
-              onSuccess={() => {
-                setIsDialogOpen(false);
-                loadTasks();
-              }}
-            />
-          </DialogContent>
-        </Dialog>
       </div>
       
       {loading ? (
@@ -139,16 +134,59 @@ export default function TasksPage() {
       ) : tasks.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
-            <p className="text-muted-foreground mb-4">
+            <p className="text-muted-foreground mb-6">
               Nenhuma task agendada ainda.
             </p>
-            <Button onClick={() => setIsDialogOpen(true)}>
-              <Plus className="w-4 h-4 mr-2" />
-              Criar Primeira Task
-            </Button>
+            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+              <DialogTrigger asChild>
+                <Button size="lg" className="w-full max-w-md">
+                  <Plus className="w-5 h-5 mr-2" />
+                  Criar Primeira Task
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Criar Nova Task</DialogTitle>
+                  <DialogDescription>
+                    Configure uma tarefa para executar automaticamente
+                  </DialogDescription>
+                </DialogHeader>
+                <TaskFormDialog 
+                  onSuccess={() => {
+                    setIsDialogOpen(false);
+                    loadTasks();
+                  }}
+                />
+              </DialogContent>
+            </Dialog>
           </CardContent>
         </Card>
       ) : (
+        <>
+          <div className="mb-4">
+            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+              <DialogTrigger asChild>
+                <Button size="lg" className="w-full">
+                  <Plus className="w-5 h-5 mr-2" />
+                  Nova Task
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Criar Nova Task</DialogTitle>
+                  <DialogDescription>
+                    Configure uma tarefa para executar automaticamente
+                  </DialogDescription>
+                </DialogHeader>
+                <TaskFormDialog 
+                  onSuccess={() => {
+                    setIsDialogOpen(false);
+                    loadTasks();
+                  }}
+                />
+              </DialogContent>
+            </Dialog>
+          </div>
         <div className="grid gap-4">
           {tasks.map(task => (
             <Card key={task.id}>
@@ -218,7 +256,10 @@ export default function TasksPage() {
             </Card>
           ))}
         </div>
+        </>
       )}
+        </div>
+      </div>
     </div>
   );
 }

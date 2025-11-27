@@ -1,8 +1,10 @@
 import { SessionSummary } from "@/hooks/use-chat-storage";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Trash2, Plus, MessageSquare } from "lucide-react";
+import { Trash2, Plus, MessageSquare, Search, X, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useState, useEffect, useRef } from "react";
 
 interface SidebarListProps {
   sessions: SessionSummary[];
@@ -10,6 +12,8 @@ interface SidebarListProps {
   onSelectSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
   onNewChat: () => void;
+  onSearch?: (query: string) => void;
+  isSearching?: boolean;
 }
 
 function formatDate(dateString: string) {
@@ -52,16 +56,83 @@ export function SidebarList({
   currentSessionId, 
   onSelectSession, 
   onDeleteSession,
-  onNewChat 
+  onNewChat,
+  onSearch,
+  isSearching = false
 }: SidebarListProps) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const DEBOUNCE_MS = 300;
+  
+  useEffect(() => {
+    // Limpar timeout anterior
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    
+    // Se query vazia, limpar busca imediatamente
+    if (!searchQuery.trim()) {
+      if (onSearch) {
+        onSearch('');
+      }
+      return;
+    }
+    
+    // Debounce: aguardar antes de buscar
+    searchTimeoutRef.current = setTimeout(() => {
+      if (onSearch && searchQuery.trim().length >= 2) {
+        onSearch(searchQuery.trim());
+      }
+    }, DEBOUNCE_MS);
+    
+    // Cleanup
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchQuery, onSearch]);
+  
+  const handleClearSearch = () => {
+    setSearchQuery('');
+    if (onSearch) {
+      onSearch('');
+    }
+  };
+  
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex flex-col h-full border-r border-sidebar-border bg-sidebar min-w-[240px] max-w-[360px] w-full">
-        {/* Header com botão Nova Conversa */}
-        <div className="p-3 sm:p-4 border-b border-sidebar-border flex-shrink-0">
+      <div className="flex flex-col h-full border-r border-sidebar-border bg-sidebar w-full overflow-x-hidden">
+        {/* Header com busca e botão Nova Conversa */}
+        <div className="p-3 border-b border-sidebar-border flex-shrink-0 space-y-2.5">
+          {/* Campo de busca */}
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              type="text"
+              placeholder="Buscar conversas..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-8 pr-8 h-9 text-sm"
+            />
+            {isSearching && (
+              <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground animate-spin" />
+            )}
+            {searchQuery && !isSearching && (
+              <button
+                onClick={handleClearSearch}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Limpar busca"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          
+          {/* Botão Nova Conversa */}
           <Button 
             onClick={onNewChat} 
-            className="w-full justify-start gap-2 text-sm font-medium h-9 sm:h-10" 
+            className="w-full justify-start gap-2 text-sm font-medium h-9" 
             variant="outline"
           >
             <Plus className="w-4 h-4 shrink-0" />
@@ -71,15 +142,17 @@ export function SidebarList({
         
         {/* Lista de chats com scroll customizado */}
         <div className="flex-1 overflow-y-auto min-h-0 sidebar-chat-list">
-          <div className="p-3 sm:p-4 space-y-2 sm:space-y-2.5">
+          <div className="p-2 space-y-1.5">
             {sessions.length === 0 && (
               <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
                 <MessageSquare className="w-10 h-10 text-muted-foreground/40 mb-3" />
                 <p className="text-sm text-muted-foreground">
-                  Nenhuma conversa salva
+                  {searchQuery ? 'Nenhuma conversa encontrada' : 'Nenhuma conversa salva'}
                 </p>
                 <p className="text-xs text-muted-foreground/70 mt-1">
-                  Comece uma nova conversa para começar
+                  {searchQuery 
+                    ? 'Tente buscar por outro termo'
+                    : 'Comece uma nova conversa para começar'}
                 </p>
               </div>
             )}
@@ -93,7 +166,7 @@ export function SidebarList({
                   <TooltipTrigger asChild>
                     <div
                       className={cn(
-                        "group relative bg-card border rounded-lg cursor-pointer transition-all duration-200",
+                        "sidebar-chat-item group relative bg-card border rounded-lg cursor-pointer transition-all duration-200",
                         "hover:shadow-md hover:border-primary/20 hover:-translate-y-0.5",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                         isSelected && "border-primary/40 shadow-sm bg-accent/50",
@@ -110,21 +183,19 @@ export function SidebarList({
                       }}
                     >
                       {/* Conteúdo do card */}
-                      <div className="p-3 sm:p-3.5 flex items-start gap-3 overflow-hidden">
+                      <div className="sidebar-chat-item-content p-2.5">
                         {/* Ícone/Emoji */}
-                        <div className="shrink-0 flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-md bg-muted/50 text-base sm:text-lg">
+                        <div className="shrink-0 flex items-center justify-center w-8 h-8 rounded-md bg-muted/50 text-base">
                           {session.emoji || '💬'}
                         </div>
                         
                         {/* Texto do card */}
-                        <div className="flex-1 min-w-0 overflow-hidden">
-                          <h3 
-                            className="text-sm sm:text-base font-medium text-card-foreground truncate leading-tight mb-1"
-                          >
+                        <div className="sidebar-chat-item-text">
+                          <h3 className="sidebar-chat-item-title text-sm font-medium text-card-foreground leading-tight mb-0.5">
                             {session.title}
                           </h3>
                           
-                          <p className="text-xs text-muted-foreground">
+                          <p className="sidebar-chat-item-date text-xs text-muted-foreground">
                             {formatDate(session.updated_at)}
                           </p>
                         </div>
@@ -134,7 +205,7 @@ export function SidebarList({
                           variant="ghost"
                           size="icon"
                           className={cn(
-                            "h-7 w-7 sm:h-8 sm:w-8 shrink-0 transition-all duration-200",
+                            "h-7 w-7 shrink-0 transition-all duration-200",
                             "opacity-0 group-hover:opacity-100",
                             "hover:bg-destructive/10 hover:text-destructive",
                             "active:scale-95"
@@ -146,7 +217,7 @@ export function SidebarList({
                           }}
                           aria-label={`Deletar conversa "${session.title}"`}
                         >
-                          <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                          <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       </div>
                       

@@ -145,11 +145,22 @@
 }
 
 @layer base {
-  * {
+  *,
+  *::before,
+  *::after {
     @apply border-border outline-ring/50;
+    box-sizing: border-box;
   }
+  
+  html {
+    overflow-x: hidden;
+  }
+  
   body {
     @apply bg-background text-foreground;
+    overflow-x: hidden;
+    width: 100%;
+    max-width: 100vw;
   }
 }
 
@@ -224,6 +235,43 @@
 /* Ensure cards never stick to edges */
 .card-container {
   padding: clamp(8px, 2vw, 16px);
+}
+
+/* Sidebar chat item - prevent overflow and ensure proper truncation */
+.sidebar-chat-item {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sidebar-chat-item-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.sidebar-chat-item-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sidebar-chat-item-title {
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.sidebar-chat-item-date {
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
 }
 
 /* Responsive font sizes */
