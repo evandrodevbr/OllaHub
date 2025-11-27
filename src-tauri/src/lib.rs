@@ -400,6 +400,82 @@ fn save_chat_session(
 }
 
 #[command]
+fn search_chat_sessions(app_handle: AppHandle, query: String, limit: Option<usize>) -> Result<Vec<SessionSummary>, String> {
+    use db::Database;
+    
+    let db = Database::new(&app_handle)
+        .map_err(|e| format!("Failed to open database: {}", e))?;
+    
+    let search_limit = limit.unwrap_or(50);
+    let sessions = db.search_sessions(&query, search_limit)
+        .map_err(|e| format!("Search failed: {}", e))?;
+    
+    // Validar existência de cada sessão antes de retornar
+    let chats_dir = get_chats_dir(&app_handle)?;
+    let mut summaries = Vec::new();
+    let mut orphan_count = 0;
+    
+    for session in sessions {
+        // Verificar se sessão existe no SQLite (já temos)
+        let exists_in_sqlite = db.get_session(&session.id)
+            .ok()
+            .flatten()
+            .is_some();
+        
+        // Verificar se existe no JSON (sistema legado) para compatibilidade
+        let json_path = chats_dir.join(format!("{}.json", session.id));
+        let exists_in_json = json_path.exists();
+        
+        // Sessão deve existir em pelo menos um sistema
+        if !exists_in_sqlite && !exists_in_json {
+            orphan_count += 1;
+            log::warn!("Found orphan session in search results: {} (title: {})", session.id, session.title);
+            continue; // Pular sessões órfãs
+        }
+        
+        // Buscar primeira mensagem para preview
+        let preview = db.get_messages(&session.id)
+            .ok()
+            .and_then(|msgs| {
+                msgs.iter()
+                    .find(|m| m.role == "user" || m.role == "assistant")
+                    .map(|m| {
+                        m.content.chars().take(50).collect::<String>()
+                    })
+            })
+            .or_else(|| {
+                // Fallback: tentar ler do JSON se não encontrou no SQLite
+                if exists_in_json {
+                    if let Ok(content) = fs::read_to_string(&json_path) {
+                        if let Ok(session_data) = serde_json::from_str::<ChatSession>(&content) {
+                            return session_data.messages.iter()
+                                .find(|m| m.role == "user" || m.role == "assistant")
+                                .map(|m| m.content.chars().take(50).collect::<String>());
+                        }
+                    }
+                }
+                None
+            })
+            .unwrap_or_default();
+        
+        summaries.push(SessionSummary {
+            id: session.id,
+            title: session.title,
+            emoji: session.emoji,
+            updated_at: session.updated_at, // Já é DateTime<Utc>
+            preview,
+            platform: String::new(), // Platform não está no SQLite ainda
+        });
+    }
+    
+    if orphan_count > 0 {
+        log::info!("Filtered out {} orphan sessions from search results", orphan_count);
+    }
+    
+    Ok(summaries)
+}
+
+#[command]
 fn load_chat_sessions(app_handle: AppHandle) -> Result<Vec<SessionSummary>, String> {
     let chats_dir = get_chats_dir(&app_handle)?;
     let mut summaries = Vec::new();
@@ -453,6 +529,60 @@ fn load_chat_sessions(app_handle: AppHandle) -> Result<Vec<SessionSummary>, Stri
 
 #[command]
 fn load_chat_history(app_handle: AppHandle, id: String) -> Result<Vec<Message>, String> {
+    use db::Database;
+    
+    // 1. Tentar carregar do SQLite primeiro (sistema novo)
+    match Database::new(&app_handle) {
+        Ok(db) => {
+            match db.get_messages(&id) {
+                Ok(messages) if !messages.is_empty() => {
+                    // Converter ChatMessage para Message
+                    let result: Vec<Message> = messages.into_iter().map(|msg| {
+                        let role = if msg.role == "user" {
+                            "user"
+                        } else if msg.role == "assistant" {
+                            "assistant"
+                        } else {
+                            "system"
+                        };
+                        
+                        let metadata = msg.metadata.and_then(|m| {
+                            serde_json::from_str::<serde_json::Value>(&m).ok()
+                        });
+                        
+                        let metadata_value = metadata
+                            .and_then(|m| {
+                                if m.is_object() && !m.as_object().unwrap().is_empty() {
+                                    Some(m)
+                                } else {
+                                    None
+                                }
+                            });
+                        
+                        Message {
+                            role: role.to_string(),
+                            content: msg.content,
+                            metadata: metadata_value,
+                        }
+                    }).collect();
+                    
+                    log::info!("Loaded {} messages from SQLite for session {}", result.len(), id);
+                    return Ok(result);
+                }
+                Ok(_) => {
+                    // Sessão existe mas não tem mensagens, continuar para fallback
+                }
+                Err(e) => {
+                    log::debug!("SQLite query failed for session {}: {}, trying JSON fallback", id, e);
+                }
+            }
+        }
+        Err(e) => {
+            log::debug!("Failed to open database: {}, trying JSON fallback", e);
+        }
+    }
+    
+    // 2. Fallback: tentar carregar do sistema legado (arquivos JSON)
     let chats_dir = get_chats_dir(&app_handle)?;
     let file_path = chats_dir.join(format!("{}.json", id));
     
@@ -460,23 +590,65 @@ fn load_chat_history(app_handle: AppHandle, id: String) -> Result<Vec<Message>, 
         return Err("Session not found".to_string());
     }
     
-    let content = fs::read_to_string(file_path)
+    let content = fs::read_to_string(&file_path)
         .map_err(|e| format!("Failed to read session file: {}", e))?;
         
     let session: ChatSession = serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse session: {}", e))?;
-        
+    
+    log::info!("Loaded {} messages from JSON for session {}", session.messages.len(), id);
     Ok(session.messages)
 }
 
 #[command]
 fn delete_chat_session(app_handle: AppHandle, id: String) -> Result<(), String> {
+    use db::Database;
+    
+    let mut errors = Vec::new();
+    
+    // 1. Deletar do sistema legado (arquivos JSON)
     let chats_dir = get_chats_dir(&app_handle)?;
     let file_path = chats_dir.join(format!("{}.json", id));
     
     if file_path.exists() {
-        fs::remove_file(file_path)
-            .map_err(|e| format!("Failed to delete session file: {}", e))?;
+        if let Err(e) = fs::remove_file(&file_path) {
+            errors.push(format!("Failed to delete JSON file: {}", e));
+        } else {
+            log::info!("Deleted session JSON file: {}", id);
+        }
+    }
+    
+    // 2. Deletar do SQLite (sistema novo)
+    match Database::new(&app_handle) {
+        Ok(db) => {
+            if let Err(e) = db.delete_session(&id) {
+                errors.push(format!("Failed to delete from SQLite: {}", e));
+            } else {
+                log::info!("Deleted session from SQLite: {}", id);
+            }
+        }
+        Err(e) => {
+            errors.push(format!("Failed to open database: {}", e));
+        }
+    }
+    
+    // Se ambos falharam, retornar erro
+    if !errors.is_empty() && !file_path.exists() {
+        // Se arquivo JSON não existe, verificar se pelo menos deletou do SQLite
+        match Database::new(&app_handle) {
+            Ok(db) => {
+                if db.get_session(&id).ok().flatten().is_none() {
+                    // Sessão não existe em nenhum lugar, considerar sucesso
+                    return Ok(());
+                }
+            }
+            _ => {}
+        }
+    }
+    
+    // Se houve erros mas pelo menos um sistema foi atualizado, logar mas não falhar
+    if !errors.is_empty() {
+        log::warn!("Some errors during deletion of session {}: {:?}", id, errors);
     }
     
     Ok(())
@@ -2047,8 +2219,11 @@ async fn export_chat_sessions(app_handle: AppHandle) -> Result<String, String> {
 /// Apaga todo o histórico de conversas
 #[command]
 fn clear_chat_history(app_handle: AppHandle) -> Result<(), String> {
+    use db::Database;
+    
     let chats_dir = get_chats_dir(&app_handle)?;
     
+    // 1. Deletar todos os arquivos JSON
     let entries = fs::read_dir(&chats_dir)
         .map_err(|e| format!("Failed to read chats dir: {}", e))?;
     
@@ -2064,8 +2239,67 @@ fn clear_chat_history(app_handle: AppHandle) -> Result<(), String> {
         }
     }
     
+    // 2. Deletar todas as sessões do SQLite
+    match Database::new(&app_handle) {
+        Ok(db) => {
+            match db.list_sessions() {
+                Ok(sessions) => {
+                    let mut sqlite_deleted = 0;
+                    for session in sessions {
+                        if let Err(e) = db.delete_session(&session.id) {
+                            log::warn!("Failed to delete session {} from SQLite: {}", session.id, e);
+                        } else {
+                            sqlite_deleted += 1;
+                        }
+                    }
+                    log::info!("Deleted {} sessions from SQLite", sqlite_deleted);
+                }
+                Err(e) => {
+                    log::warn!("Failed to list sessions from SQLite: {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            log::warn!("Failed to open database: {}", e);
+        }
+    }
+    
     log::info!("Deleted {} chat session files", deleted_count);
     Ok(())
+}
+
+/// Limpa sessões órfãs do SQLite que não têm arquivo JSON correspondente
+#[command]
+fn cleanup_orphan_sessions(app_handle: AppHandle) -> Result<u32, String> {
+    use db::Database;
+    
+    let db = Database::new(&app_handle)
+        .map_err(|e| format!("Failed to open database: {}", e))?;
+    
+    let chats_dir = get_chats_dir(&app_handle)?;
+    let mut orphan_count = 0;
+    
+    // Listar todas as sessões do SQLite
+    let sessions = db.list_sessions()
+        .map_err(|e| format!("Failed to list sessions: {}", e))?;
+    
+    for session in sessions {
+        let json_path = chats_dir.join(format!("{}.json", session.id));
+        
+        // Se não existe arquivo JSON correspondente, é uma sessão órfã
+        if !json_path.exists() {
+            log::info!("Found orphan session: {} (title: {}), removing from SQLite", session.id, session.title);
+            
+            if let Err(e) = db.delete_session(&session.id) {
+                log::warn!("Failed to delete orphan session {}: {}", session.id, e);
+            } else {
+                orphan_count += 1;
+            }
+        }
+    }
+    
+    log::info!("Cleaned up {} orphan sessions from SQLite", orphan_count);
+    Ok(orphan_count)
 }
 
 /// Retorna o caminho do diretório de dados do app
@@ -2983,8 +3217,10 @@ pub fn run() {
         delete_model,
         save_chat_session,
         load_chat_sessions,
+        search_chat_sessions,
         load_chat_history,
         delete_chat_session,
+        cleanup_orphan_sessions,
         load_mcp_config,
         save_mcp_config,
         get_mcp_config_path_command,

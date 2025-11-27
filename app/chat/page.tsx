@@ -54,7 +54,9 @@ export default function ChatPage() {
     loadSessions,
     saveSession, 
     deleteSession,
-    isGeneratingTitle
+    isGeneratingTitle,
+    searchSessions,
+    isSearching
   } = useChatStorage();
 
   const { isDownloading, progress } = useAutoLabelingModel();
@@ -949,6 +951,8 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
             }}
             onDeleteSession={deleteSession}
             onNewChat={handleNewChat}
+            onSearch={searchSessions}
+            isSearching={isSearching}
           />
         </ResizablePanel>
 
