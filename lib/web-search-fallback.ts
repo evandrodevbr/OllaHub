@@ -11,6 +11,7 @@ import type { ScrapedContent } from '@/services/webSearch';
 import type { QueryContext } from './contextual-analyzer';
 import type { EnrichedQueries } from './query-enricher';
 import { chatLog } from '@/lib/terminal-logger';
+import { calculateAdaptiveTimeout, TIMEOUT_CONFIG } from '@/lib/retry-utils';
 
 export type SearchStrategy = 'literal' | 'semantic' | 'related' | 'expanded' | 'contextual';
 
@@ -29,6 +30,12 @@ export interface FallbackConfig {
   useSemanticSearch?: boolean; // Usar multi-round semantic search (padrão: false)
   context?: QueryContext; // Contexto analisado (para semantic search)
   enrichedQueries?: EnrichedQueries; // Queries enriquecidas (para semantic search)
+  initialTimeout?: number; // Timeout inicial em ms (padrão: 10000)
+  maxTimeoutPerQuery?: number; // Timeout máximo total por query (padrão: 25000)
+  maxTimeoutPerRound?: number; // Timeout máximo por round (padrão: 15000)
+  minResultsForEarlyExit?: number; // Mínimo de resultados para early exit (padrão: 5)
+  minRelevanceForEarlyExit?: number; // Relevância mínima para early exit (padrão: 0.7)
+  maxRoundsBeforePartial?: number; // Máximo de rounds antes de aceitar parciais (padrão: 2)
 }
 
 export interface FallbackAttempt {
@@ -58,6 +65,12 @@ const DEFAULT_CONFIG: FallbackConfig = {
   maxTotalResults: 40,
   minRelevanceScore: 0.3,
   enableQueryExpansion: true,
+  initialTimeout: TIMEOUT_CONFIG.initialTimeout,
+  maxTimeoutPerQuery: TIMEOUT_CONFIG.maxTimeoutPerQuery,
+  maxTimeoutPerRound: TIMEOUT_CONFIG.maxTimeoutPerRound,
+  minResultsForEarlyExit: 5,
+  minRelevanceForEarlyExit: 0.7,
+  maxRoundsBeforePartial: 2,
 };
 
 /**
@@ -263,7 +276,7 @@ function createSemanticRounds(
  */
 export async function executeProgressiveSearch(
   originalQuery: string,
-  searchFn: (query: string, limit: number) => Promise<ScrapedContent[]>,
+  searchFn: (query: string, limit: number, round?: number) => Promise<ScrapedContent[]>,
   model: string,
   config: Partial<FallbackConfig> = {}
 ): Promise<FallbackResult> {
@@ -272,10 +285,13 @@ export async function executeProgressiveSearch(
   let totalResultsAnalyzed = 0;
   let allResults: ScrapedContent[] = [];
   const seenUrls = new Set<string>();
+  const queryStartTime = Date.now();
+  const maxQueryTimeout = finalConfig.maxTimeoutPerQuery || TIMEOUT_CONFIG.maxTimeoutPerQuery;
   
   chatLog.info(`\n=== PROGRESSIVE SEARCH START ===`);
   chatLog.info(`Original Query: "${originalQuery}"`);
   chatLog.info(`Config: ${JSON.stringify({ ...finalConfig, context: finalConfig.context ? 'present' : 'none', enrichedQueries: finalConfig.enrichedQueries ? 'present' : 'none' })}`);
+  chatLog.info(`Timeout config: initial=${finalConfig.initialTimeout}ms, max per query=${maxQueryTimeout}ms, max per round=${finalConfig.maxTimeoutPerRound}ms`);
   
   // Se usar semantic search, criar rounds baseados em estratégias
   let rounds: Array<{ round: number; config: RoundConfig }> = [];
@@ -305,13 +321,26 @@ export async function executeProgressiveSearch(
   rounds = rounds.slice(0, finalConfig.maxRounds);
   
   for (const { round, config: roundConfig } of rounds) {
+    // Verificar timeout total da query
+    const elapsedTime = Date.now() - queryStartTime;
+    if (elapsedTime >= maxQueryTimeout) {
+      chatLog.warn(`[Round ${round}] Timeout total da query atingido (${elapsedTime}ms >= ${maxQueryTimeout}ms), parando busca`);
+      break;
+    }
+    
+    // Calcular timeout adaptativo para este round
+    const roundTimeout = calculateAdaptiveTimeout(round, finalConfig.initialTimeout || TIMEOUT_CONFIG.initialTimeout);
+    const maxRoundTimeout = finalConfig.maxTimeoutPerRound || TIMEOUT_CONFIG.maxTimeoutPerRound;
+    const actualRoundTimeout = Math.min(roundTimeout, maxRoundTimeout);
+    
     chatLog.info(`\n--- Round ${round}/${rounds.length} [${roundConfig.strategy}] ---`);
+    chatLog.info(`Round timeout: ${actualRoundTimeout}ms (adaptativo: ${roundTimeout}ms, máximo: ${maxRoundTimeout}ms)`);
     
     const roundStartTime = Date.now();
     let roundResults: ScrapedContent[] = [];
     let roundQueries: string[] = [];
     
-    // Executar todas as queries do round em paralelo
+    // Executar todas as queries do round em paralelo com timeout por round
     const queryPromises = roundConfig.queries.map(async (query) => {
       // Expandir query se necessário (modo tradicional)
       const finalQuery = finalConfig.enableQueryExpansion && !finalConfig.useSemanticSearch
@@ -319,7 +348,8 @@ export async function executeProgressiveSearch(
         : query;
       
       try {
-        const results = await searchFn(finalQuery, finalConfig.maxResultsPerRound);
+        // Passar round para searchFn para timeout adaptativo
+        const results = await searchFn(finalQuery, finalConfig.maxResultsPerRound, round);
         return { query: finalQuery, results };
       } catch (error) {
         chatLog.warn(`[Round ${round}] Query "${finalQuery}" failed:`, error);
@@ -327,7 +357,23 @@ export async function executeProgressiveSearch(
       }
     });
     
-    const queryResults = await Promise.all(queryPromises);
+    // Adicionar timeout total para o round
+    const roundPromise = Promise.all(queryPromises);
+    type QueryResult = { query: string; results: ScrapedContent[] };
+    const timeoutPromise = new Promise<QueryResult[]>((_, reject) => {
+      setTimeout(() => reject(new Error(`Round ${round} timeout após ${actualRoundTimeout}ms`)), actualRoundTimeout);
+    });
+    
+    let queryResults: QueryResult[];
+    try {
+      queryResults = await Promise.race([roundPromise, timeoutPromise]);
+    } catch (error) {
+      chatLog.warn(`[Round ${round}] Timeout do round após ${actualRoundTimeout}ms, usando resultados parciais`);
+      // Tentar obter resultados parciais das promises que já completaram
+      queryResults = await Promise.allSettled(queryPromises).then(results => 
+        results.map(r => r.status === 'fulfilled' ? r.value : { query: '', results: [] })
+      );
+    }
     
     // Agregar resultados de todas as queries do round
     for (const { query, results } of queryResults) {
@@ -388,12 +434,14 @@ export async function executeProgressiveSearch(
     allResults.push(...roundResults);
     totalResultsAnalyzed += roundResults.length;
     
-    // Verificar se encontrou resultados relevantes
-    const queryForRelevance = roundQueries[0] || originalQuery;
-    if (areResultsRelevant(roundResults, queryForRelevance, finalConfig.minRelevanceScore)) {
-      chatLog.info(`[Round ${round}] ✓ Relevant results found!`);
+    // Verificar early exit: resultados suficientes com alta relevância
+    const minResultsForEarlyExit = finalConfig.minResultsForEarlyExit || 5;
+    const minRelevanceForEarlyExit = finalConfig.minRelevanceForEarlyExit || 0.7;
+    
+    if (roundResults.length >= minResultsForEarlyExit && relevanceScore >= minRelevanceForEarlyExit) {
+      chatLog.info(`[Round ${round}] 🎯 Early exit: resultados suficientes encontrados!`);
+      chatLog.info(`[Round ${round}] Results: ${roundResults.length} (mínimo: ${minResultsForEarlyExit}), Relevance: ${relevanceScore.toFixed(2)} (mínimo: ${minRelevanceForEarlyExit})`);
       chatLog.info(`[Round ${round}] Total results: ${allResults.length}, Total analyzed: ${totalResultsAnalyzed}`);
-      chatLog.info(`[Round ${round}] Final queries: ${roundQueries.join(', ')}`);
       
       return {
         success: true,

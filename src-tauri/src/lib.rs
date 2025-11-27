@@ -20,6 +20,7 @@ mod scheduler_loop;
 mod sources_config;
 mod system_monitor;
 mod intent_classifier;
+mod db;
 
 use web_scraper::{
     ScrapedContent,
@@ -48,6 +49,27 @@ struct Message {
     content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     metadata: Option<serde_json::Value>,
+}
+
+// Eventos para comunicação Frontend <-> Rust
+#[derive(serde::Serialize, Clone)]
+struct ChatCreatedEvent {
+    session_id: String,
+    title: String,
+    emoji: String,
+}
+
+#[derive(serde::Serialize, Clone)]
+struct ChatTokenEvent {
+    session_id: String,
+    content: String,
+    done: bool,
+}
+
+#[derive(serde::Serialize, Clone)]
+struct ChatErrorEvent {
+    session_id: String,
+    error: String,
 }
 
 #[derive(serde::Serialize)]
@@ -2599,6 +2621,272 @@ fn classify_intent(query: String) -> String {
     }
 }
 
+/// Comando principal para streaming de chat via Rust
+#[command]
+async fn chat_stream(
+    window: Window,
+    app_handle: AppHandle,
+    session_id: Option<String>,
+    messages: Vec<Message>,
+    model: String,
+    system_prompt: Option<String>,
+    enable_rag: Option<bool>,
+) -> Result<String, String> {
+    use uuid::Uuid;
+    use ollama_client::OllamaClient;
+    use futures_util::StreamExt;
+    use db::{Database, ChatSession, ChatMessage};
+    
+    // Gerar ou usar session_id existente
+    let session_id = session_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+    let enable_rag = enable_rag.unwrap_or(false);
+    
+    // Verificar se é nova sessão (apenas 1 mensagem do usuário)
+    let is_new_session = messages.len() == 1 && messages[0].role == "user";
+    
+    // Variáveis para título e emoji (usadas depois na persistência)
+    let (title, emoji) = if is_new_session {
+        let user_input = &messages[0].content;
+        let ollama_client = OllamaClient::new(None);
+        
+        // Tentar gerar título (com timeout curto)
+        let generated_title = match tokio::time::timeout(
+            tokio::time::Duration::from_secs(5),
+            ollama_client.generate_title(&model, user_input)
+        ).await {
+            Ok(Ok(t)) => t,
+            Ok(Err(e)) => {
+                log::warn!("Erro ao gerar título: {}. Usando fallback.", e);
+                // Fallback: primeiras palavras da pergunta
+                user_input.split_whitespace().take(5).collect::<Vec<_>>().join(" ")
+            },
+            Err(_) => {
+                log::warn!("Timeout ao gerar título. Usando fallback.");
+                user_input.split_whitespace().take(5).collect::<Vec<_>>().join(" ")
+            }
+        };
+        
+        let generated_emoji = OllamaClient::generate_emoji(&generated_title);
+        
+        // Emitir evento de chat criado
+        let created_event = ChatCreatedEvent {
+            session_id: session_id.clone(),
+            title: generated_title.clone(),
+            emoji: generated_emoji.clone(),
+        };
+        
+        if let Err(e) = window.emit("chat-created", &created_event) {
+            log::warn!("Erro ao emitir evento chat-created: {}", e);
+        }
+        
+        (generated_title, generated_emoji)
+    } else {
+        (String::new(), "💬".to_string())
+    };
+    
+    // 2. Preparar mensagens para Ollama
+    let mut ollama_messages = Vec::new();
+    
+    // Adicionar system prompt se fornecido
+    if let Some(sys_prompt) = system_prompt {
+        ollama_messages.push(serde_json::json!({
+            "role": "system",
+            "content": sys_prompt
+        }));
+    }
+    
+    // Converter mensagens para formato Ollama
+    for msg in &messages {
+        ollama_messages.push(serde_json::json!({
+            "role": msg.role,
+            "content": msg.content
+        }));
+    }
+    
+    // 3. TODO: Classificar intent e aplicar RAG se necessário
+    // if enable_rag {
+    //     let intent = classify_intent(messages.last().unwrap().content.clone());
+    //     // Buscar contexto via RAG
+    //     // Injetar no system prompt
+    // }
+    
+    // 4. Fazer requisição streaming para Ollama
+    let ollama_client = OllamaClient::new(None);
+    ollama_client.check_connection().await?;
+    
+    let request = serde_json::json!({
+        "model": model,
+        "messages": ollama_messages,
+        "stream": true
+    });
+    
+    // Usar reqwest diretamente para streaming
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    
+    let url = "http://localhost:11434/api/chat";
+    let response = client
+        .post(url)
+        .json(&request)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to send request to Ollama: {}", e))?;
+    
+    if !response.status().is_success() {
+        let error_msg = format!("Ollama returned status: {}", response.status());
+        let error_event = ChatErrorEvent {
+            session_id: session_id.clone(),
+            error: error_msg.clone(),
+        };
+        let _ = window.emit("chat-error", &error_event);
+        return Err(error_msg);
+    }
+    
+    // 5. Processar stream e emitir tokens
+    // IMPORTANTE: O Ollama envia tokens INCREMENTAIS (cada chunk contém apenas o novo conteúdo)
+    let mut stream = response.bytes_stream();
+    let mut buffer = String::new();
+    let mut full_content = String::new();
+    
+    while let Some(chunk_result) = stream.next().await {
+        let chunk = chunk_result.map_err(|e| format!("Stream error: {}", e))?;
+        let chunk_str = String::from_utf8_lossy(&chunk);
+        buffer.push_str(&chunk_str);
+        
+        // Processar linhas completas (separadas por \n)
+        while let Some(pos) = buffer.find('\n') {
+            let line = buffer[..pos].trim().to_string();
+            buffer = buffer[pos + 1..].to_string();
+            
+            if line.is_empty() {
+                continue;
+            }
+            
+            // Tentar deserializar como JSON do Ollama
+            match serde_json::from_str::<serde_json::Value>(&line) {
+                Ok(json) => {
+                    // Verificar se stream terminou primeiro
+                    let is_done = json.get("done").and_then(|d| d.as_bool()) == Some(true);
+                    
+                    // Extrair conteúdo do chunk (Ollama envia tokens incrementais)
+                    if let Some(message) = json.get("message") {
+                        if let Some(content) = message.get("content").and_then(|c| c.as_str()) {
+                            // O Ollama envia apenas o NOVO conteúdo em cada chunk, não o acumulado
+                            // Então podemos emitir diretamente
+                            if !content.is_empty() {
+                                full_content.push_str(content);
+                                
+                                // Emitir token para frontend
+                                let token_event = ChatTokenEvent {
+                                    session_id: session_id.clone(),
+                                    content: content.to_string(),
+                                    done: false,
+                                };
+                                
+                                if let Err(e) = window.emit("chat-token", &token_event) {
+                                    log::warn!("Erro ao emitir token: {}", e);
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Verificar se stream terminou
+                    if is_done {
+                        // Emitir evento final
+                        let final_event = ChatTokenEvent {
+                            session_id: session_id.clone(),
+                            content: String::new(),
+                            done: true,
+                        };
+                        let _ = window.emit("chat-token", &final_event);
+                        break;
+                    }
+                }
+                Err(e) => {
+                    log::debug!("Failed to parse JSON chunk: {} - Line: {}", e, line);
+                    // Continuar mesmo com erro de parse
+                }
+            }
+        }
+    }
+    
+    // 6. Persistir sessão e mensagens no SQLite
+    match Database::new(&app_handle) {
+        Ok(db) => {
+            let now = Utc::now();
+            
+            // Criar ou atualizar sessão
+            let session = if is_new_session && !title.is_empty() {
+                ChatSession {
+                    id: session_id.clone(),
+                    title,
+                    emoji,
+                    created_at: now,
+                    updated_at: now,
+                }
+            } else {
+                // Buscar sessão existente ou criar nova
+                match db.get_session(&session_id) {
+                    Ok(Some(mut existing)) => {
+                        existing.updated_at = now;
+                        existing
+                    }
+                    _ => ChatSession {
+                        id: session_id.clone(),
+                        title: "Nova Conversa".to_string(),
+                        emoji: "💬".to_string(),
+                        created_at: now,
+                        updated_at: now,
+                    }
+                }
+            };
+            
+            if let Err(e) = db.create_session(&session) {
+                log::warn!("Erro ao salvar sessão: {}", e);
+            }
+            
+            // Salvar mensagens do usuário
+            for msg in &messages {
+                let chat_msg = ChatMessage {
+                    id: None,
+                    session_id: session_id.clone(),
+                    role: msg.role.clone(),
+                    content: msg.content.clone(),
+                    metadata: msg.metadata.as_ref().and_then(|m| serde_json::to_string(m).ok()),
+                    created_at: now,
+                };
+                
+                if let Err(e) = db.add_message(&chat_msg) {
+                    log::warn!("Erro ao salvar mensagem: {}", e);
+                }
+            }
+            
+            // Salvar mensagem final do assistente
+            if !full_content.is_empty() {
+                let assistant_msg = ChatMessage {
+                    id: None,
+                    session_id: session_id.clone(),
+                    role: "assistant".to_string(),
+                    content: full_content,
+                    metadata: None,
+                    created_at: Utc::now(),
+                };
+                
+                if let Err(e) = db.add_message(&assistant_msg) {
+                    log::warn!("Erro ao salvar mensagem do assistente: {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            log::warn!("Erro ao inicializar banco de dados: {}", e);
+        }
+    }
+    
+    Ok(session_id)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -2678,6 +2966,7 @@ pub fn run() {
     .manage(Arc::new(Mutex::new(None::<Arc<Browser>>)) as BrowserState)
     .manage(Arc::new(Mutex::new(HashMap::<String, Arc<Mutex<()>>>::new())) as FileLockMap)
     .invoke_handler(tauri::generate_handler![
+        chat_stream,
         check_ollama_installed, 
         check_ollama_running,
         get_system_specs,

@@ -397,8 +397,9 @@ export default function ChatPage() {
                // Executar busca progressiva com semantic search se disponível
                const fallbackResult = await executeProgressiveSearch(
                  query,
-                 async (q, limit) => {
-                   return await webSearch.smartSearchRag(q, limit);
+                 async (q, limit, round = 1) => {
+                   // Passar round para timeout adaptativo
+                   return await webSearch.smartSearchRag(q, limit, undefined, undefined, round);
                  },
                  selectedModel,
                  {
@@ -410,6 +411,9 @@ export default function ChatPage() {
                    useSemanticSearch: !!enrichedQueries, // Usar semantic search se temos queries enriquecidas
                    context: context || undefined,
                    enrichedQueries: enrichedQueries || undefined,
+                   initialTimeout: settings.webSearch.timeout || 10000, // Usar timeout das configurações
+                   maxTimeoutPerQuery: 25000, // 25s máximo por query
+                   maxTimeoutPerRound: 15000, // 15s máximo por round
                  }
                );
                

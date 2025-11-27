@@ -127,5 +127,43 @@ export function withTimeout<T>(
   ]);
 }
 
+/**
+ * Calcula timeout adaptativo baseado no round
+ * Reduz 20% a cada round: 10s → 8s → 6s → 4.8s
+ */
+export function calculateAdaptiveTimeout(
+  round: number,
+  initialTimeout: number = 10000,
+  reductionRate: number = 0.2
+): number {
+  const timeout = initialTimeout * Math.pow(1 - reductionRate, round - 1);
+  return Math.max(timeout, 5000); // Mínimo de 5s
+}
+
+/**
+ * Calcula timeout por motor baseado em tentativas
+ * Reduz após cada falha: 10s → 7s → 5s
+ */
+export function calculateEngineTimeout(
+  attempt: number,
+  initialTimeout: number = 10000,
+  reductionRate: number = 0.3
+): number {
+  const timeout = initialTimeout * Math.pow(1 - reductionRate, attempt - 1);
+  return Math.max(timeout, 3000); // Mínimo de 3s
+}
+
+/**
+ * Configurações otimizadas de timeout
+ */
+export const TIMEOUT_CONFIG = {
+  initialTimeout: 10000, // 10s (reduzido de 15s)
+  timeoutReductionPerRound: 0.2, // 20%
+  maxTimeoutPerQuery: 25000, // 25s total por query
+  maxTimeoutPerRound: 15000, // 15s por round
+  minTimeout: 5000, // Mínimo absoluto
+  minEngineTimeout: 3000, // Mínimo por motor
+} as const;
+
 
 
