@@ -3,9 +3,7 @@
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import { MessageSquare, Settings, Server, Moon, Sun, PanelLeftClose, PanelLeftOpen, Loader2, ChevronDown, Plus, ScrollText, Copy, Check, Globe } from "lucide-react";
+import { MessageSquare, Settings, Server, Moon, Sun, PanelLeftClose, PanelLeftOpen, Loader2, ChevronDown, Plus, ScrollText, Copy, Check, Globe, RefreshCw, Cpu } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ChatInput } from "@/components/chat/chat-input";
 import { ChatMessage } from "@/components/chat/chat-message";
@@ -25,18 +23,16 @@ import { useDeepResearch } from "@/hooks/use-deep-research";
 import { DEEP_RESEARCH_PROMPTS } from "@/data/prompts/deep-research";
 import { useSettingsStore } from "@/store/settings-store";
 import type { ScrapedContent } from "@/services/webSearch";
-import { invoke } from "@tauri-apps/api/core";
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useTheme } from "next-themes";
 import { useRouter } from "next/navigation";
 import { ImperativePanelHandle } from "react-resizable-panels";
 import { ModelDownloadDialog } from "@/components/chat/model-download-dialog";
-import { sanitizeWebSources } from "@/lib/sanitize-web-content";
 import { chatLog } from "@/lib/terminal-logger";
 import { useQueryPreprocessor, type PreprocessedQuery } from "@/hooks/use-query-preprocessor";
 import type { Message, ThinkingMessageMetadata, ThinkingStepType, ThinkingStepStatus } from "@/hooks/use-chat";
-import { executeProgressiveSearch, type FallbackResult } from "@/lib/web-search-fallback";
-// @ts-ignore
+import { executeProgressiveSearch } from "@/lib/web-search-fallback";
+// @ts-expect-error - MD file import
 import defaultFormatPrompt from "@/data/prompts/default-format.md";
 
 
@@ -51,7 +47,6 @@ export default function ChatPage() {
     currentSessionId, 
     setCurrentSessionId, 
     loadSessionHistory,
-    loadSessions,
     saveSession, 
     deleteSession,
     isGeneratingTitle,
@@ -61,7 +56,7 @@ export default function ChatPage() {
 
   const { isDownloading, progress } = useAutoLabelingModel();
   const webSearch = useWebSearch();
-  const { generateQuery, isGenerating: isGeneratingQuery } = useQueryGenerator();
+  const { generateQuery } = useQueryGenerator();
   const deepResearch = useDeepResearch();
   const settings = useSettingsStore();
   const { preprocess } = useQueryPreprocessor();
@@ -91,7 +86,7 @@ export default function ChatPage() {
     
     setMessages(prev => [...prev, thinkingMessage]);
     return messageId;
-  }, []);
+  }, [setMessages]);
 
   const updateThinkingMessage = useCallback((
     stepType: ThinkingStepType,
@@ -110,23 +105,16 @@ export default function ChatPage() {
       }
       return msg;
     }));
-  }, []);
+  }, [setMessages]);
 
-  const removeThinkingMessage = useCallback((stepType: ThinkingStepType) => {
-    setMessages(prev => prev.filter(msg => {
-      const metadata = msg.metadata as ThinkingMessageMetadata | undefined;
-      return !(metadata?.type === 'thinking' && metadata.stepType === stepType);
-    }));
-  }, []);
-  
   const [selectedModel, setSelectedModel] = useState("");
   const [mounted, setMounted] = useState(false);
   const initializedRef = useRef(false);
   // Initialize with default format prompt
-  const [systemPrompt, setSystemPrompt] = useState(defaultFormatPrompt || "Você é um assistente útil e prestativo.");
+  const [systemPrompt] = useState(defaultFormatPrompt || "Você é um assistente útil e prestativo.");
   const [isChatsSidebarCollapsed, setIsChatsSidebarCollapsed] = useState(true); // Iniciar colapsada
   // Removido: thinkingStep e processSteps - agora usando mensagens thinking agrupadas
-  const [error, setError] = useState<string | Error | null>(null);
+  const [, setError] = useState<string | Error | null>(null);
   
   const chatsSidebarRef = useRef<ImperativePanelHandle>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -157,7 +145,7 @@ export default function ChatPage() {
       }
     }
     initializedRef.current = true;
-  }, [settings.selectedModel, models]);
+    }, [settings, models]);
 
   // Auto-scroll para o final durante streaming
   useEffect(() => {
@@ -230,7 +218,7 @@ export default function ChatPage() {
       
       // Se inválida, retornar erro
       if (!preprocessed.validation.isValid) {
-        chatLog.error('Query validation failed:', preprocessed.validation.errors);
+        chatLog.error(`Query validation failed: ${preprocessed.validation.errors.join(', ')}`);
         throw new Error(`Query validation failed: ${preprocessed.validation.errors.join(', ')}`);
       }
       
@@ -255,7 +243,7 @@ export default function ChatPage() {
       };
       return { preprocessed, finalContent: content };
     }
-  }, [settings.queryPreprocessing, webSearch.isEnabled]);
+  }, [settings.queryPreprocessing, webSearch.isEnabled, preprocess]);
 
   const handleSend = async (content: string) => {
     if (!selectedModel) return;
@@ -297,19 +285,20 @@ export default function ChatPage() {
       });
       
       // Atualizar step com erro
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMsg = error instanceof Error ? error.message : String(error);
       updateThinkingMessage('preprocessing', {
         status: 'error',
-        error: errorMessage,
+        error: errorMsg,
         duration: Date.now() - preprocessingStart,
       });
       
       // Removido: setProcessSteps - agora usando mensagens thinking agrupadas
       
       // Definir erro global
-      setError(error);
+      const errorObj = error instanceof Error ? error : new Error(String(error));
+      setError(errorObj);
       
-      chatLog.error('Preprocessing failed:', error);
+      chatLog.error(`Preprocessing failed: ${errorObj.message}`);
       // Erro já será mostrado no chat-input, apenas retornar
       return;
     }
@@ -401,7 +390,7 @@ export default function ChatPage() {
                  query,
                  async (q, limit, round = 1) => {
                    // Passar round para timeout adaptativo
-                   return await webSearch.smartSearchRag(q, limit, undefined, undefined, round);
+                   return await webSearch.smartSearchRag(q, limit, round);
                  },
                  selectedModel,
                  {
@@ -477,6 +466,7 @@ export default function ChatPage() {
            scrapedSources = deepResearch.state.knowledgeBase.map(entry => ({
              url: entry.sourceUrl,
              title: entry.title,
+             content: entry.content,
              markdown: entry.content,
              snippet: entry.content.substring(0, 200)
            }));
@@ -532,7 +522,7 @@ export default function ChatPage() {
                const validation = validateCondensedContext(optimizedResult.result, content);
                
                if (!validation.isValid) {
-                 chatLog.error('Context validation failed:', validation.warnings.join(', '));
+                 chatLog.error(`Context validation failed: ${validation.warnings.join(', ')}`);
                } else if (validation.warnings.length > 0) {
                  validation.warnings.forEach(warning => {
                    chatLog.warn(`⚠️ ${warning}`);
@@ -614,7 +604,6 @@ export default function ChatPage() {
     // ========== LÓGICA DE DEEP RESEARCH (Knowledge Base Aggregation) ==========
     // Removido: setThinkingStep e setProcessSteps - agora usando mensagens thinking agrupadas
     
-    const researchStart = Date.now();
     // Executar pesquisa web
     const { knowledgeBaseContext, scrapedSources, validationReport } = await executeWebResearch(
       content,
@@ -885,7 +874,7 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
   };
 
   return (
-    <div className="h-screen w-full bg-background overflow-hidden flex">
+    <div className="h-screen w-full bg-background overflow-hidden flex overflow-x-hidden">
       {/* Left Sidebar (Nav) */}
       <ResizablePanelGroup direction="horizontal" className="flex-1">
         
@@ -1022,8 +1011,9 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                             <TooltipTrigger asChild>
                               <SelectItem value={m.name} className="min-w-0">
                                 <span className="flex items-center justify-between w-full min-w-0 gap-2">
-                                  <span className="truncate flex-1 min-w-0" style={{ maxWidth: '70vw' }}>
-                                    {m.name}
+                                  <span className="flex items-center gap-2 truncate flex-1 min-w-0" style={{ maxWidth: '70vw' }}>
+                                    <Cpu className="w-4 h-4 text-muted-foreground shrink-0" />
+                                    <span className="truncate">{m.name}</span>
                                   </span>
                                   <span className="ml-2 text-xs text-muted-foreground shrink-0">{m.size}</span>
                                 </span>
@@ -1047,7 +1037,7 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                   </TooltipProvider>
                 </div>
                 <Button variant="outline" size="icon" className="h-9 w-9" onClick={refresh} title="Atualizar modelos">
-                  <Loader2 className="w-4 h-4" />
+                  <RefreshCw className="w-4 h-4" />
                 </Button>
               </div>
             </div>
@@ -1117,7 +1107,6 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                             }
                             
                             // Adicionar mensagem regular
-                            const isLastMessage = i === messages.length - (isLoading ? 1 : 0);
                             const isAssistantStreaming = i === messages.length - 1 && msg.role === 'assistant' && isLoading;
                             
                             groupedMessages.push({
