@@ -2,7 +2,7 @@ import { SessionSummary } from "@/hooks/use-chat-storage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Trash2, Plus, MessageSquare, Search, X, Loader2 } from "lucide-react";
+import { Trash2, Plus, MessageSquare, Search, X, Loader2, ChevronUp, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState, useEffect, useRef } from "react";
 
@@ -14,6 +14,8 @@ interface SidebarListProps {
   onNewChat: () => void;
   onSearch?: (query: string) => void;
   isSearching?: boolean;
+  searchQuery?: string;
+  onNavigateMatch?: (sessionId: string, direction: 'prev' | 'next') => void;
 }
 
 function formatDate(dateString: string) {
@@ -58,9 +60,11 @@ export function SidebarList({
   onDeleteSession,
   onNewChat,
   onSearch,
-  isSearching = false
+  isSearching = false,
+  searchQuery = '',
+  onNavigateMatch
 }: SidebarListProps) {
-  const [searchQuery, setSearchQuery] = useState('');
+  const [localSearchInput, setLocalSearchInput] = useState('');
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const DEBOUNCE_MS = 300;
   
@@ -71,7 +75,7 @@ export function SidebarList({
     }
     
     // Se query vazia, limpar busca imediatamente
-    if (!searchQuery.trim()) {
+    if (!localSearchInput.trim()) {
       if (onSearch) {
         onSearch('');
       }
@@ -80,8 +84,8 @@ export function SidebarList({
     
     // Debounce: aguardar antes de buscar
     searchTimeoutRef.current = setTimeout(() => {
-      if (onSearch && searchQuery.trim().length >= 2) {
-        onSearch(searchQuery.trim());
+      if (onSearch && localSearchInput.trim().length >= 2) {
+        onSearch(localSearchInput.trim());
       }
     }, DEBOUNCE_MS);
     
@@ -91,10 +95,10 @@ export function SidebarList({
         clearTimeout(searchTimeoutRef.current);
       }
     };
-  }, [searchQuery, onSearch]);
+  }, [localSearchInput, onSearch]);
   
   const handleClearSearch = () => {
-    setSearchQuery('');
+    setLocalSearchInput('');
     if (onSearch) {
       onSearch('');
     }
@@ -111,14 +115,14 @@ export function SidebarList({
             <Input
               type="text"
               placeholder="Buscar conversas..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={localSearchInput}
+              onChange={(e) => setLocalSearchInput(e.target.value)}
               className="pl-8 pr-8 h-9 text-sm"
             />
             {isSearching && (
               <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground animate-spin" />
             )}
-            {searchQuery && !isSearching && (
+            {localSearchInput && !isSearching && (
               <button
                 onClick={handleClearSearch}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
@@ -190,15 +194,54 @@ export function SidebarList({
                         </div>
                         
                         {/* Texto do card */}
-                        <div className="sidebar-chat-item-text">
+                        <div className="sidebar-chat-item-text flex-1 min-w-0">
                           <h3 className="sidebar-chat-item-title text-sm font-medium text-card-foreground leading-tight mb-0.5">
                             {session.title}
                           </h3>
                           
-                          <p className="sidebar-chat-item-date text-xs text-muted-foreground">
-                            {formatDate(session.updated_at)}
-                          </p>
+                          <div className="flex items-center gap-2">
+                            <p className="sidebar-chat-item-date text-xs text-muted-foreground">
+                              {formatDate(session.updated_at)}
+                            </p>
+                            {searchQuery && session.match_count !== undefined && session.match_count > 0 && (
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
+                                {session.match_count} {session.match_count === 1 ? 'ocorrência' : 'ocorrências'}
+                              </span>
+                            )}
+                          </div>
                         </div>
+                        
+                        {/* Navegação de matches - aparece apenas quando selecionado e há busca ativa */}
+                        {isSelected && searchQuery && session.match_count !== undefined && session.match_count > 0 && onNavigateMatch && (
+                          <div className="flex flex-col gap-0.5 mr-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 shrink-0"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                onNavigateMatch(session.id, 'prev');
+                              }}
+                              aria-label="Ocorrência anterior"
+                            >
+                              <ChevronUp className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 shrink-0"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                onNavigateMatch(session.id, 'next');
+                              }}
+                              aria-label="Próxima ocorrência"
+                            >
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        )}
                         
                         {/* Botão de deletar - aparece no hover */}
                         <Button

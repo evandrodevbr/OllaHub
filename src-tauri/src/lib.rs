@@ -114,6 +114,8 @@ struct SessionSummary {
     updated_at: DateTime<Utc>,
     preview: String,
     platform: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    match_count: Option<usize>,
 }
 
 #[derive(serde::Serialize)]
@@ -407,7 +409,7 @@ fn search_chat_sessions(app_handle: AppHandle, query: String, limit: Option<usiz
         .map_err(|e| format!("Failed to open database: {}", e))?;
     
     let search_limit = limit.unwrap_or(50);
-    let sessions = db.search_sessions(&query, search_limit)
+    let search_results = db.search_sessions(&query, search_limit)
         .map_err(|e| format!("Search failed: {}", e))?;
     
     // Validar existência de cada sessão antes de retornar
@@ -415,7 +417,9 @@ fn search_chat_sessions(app_handle: AppHandle, query: String, limit: Option<usiz
     let mut summaries = Vec::new();
     let mut orphan_count = 0;
     
-    for session in sessions {
+    for search_result in search_results {
+        let session = search_result.session;
+        let match_count = search_result.match_count;
         // Verificar se sessão existe no SQLite (já temos)
         let exists_in_sqlite = db.get_session(&session.id)
             .ok()
@@ -465,6 +469,7 @@ fn search_chat_sessions(app_handle: AppHandle, query: String, limit: Option<usiz
             updated_at: session.updated_at, // Já é DateTime<Utc>
             preview,
             platform: String::new(), // Platform não está no SQLite ainda
+            match_count: Some(match_count as usize),
         });
     }
     
@@ -514,6 +519,7 @@ fn load_chat_sessions(app_handle: AppHandle) -> Result<Vec<SessionSummary>, Stri
                             updated_at: session.updated_at,
                             preview: last_msg,
                             platform: session.platform,
+                            match_count: None,
                         });
                     }
                 }

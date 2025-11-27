@@ -13,9 +13,12 @@ import type { ThinkingMessageMetadata } from "@/hooks/use-chat";
 interface ChatMessageProps {
   message: Message;
   isStreaming?: boolean;
+  highlightTerm?: string;
+  highlightIndex?: number;
+  messageIndex?: number;
 }
 
-export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) {
+export function ChatMessage({ message, isStreaming = false, highlightTerm, highlightIndex = 0, messageIndex }: ChatMessageProps) {
   // Verificar se é mensagem de processo de pensamento
   const isThinkingMessage = message.metadata && 
     typeof message.metadata === 'object' && 
@@ -51,6 +54,53 @@ export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) 
     
     return content || message.content;
   }, [message.content]);
+  
+  // Processar highlight separadamente (após limpeza de conteúdo)
+  const highlightedContent = useMemo(() => {
+    if (!highlightTerm || highlightTerm.trim().length < 2 || (message.role !== 'user' && message.role !== 'assistant')) {
+      return null; // Não há highlight
+    }
+    
+    const term = highlightTerm.trim();
+    const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${escapedTerm})`, 'gi');
+    const content = processedContent;
+    
+    // Encontrar todos os matches
+    const matches: Array<{ start: number; end: number; text: string }> = [];
+    let match;
+    while ((match = regex.exec(content)) !== null) {
+      matches.push({
+        start: match.index,
+        end: match.index + match[0].length,
+        text: match[0]
+      });
+    }
+    
+    if (matches.length === 0) return null;
+    
+    // Construir conteúdo com highlights
+    let highlighted = '';
+    let lastIndex = 0;
+    
+    matches.forEach((match, idx) => {
+      // Adicionar texto antes do match
+      highlighted += content.substring(lastIndex, match.start);
+      
+      // Adicionar match com highlight (laranja para atual, amarelo para outros)
+      const isCurrent = highlightIndex !== undefined && idx === highlightIndex;
+      const className = isCurrent 
+        ? 'bg-orange-400/60 dark:bg-orange-500/60 px-0.5 rounded' 
+        : 'bg-yellow-200/50 dark:bg-yellow-800/50 px-0.5 rounded';
+      
+      highlighted += `<mark class="${className}">${match.text}</mark>`;
+      lastIndex = match.end;
+    });
+    
+    // Adicionar texto restante
+    highlighted += content.substring(lastIndex);
+    return highlighted;
+  }, [processedContent, highlightTerm, highlightIndex, message.role]);
 
   return (
     <MessageBackground
@@ -75,11 +125,14 @@ export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) 
         </div>
       </div>
       
-      <div className="flex-1 overflow-hidden min-w-0 pt-1">
+      <div className="flex-1 overflow-hidden min-w-0 pt-1" data-message-index={messageIndex}>
         {isUser ? (
              // Estilo específico para mensagem do usuário (mais destaque, fonte maior)
-             <div className="text-lg sm:text-xl font-medium tracking-tight text-foreground/90 leading-relaxed break-words whitespace-pre-wrap">
-                {processedContent}
+             <div 
+               className="text-lg sm:text-xl font-medium tracking-tight text-foreground/90 leading-relaxed break-words whitespace-pre-wrap"
+               dangerouslySetInnerHTML={highlightedContent ? { __html: highlightedContent } : undefined}
+             >
+                {!highlightedContent && processedContent}
              </div>
         ) : (
             // Estilo Assistant
@@ -94,14 +147,19 @@ export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) 
                 "prose-headings:font-semibold prose-headings:tracking-tight prose-h1:text-2xl prose-h2:text-xl prose-h3:text-lg",
                 "prose-p:leading-7 prose-li:leading-7",
                 "prose-pre:bg-muted/50 prose-pre:border prose-pre:border-border/50 prose-pre:rounded-xl",
+                "prose-mark:bg-yellow-200/50 prose-mark:dark:bg-yellow-800/50 prose-mark:px-0.5 prose-mark:rounded",
                 isStreaming && "relative"
               )}>
-                <ReactMarkdown 
-                  remarkPlugins={[remarkGfm]}
-                  components={markdownRenderers}
-                >
-                  {processedContent}
-                </ReactMarkdown>
+                {highlightedContent ? (
+                  <div dangerouslySetInnerHTML={{ __html: highlightedContent }} />
+                ) : (
+                  <ReactMarkdown 
+                    remarkPlugins={[remarkGfm]}
+                    components={markdownRenderers}
+                  >
+                    {processedContent}
+                  </ReactMarkdown>
+                )}
                 {isStreaming && !isEmpty && (
                   <span className="inline-block w-2 h-4 bg-primary ml-1 animate-pulse rounded-full align-middle" />
                 )}

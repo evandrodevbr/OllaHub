@@ -10,6 +10,7 @@ export interface SessionSummary {
   updated_at: string;
   preview: string;
   platform: string;
+  match_count?: number;
 }
 
 const TITLE_MODEL = "qwen2.5:0.5b";

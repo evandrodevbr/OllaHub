@@ -52,7 +52,8 @@ export default function ChatPage() {
     deleteSession,
     isGeneratingTitle,
     searchSessions,
-    isSearching
+    isSearching,
+    searchQuery
   } = useChatStorage();
 
   const { isDownloading, progress } = useAutoLabelingModel();
@@ -128,6 +129,14 @@ export default function ChatPage() {
   const [showDownloadDialog, setShowDownloadDialog] = useState(false);
   const [logsCopied, setLogsCopied] = useState(false);
   const [lastUserQuery, setLastUserQuery] = useState('');
+  const [searchMatchIndex, setSearchMatchIndex] = useState(0);
+  
+  // Resetar índice quando busca é limpa ou sessão muda
+  useEffect(() => {
+    if (!searchQuery || searchQuery.trim().length < 2) {
+      setSearchMatchIndex(0);
+    }
+  }, [searchQuery, currentSessionId]);
 
   // Auto-select first model
   useEffect(() => {
@@ -803,7 +812,61 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
     setMessages(history);
     setCurrentSessionId(id);
     lastSavedMessagesRef.current = history.length;
+    
+    // Se há busca ativa, encontrar matches e resetar índice
+    if (searchQuery && searchQuery.trim().length >= 2) {
+      setSearchMatchIndex(0);
+      // Os matches serão encontrados quando as mensagens renderizarem
+    }
   };
+  
+  // Função para navegar entre matches
+  const handleNavigateMatch = useCallback((sessionId: string, direction: 'prev' | 'next') => {
+    if (sessionId !== currentSessionId || !searchQuery || searchQuery.trim().length < 2) {
+      return;
+    }
+    
+    // Encontrar todos os matches nas mensagens
+    const query = searchQuery.trim();
+    const matches: Array<{ messageIndex: number; matchIndex: number }> = [];
+    
+    messages.forEach((msg, msgIdx) => {
+      if (msg.role === 'user' || msg.role === 'assistant') {
+        const content = msg.content;
+        const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+        let match;
+        let matchIdx = 0;
+        while ((match = regex.exec(content)) !== null) {
+          matches.push({ messageIndex: msgIdx, matchIndex: matchIdx });
+          matchIdx++;
+        }
+      }
+    });
+    
+    if (matches.length === 0) return;
+    
+    // Navegar
+    setSearchMatchIndex(prev => {
+      const newIndex = direction === 'next' 
+        ? (prev + 1) % matches.length
+        : (prev - 1 + matches.length) % matches.length;
+      
+      // Scroll para o match após renderização
+      setTimeout(() => {
+        const messageElement = document.querySelector(`[data-message-index="${matches[newIndex].messageIndex}"]`);
+        if (messageElement) {
+          messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Destacar o match atual visualmente
+          const marks = messageElement.querySelectorAll('mark');
+          if (marks.length > matches[newIndex].matchIndex) {
+            marks[matches[newIndex].matchIndex]?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+          }
+        }
+      }, 150);
+      
+      return newIndex;
+    });
+  }, [currentSessionId, searchQuery, messages]);
 
   const handleNewChat = () => {
     stop();
@@ -947,6 +1010,8 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
             onNewChat={handleNewChat}
             onSearch={searchSessions}
             isSearching={isSearching}
+            searchQuery={searchQuery}
+            onNavigateMatch={handleNavigateMatch}
           />
         </ResizablePanel>
 
@@ -1132,6 +1197,25 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                           });
                         }
                         
+                        // Calcular posições de todos os matches uma vez
+                        const allMatches: Array<{ messageIndex: number; matchIndex: number }> = [];
+                        if (searchQuery && searchQuery.trim().length >= 2) {
+                          const query = searchQuery.trim();
+                          const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+                          
+                          messages.forEach((msg, msgIdx) => {
+                            if (msg.role === 'user' || msg.role === 'assistant') {
+                              const content = msg.content;
+                              let match;
+                              let matchIdx = 0;
+                              while ((match = regex.exec(content)) !== null) {
+                                allMatches.push({ messageIndex: msgIdx, matchIndex: matchIdx });
+                                matchIdx++;
+                              }
+                            }
+                          });
+                        }
+                        
                         return groupedMessages.map((group, idx) => {
                           if (group.type === 'thinking-group' && group.thinkingSteps) {
                             return (
@@ -1143,11 +1227,30 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                               </div>
                             );
                           } else if (group.type === 'regular' && group.message) {
+                            // Encontrar índice do match atual para esta mensagem
+                            let messageMatchIndex: number | undefined = undefined;
+                            
+                            if (searchQuery && searchQuery.trim().length >= 2 && allMatches.length > 0 && group.index !== undefined) {
+                              // Encontrar matches desta mensagem
+                              const messageMatches = allMatches.filter(m => m.messageIndex === group.index);
+                              
+                              if (messageMatches.length > 0) {
+                                // Verificar se o match atual está nesta mensagem
+                                const currentMatch = allMatches[searchMatchIndex];
+                                if (currentMatch && currentMatch.messageIndex === group.index) {
+                                  messageMatchIndex = currentMatch.matchIndex;
+                                }
+                              }
+                            }
+                            
                             return (
                               <div key={group.index || idx} className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                                 <ChatMessage 
                                   message={group.message} 
-                                  isStreaming={group.isStreaming} 
+                                  isStreaming={group.isStreaming}
+                                  highlightTerm={searchQuery && searchQuery.trim().length >= 2 ? searchQuery.trim() : undefined}
+                                  highlightIndex={messageMatchIndex}
+                                  messageIndex={group.index}
                                 />
                               </div>
                             );

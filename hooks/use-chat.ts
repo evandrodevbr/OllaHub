@@ -240,6 +240,29 @@ export function useChat() {
   const rawContentRef = useRef<string>(''); // Track raw content including metadata during streaming
   const currentSessionIdRef = useRef<string | null>(null);
   const lastTokenRef = useRef<string>(''); // Track last token to detect duplicates
+  const renderScheduledRef = useRef<boolean>(false);
+  const rafIdRef = useRef<number | null>(null);
+  
+  // Função para atualizar o estado visual com o conteúdo acumulado
+  const flushToState = () => {
+    renderScheduledRef.current = false;
+    const displayContent = stripMetadataTag(rawContentRef.current);
+    setMessages(prev => {
+      const last = prev[prev.length - 1];
+      if (last && last.role === 'assistant') {
+        return [...prev.slice(0, -1), { ...last, content: displayContent }];
+      }
+      return [...prev, { role: 'assistant', content: displayContent }];
+    });
+  };
+
+  // Agendar flush com requestAnimationFrame (limita a ~60fps)
+  const scheduleFlush = () => {
+    if (!renderScheduledRef.current) {
+      renderScheduledRef.current = true;
+      rafIdRef.current = requestAnimationFrame(flushToState);
+    }
+  };
   
   // Listener para eventos do Rust
   useEffect(() => {
@@ -262,51 +285,38 @@ export function useChat() {
       const { content, done } = event.payload;
       
       if (content && content.length > 0) {
-        // Verificar se este é o mesmo token do último processado (evitar duplicação)
-        // Isso pode acontecer se o evento for emitido múltiplas vezes
+        // Detecção de duplicatas (MANTER LÓGICA ORIGINAL)
         if (content === lastTokenRef.current && rawContentRef.current.endsWith(content)) {
-          // Token duplicado, ignorar
           if (process.env.NODE_ENV === 'development') {
             console.warn('Token duplicado detectado, ignorando:', content.substring(0, 30));
           }
           return;
         }
         
-        // Atualizar referência do último token
         lastTokenRef.current = content;
-        
-        // Accumulate raw content (including metadata) in ref
         rawContentRef.current += content;
         
-        setMessages(prev => {
-          const last = prev[prev.length - 1];
-          if (last && last.role === 'assistant') {
-            // For display: strip incomplete metadata tag if present
-            const displayContent = stripMetadataTag(rawContentRef.current);
-            return [
-              ...prev.slice(0, -1),
-              { ...last, content: displayContent }
-            ];
-          }
-          // Se não existe mensagem do assistente, criar uma
-          return [...prev, { role: 'assistant', content: stripMetadataTag(rawContentRef.current) }];
-        });
+        // MUDANÇA: Agendar flush em vez de chamar setMessages diretamente
+        scheduleFlush();
       }
       
       if (done) {
-        // Stream terminou, processar metadata final
+        // Cancelar qualquer flush pendente
+        if (rafIdRef.current !== null) {
+          cancelAnimationFrame(rafIdRef.current);
+          rafIdRef.current = null;
+          renderScheduledRef.current = false;
+        }
+        
+        // Flush IMEDIATO com processamento de metadata
         setMessages(prev => {
           const last = prev[prev.length - 1];
           if (last && last.role === 'assistant') {
             const rawContent = rawContentRef.current;
             const { content: finalContent, metadata } = parseMetadata(rawContent);
             rawContentRef.current = '';
-            lastTokenRef.current = ''; // Reset last token tracker
-            
-            return [
-              ...prev.slice(0, -1),
-              { ...last, content: finalContent || last.content, metadata }
-            ];
+            lastTokenRef.current = '';
+            return [...prev.slice(0, -1), { ...last, content: finalContent || last.content, metadata }];
           }
           return prev;
         });
@@ -331,6 +341,10 @@ export function useChat() {
       unlistenCreated?.();
       unlistenToken?.();
       unlistenError?.();
+      // Cancelar RAF pendente
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
     };
   }, []);
 
