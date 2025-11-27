@@ -27,90 +27,89 @@ export function SourcesDisplay({ sources, className }: SourcesDisplayProps) {
     }
   };
 
-  // Memoizar URLs de favicon para evitar recálculos
-  const faviconUrls = useMemo(() => {
-    return sources.map(source => {
-      try {
-        const domain = new URL(source.url).hostname;
-        return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
-      } catch {
-        return null;
-      }
-    });
-  }, [sources]);
+  const getFaviconUrl = (url: string): string => {
+    try {
+      const domain = new URL(url).hostname;
+      return `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;
+    } catch {
+      return '';
+    }
+  };
+
+  const getDomain = (url: string): string => {
+    try {
+      return new URL(url).hostname.replace(/^www\./, '');
+    } catch {
+      return url.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+    }
+  };
 
   return (
-    <div className={cn("px-6 py-4 border-t border-muted bg-muted/20", className)}>
+    <div className={cn("px-6 py-4 border-t border-muted/50", className)}>
       <div className="flex items-center gap-2 mb-3">
-        <Globe className="w-4 h-4 text-muted-foreground" />
-        <p className="text-xs font-medium text-muted-foreground">
+        <Globe className="w-4 h-4 text-muted-foreground/60" />
+        <p className="text-xs font-medium text-muted-foreground/80">
           Fontes consultadas ({sources.length}):
         </p>
       </div>
       
-      <div className="flex flex-wrap gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent">
+      <div className="flex gap-3 overflow-x-auto py-2 sources-scrollbar">
         {sources.map((source, idx) => {
-          const faviconUrl = faviconUrls[idx];
+          const faviconUrl = getFaviconUrl(source.url);
+          const domain = getDomain(source.url);
           const isCopied = copiedIndex === idx;
           
           return (
-            <div
+            <a
               key={idx}
-              className="group flex-shrink-0 flex items-center gap-2 px-3 py-2 rounded-md bg-background hover:bg-muted/80 transition-all duration-200 border border-muted hover:border-primary/50 shadow-sm hover:shadow-md"
+              href={source.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/30 hover:bg-muted/50 border border-transparent hover:border-muted transition-all flex-shrink-0"
+              onClick={(e) => {
+                // Permitir que o botão de copiar funcione sem navegar
+                if ((e.target as HTMLElement).closest('button')) {
+                  e.preventDefault();
+                }
+              }}
             >
-              {/* Favicon */}
               {faviconUrl ? (
                 <img
                   src={faviconUrl}
                   alt=""
-                  className="w-4 h-4 flex-shrink-0 rounded-sm"
+                  className="w-4 h-4 rounded flex-shrink-0"
                   onError={(e) => {
                     (e.target as HTMLImageElement).style.display = 'none';
                   }}
                 />
               ) : (
-                <Globe className="w-4 h-4 flex-shrink-0 text-muted-foreground" />
+                <Globe className="w-4 h-4 text-muted-foreground/60 flex-shrink-0" />
               )}
-              
-              {/* Title and URL */}
-              <div className="flex-1 min-w-0 max-w-[200px] md:max-w-[300px]">
-                <div className="text-xs font-medium text-foreground truncate" title={source.title || source.url}>
-                  {source.title || `Fonte ${idx + 1}`}
+              <div className="min-w-0">
+                <div className="text-xs font-medium truncate max-w-[140px] text-foreground/90">
+                  {source.title || domain}
                 </div>
-                <div className="text-[10px] text-muted-foreground truncate" title={source.url}>
-                  {source.url.replace(/^https?:\/\//, '').replace(/^www\./, '')}
+                <div className="text-[10px] text-muted-foreground truncate">
+                  {domain}
                 </div>
               </div>
-              
-              {/* Actions */}
-              <div className="flex items-center gap-1">
-                {/* Copy Button */}
-                <button
-                  onClick={() => copyToClipboard(source.url, idx)}
-                  className="p-1 rounded hover:bg-muted transition-colors"
-                  title="Copiar URL"
-                  aria-label="Copiar URL"
-                >
-                  {isCopied ? (
-                    <Check className="w-3 h-3 text-green-600 dark:text-green-400" />
-                  ) : (
-                    <Copy className="w-3 h-3 text-muted-foreground" />
-                  )}
-                </button>
-                
-                {/* External Link Button */}
-                <a
-                  href={source.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-1 rounded hover:bg-muted transition-colors"
-                  title="Abrir em nova aba"
-                  aria-label="Abrir em nova aba"
-                >
-                  <ExternalLink className="w-3 h-3 text-muted-foreground" />
-                </a>
-              </div>
-            </div>
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  copyToClipboard(source.url, idx);
+                }}
+                className="ml-1 p-1 rounded hover:bg-muted/50 transition-colors opacity-0 group-hover:opacity-100"
+                title="Copiar URL"
+                aria-label="Copiar URL"
+              >
+                {isCopied ? (
+                  <Check className="w-3 h-3 text-green-600 dark:text-green-400" />
+                ) : (
+                  <Copy className="w-3 h-3 text-muted-foreground" />
+                )}
+              </button>
+            </a>
           );
         })}
       </div>

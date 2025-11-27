@@ -297,3 +297,61 @@
   scrollbar-width: thin;
   scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
 }
+
+/* Minimalista scrollbar para sources */
+.sources-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.2) transparent;
+}
+
+.sources-scrollbar::-webkit-scrollbar {
+  height: 4px;
+}
+
+.sources-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 2px;
+}
+
+.sources-scrollbar::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.2);
+  border-radius: 2px;
+  transition: background 0.2s ease;
+}
+
+.sources-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.35);
+}
+
+/* Ocultar scrollbar quando não há overflow */
+.sources-scrollbar:not(:hover)::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+/* Reasoning Chain animations */
+@keyframes reasoning-fade-in {
+  from { 
+    opacity: 0; 
+    transform: translateY(4px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translateY(0); 
+  }
+}
+
+.reasoning-step {
+  animation: reasoning-fade-in 0.3s ease-out forwards;
+  opacity: 0;
+}
+
+/* Staggered reveal para steps */
+.reasoning-step:nth-child(1) { animation-delay: 0ms; }
+.reasoning-step:nth-child(2) { animation-delay: 100ms; }
+.reasoning-step:nth-child(3) { animation-delay: 200ms; }
+.reasoning-step:nth-child(4) { animation-delay: 300ms; }
+.reasoning-step:nth-child(5) { animation-delay: 400ms; }
+.reasoning-step:nth-child(6) { animation-delay: 500ms; }
+.reasoning-step:nth-child(7) { animation-delay: 600ms; }
+.reasoning-step:nth-child(8) { animation-delay: 700ms; }
+.reasoning-step:nth-child(n+9) { animation-delay: 800ms; }

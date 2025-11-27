@@ -27,65 +27,27 @@ export function MessageStepThinking({ metadata }: MessageStepThinkingProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
-  const getStepConfig = () => {
-    switch (metadata.stepType) {
-      case 'preprocessing':
-        return {
-          icon: Brain,
-          textColor: "text-blue-600 dark:text-blue-400",
-          bgColor: "bg-blue-50 dark:bg-blue-900/20",
-        };
-      case 'web-research':
-        return {
-          icon: Globe,
-          textColor: "text-green-600 dark:text-green-400",
-          bgColor: "bg-green-50 dark:bg-green-900/20",
-        };
-      case 'sources-found':
-        return {
-          icon: Package,
-          textColor: "text-purple-600 dark:text-purple-400",
-          bgColor: "bg-purple-50 dark:bg-purple-900/20",
-        };
-      case 'processing':
-        return {
-          icon: Brain,
-          textColor: "text-indigo-600 dark:text-indigo-400",
-          bgColor: "bg-indigo-50 dark:bg-indigo-900/20",
-        };
-      case 'response-generation':
-        return {
-          icon: Loader2,
-          textColor: "text-orange-600 dark:text-orange-400",
-          bgColor: "bg-orange-50 dark:bg-orange-900/20",
-        };
-      case 'fallback':
-        return {
-          icon: AlertCircle,
-          textColor: "text-yellow-600 dark:text-yellow-400",
-          bgColor: "bg-yellow-50 dark:bg-yellow-900/20",
-        };
-      case 'error':
-        return {
-          icon: XCircle,
-          textColor: "text-red-600 dark:text-red-400",
-          bgColor: "bg-red-50 dark:bg-red-900/20",
-        };
-      default:
-        return {
-          icon: Search,
-          textColor: "text-muted-foreground",
-          bgColor: "bg-muted/30",
-        };
-    }
-  };
-
   const getStepIcon = () => {
-    const config = getStepConfig();
-    const Icon = config.icon;
     const isSpinning = metadata.stepType === 'response-generation' && metadata.status === 'running';
     
-    return <Icon className={cn("w-4 h-4", config.textColor, isSpinning && "animate-spin")} />;
+    switch (metadata.stepType) {
+      case 'preprocessing':
+        return <Brain className={cn("w-4 h-4 text-muted-foreground/80", isSpinning && "animate-spin")} />;
+      case 'web-research':
+        return <Globe className={cn("w-4 h-4 text-muted-foreground/80", isSpinning && "animate-spin")} />;
+      case 'sources-found':
+        return <Package className={cn("w-4 h-4 text-muted-foreground/80", isSpinning && "animate-spin")} />;
+      case 'processing':
+        return <Brain className={cn("w-4 h-4 text-muted-foreground/80", isSpinning && "animate-spin")} />;
+      case 'response-generation':
+        return <Loader2 className={cn("w-4 h-4 text-muted-foreground/80", isSpinning && "animate-spin")} />;
+      case 'fallback':
+        return <AlertCircle className="w-4 h-4 text-muted-foreground/80" />;
+      case 'error':
+        return <XCircle className="w-4 h-4 text-destructive/80" />;
+      default:
+        return <Search className="w-4 h-4 text-muted-foreground/80" />;
+    }
   };
 
   const copyToClipboard = async (url: string, index: number) => {
@@ -98,17 +60,17 @@ export function MessageStepThinking({ metadata }: MessageStepThinkingProps) {
     }
   };
 
-  const config = getStepConfig();
-
   return (
     <div className="mb-4 ml-10 animate-in fade-in slide-in-from-bottom-2 duration-300">
-      <div className={cn(
-        "flex items-center gap-3 p-2 rounded-lg transition-all w-fit max-w-full",
-        config.bgColor
-      )}>
+      <div className="flex items-center gap-3 p-2 transition-all w-fit max-w-full">
         <div className="flex items-center gap-2">
             {getStepIcon()}
-            <span className={cn("text-sm font-medium", config.textColor)}>
+            <span className={cn(
+              "text-sm font-medium",
+              metadata.status === 'error' 
+                ? "text-destructive/80" 
+                : "text-muted-foreground/80"
+            )}>
                 {metadata.label}
             </span>
         </div>
@@ -135,7 +97,7 @@ export function MessageStepThinking({ metadata }: MessageStepThinkingProps) {
       {metadata.progress !== undefined && metadata.progress < 100 && (
          <div className="ml-1 mt-1 w-32 h-1 bg-muted/50 rounded-full overflow-hidden">
             <div 
-                className={cn("h-full transition-all duration-300", config.textColor.replace('text-', 'bg-'))} 
+                className="h-full bg-primary/50 transition-all duration-300" 
                 style={{ width: `${metadata.progress}%` }}
             />
          </div>

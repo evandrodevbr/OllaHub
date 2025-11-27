@@ -9,6 +9,7 @@ import { MessageSquare, Settings, Server, Moon, Sun, PanelLeftClose, PanelLeftOp
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ChatInput } from "@/components/chat/chat-input";
 import { ChatMessage } from "@/components/chat/chat-message";
+import { ReasoningChain } from "@/components/chat/reasoning-chain";
  
 import { SidebarList } from "@/components/chat/sidebar-list";
 import { useChat } from "@/hooks/use-chat";
@@ -122,8 +123,7 @@ export default function ChatPage() {
   // Initialize with default format prompt
   const [systemPrompt, setSystemPrompt] = useState(defaultFormatPrompt || "Você é um assistente útil e prestativo.");
   const [isChatsSidebarCollapsed, setIsChatsSidebarCollapsed] = useState(true); // Iniciar colapsada
-  const [thinkingStep, setThinkingStep] = useState<ThinkingStep | null>(null);
-  const [processSteps, setProcessSteps] = useState<ProcessStep[]>([]);
+  // Removido: thinkingStep e processSteps - agora usando mensagens thinking agrupadas
   const [error, setError] = useState<string | Error | null>(null);
   
   const chatsSidebarRef = useRef<ImperativePanelHandle>(null);
@@ -266,10 +266,7 @@ export default function ChatPage() {
     // Adicionar mensagem de processo: Pré-processamento
     addThinkingMessage('preprocessing', 'Pré-processamento', 'running');
     
-    // Resetar e inicializar steps do processo (para compatibilidade com componentes antigos)
-    setProcessSteps([
-      { id: 'preprocessing', label: 'Pré-processamento', status: 'running', timestamp: Date.now() },
-    ]);
+    // Removido: setProcessSteps - agora usando mensagens thinking agrupadas
     
     // Limpar erros anteriores
     setError(null);
@@ -305,11 +302,7 @@ export default function ChatPage() {
         duration: Date.now() - preprocessingStart,
       });
       
-      setProcessSteps(prev => prev.map(s => 
-        s.id === 'preprocessing' 
-          ? { ...s, status: 'error' as const, error: errorMessage }
-          : s
-      ));
+      // Removido: setProcessSteps - agora usando mensagens thinking agrupadas
       
       // Definir erro global
       setError(error);
@@ -369,14 +362,12 @@ export default function ChatPage() {
 
         // Passo 1: Decomposição
         chatLog.info('Step 1: Decomposition');
-        setThinkingStep('planning');
         const searchPlan = await deepResearch.decompose(content, selectedModel);
         chatLog.info(`Search Plan: ${JSON.stringify(searchPlan)}`);
         
         if (searchPlan && searchPlan.length > 0) {
            // Passo 2: Executar buscas com fallback progressivo
            chatLog.info(`\nStep 2: Executing ${searchPlan.length} searches with progressive fallback`);
-           setThinkingStep('searching');
            
            // Atualizar progresso: decomposição concluída
            updateThinkingMessage('web-research', {
@@ -567,13 +558,11 @@ export default function ChatPage() {
         } else {
           // Fallback para busca simples
            chatLog.info('Decomposition returned empty, falling back to simple search');
-           setThinkingStep('searching');
            const simpleQuery = await generateQuery(content, selectedModel);
            chatLog.info(`Simple query generated: "${simpleQuery}"`);
            if (simpleQuery && simpleQuery !== 'NO_SEARCH') {
              const results = await webSearch.smartSearchRag(simpleQuery, settings.webSearch.maxResults);
              chatLog.info(`Simple search results: ${results.length}`);
-             setThinkingStep('reading');
              if (results.length > 0) {
                deepResearch.addToKnowledgeBase(simpleQuery, results);
                knowledgeBaseContext = deepResearch.getCuratedContext();
@@ -617,16 +606,7 @@ export default function ChatPage() {
   };
     
     // ========== LÓGICA DE DEEP RESEARCH (Knowledge Base Aggregation) ==========
-    // Iniciar indicador de pensamento
-    setThinkingStep('analyzing');
-    
-    // Adicionar step de pesquisa web se necessário
-    if (webSearch.isEnabled && preprocessed.shouldSearch) {
-      setProcessSteps(prev => [
-        ...prev,
-        { id: 'web-research', label: 'Pesquisa Web', status: 'running', timestamp: Date.now() },
-      ]);
-    }
+    // Removido: setThinkingStep e setProcessSteps - agora usando mensagens thinking agrupadas
     
     const researchStart = Date.now();
     // Executar pesquisa web
@@ -635,24 +615,9 @@ export default function ChatPage() {
       preprocessed
     );
     
-    // Atualizar step de pesquisa web
-    if (webSearch.isEnabled && preprocessed.shouldSearch) {
-      setProcessSteps(prev => prev.map(s => 
-        s.id === 'web-research' 
-          ? { ...s, status: 'completed' as const, duration: Date.now() - researchStart }
-          : s
-      ));
-    }
-    
     // Passo 5: Formular resposta
     chatLog.info('\nStep 5: Formulating Response');
-    setThinkingStep('formulating');
-    
-    // Adicionar step de geração de resposta
-    setProcessSteps(prev => [
-      ...prev,
-      { id: 'response-generation', label: 'Geração de Resposta', status: 'running', timestamp: Date.now() },
-    ]);
+    // Removido: setThinkingStep e setProcessSteps - agora usando mensagens thinking agrupadas
     
     // ========== MONTAR SYSTEM PROMPT COM CONTEXTO TEMPORAL E VALIDAÇÃO ==========
     // Usar timezone do sistema do usuário (não fixo)
@@ -793,12 +758,7 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
       duration: Date.now() - responseStart,
     });
     
-    // Atualizar step de geração de resposta quando streaming completar (para compatibilidade)
-    setProcessSteps(prev => prev.map(s => 
-      s.id === 'response-generation' 
-        ? { ...s, status: 'completed' as const, duration: Date.now() - responseStart }
-        : s
-    ));
+    // Removido: setProcessSteps - agora usando mensagens thinking agrupadas
     
     chatLog.info('✅ Response generation complete');
     chatLog.info('========== QUERY COMPLETE ==========\n');
@@ -831,8 +791,7 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
       });
     }
     
-    // Marcar como completo quando começar a streamar
-    setTimeout(() => setThinkingStep('complete'), 100);
+    // Removido: setThinkingStep - agora usando mensagens thinking agrupadas
   };
 
   const handleSelectSession = async (id: string) => {
@@ -1102,24 +1061,98 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                     </div>
                   ) : (
                     <div className="flex flex-col gap-4 sm:gap-6">
-                      {messages.map((msg, i) => {
-                        const isLastMessage = i === messages.length - (isLoading ? 1 : 0); // Ajuste simples
-                        // Streaming logica mantida simples
-                        const isAssistantStreaming = i === messages.length - 1 && msg.role === 'assistant' && isLoading;
+                      {(() => {
+                        // Agrupar mensagens thinking consecutivas
+                        const groupedMessages: Array<{
+                          type: 'thinking-group' | 'regular';
+                          messages?: Message[];
+                          thinkingSteps?: ThinkingMessageMetadata[];
+                          searchQueries?: string[];
+                          index?: number;
+                          message?: Message;
+                          isStreaming?: boolean;
+                        }> = [];
                         
-                        return (
-                          <div key={i} className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                            <ChatMessage message={msg} isStreaming={isAssistantStreaming} />
-                          </div>
-                        );
-                      })}
-                      
-                      {isLoading && (
-                        <div className="px-4 py-2 text-sm text-muted-foreground animate-pulse flex items-center gap-2">
-                          <div className="w-2 h-2 bg-primary/50 rounded-full animate-bounce" />
-                          <span>Pensando...</span>
-                        </div>
-                      )}
+                        let currentThinkingGroup: ThinkingMessageMetadata[] = [];
+                        let currentSearchQueries: string[] = [];
+                        
+                        for (let i = 0; i < messages.length; i++) {
+                          const msg = messages[i];
+                          const isThinkingMessage = msg.metadata && 
+                            typeof msg.metadata === 'object' && 
+                            'type' in msg.metadata && 
+                            msg.metadata.type === 'thinking';
+                          
+                          if (isThinkingMessage) {
+                            const thinkingMeta = msg.metadata as ThinkingMessageMetadata;
+                            currentThinkingGroup.push(thinkingMeta);
+                            
+                            // Extrair queries de busca dos detalhes
+                            if (thinkingMeta.details && thinkingMeta.stepType === 'web-research') {
+                              const queryMatch = thinkingMeta.details.match(/Buscando consulta \d+\/\d+: "([^"]+)"/);
+                              if (queryMatch && queryMatch[1]) {
+                                if (!currentSearchQueries.includes(queryMatch[1])) {
+                                  currentSearchQueries.push(queryMatch[1]);
+                                }
+                              }
+                            }
+                          } else {
+                            // Se havia um grupo thinking, adicionar antes desta mensagem
+                            if (currentThinkingGroup.length > 0) {
+                              groupedMessages.push({
+                                type: 'thinking-group',
+                                thinkingSteps: [...currentThinkingGroup],
+                                searchQueries: [...currentSearchQueries],
+                              });
+                              currentThinkingGroup = [];
+                              currentSearchQueries = [];
+                            }
+                            
+                            // Adicionar mensagem regular
+                            const isLastMessage = i === messages.length - (isLoading ? 1 : 0);
+                            const isAssistantStreaming = i === messages.length - 1 && msg.role === 'assistant' && isLoading;
+                            
+                            groupedMessages.push({
+                              type: 'regular',
+                              message: msg,
+                              index: i,
+                              isStreaming: isAssistantStreaming,
+                            });
+                          }
+                        }
+                        
+                        // Adicionar grupo thinking final se houver
+                        if (currentThinkingGroup.length > 0) {
+                          groupedMessages.push({
+                            type: 'thinking-group',
+                            thinkingSteps: currentThinkingGroup,
+                            searchQueries: currentSearchQueries,
+                          });
+                        }
+                        
+                        return groupedMessages.map((group, idx) => {
+                          if (group.type === 'thinking-group' && group.thinkingSteps) {
+                            return (
+                              <div key={`thinking-${idx}`} className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                <ReasoningChain 
+                                  steps={group.thinkingSteps} 
+                                  searchQueries={group.searchQueries}
+                                />
+                              </div>
+                            );
+                          } else if (group.type === 'regular' && group.message) {
+                            return (
+                              <div key={group.index || idx} className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                <ChatMessage 
+                                  message={group.message} 
+                                  isStreaming={group.isStreaming} 
+                                />
+                              </div>
+                            );
+                          }
+                          return null;
+                        });
+                      })()}
                     </div>
                   )}
 
