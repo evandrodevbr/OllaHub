@@ -28,6 +28,7 @@ import { CheckCircle2, XCircle, Loader2, Download, Trash2, Copy, ExternalLink, P
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { SourcesConfig, SourceCategory } from '@/lib/types';
+import { TitleBar } from '@/components/titlebar';
 
 interface Model {
   name: string;
@@ -217,7 +218,10 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="container mx-auto py-4 sm:py-6 md:py-8 px-3 sm:px-4 md:px-6 max-w-4xl w-full overflow-x-hidden">
+    <div className="h-screen w-full bg-background overflow-hidden flex flex-col">
+      <TitleBar />
+      <div className="flex-1 overflow-y-auto">
+        <div className="container mx-auto py-4 sm:py-6 md:py-8 px-3 sm:px-4 md:px-6 max-w-4xl w-full overflow-x-hidden">
       <div className="mb-4 sm:mb-6">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
@@ -1130,6 +1134,8 @@ export default function SettingsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+        </div>
+      </div>
     </div>
   );
 }

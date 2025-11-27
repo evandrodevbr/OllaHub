@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { ChatInput } from "@/components/chat/chat-input";
 import { ChatMessage } from "@/components/chat/chat-message";
 import { ReasoningChain } from "@/components/chat/reasoning-chain";
+import { TitleBar } from "@/components/titlebar";
  
 import { SidebarList } from "@/components/chat/sidebar-list";
 import { useChat } from "@/hooks/use-chat";
@@ -874,9 +875,13 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
   };
 
   return (
-    <div className="h-screen w-full bg-background overflow-hidden flex overflow-x-hidden">
-      {/* Left Sidebar (Nav) */}
-      <ResizablePanelGroup direction="horizontal" className="flex-1">
+    <div className="h-screen w-full bg-background overflow-hidden flex flex-col overflow-x-hidden">
+      {/* Custom Title Bar */}
+      <TitleBar />
+      
+      {/* Main Content Area */}
+      <div className="flex-1 flex overflow-hidden">
+        <ResizablePanelGroup direction="horizontal" className="flex-1">
         
         <ResizablePanel 
           defaultSize={4} 
@@ -1252,6 +1257,7 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>
+      </div>
 
       {/* Mobile Sidebar Overlay */}
       {!isChatsSidebarCollapsed && (

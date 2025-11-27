@@ -8,6 +8,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Plus, Trash2, Clock, Play, Pause, CheckCircle2, XCircle, X, ArrowLeft } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { TitleBar } from '@/components/titlebar';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -102,7 +103,10 @@ export default function TasksPage() {
   };
   
   return (
-    <div className="container mx-auto p-4 sm:p-6 max-w-6xl w-full overflow-x-hidden">
+    <div className="h-screen w-full bg-background overflow-hidden flex flex-col">
+      <TitleBar />
+      <div className="flex-1 overflow-y-auto">
+        <div className="container mx-auto p-4 sm:p-6 max-w-6xl w-full overflow-x-hidden">
       <div className="mb-4 sm:mb-6">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
@@ -254,6 +258,8 @@ export default function TasksPage() {
         </div>
         </>
       )}
+        </div>
+      </div>
     </div>
   );
 }
