@@ -206,11 +206,11 @@ export async function analyzeQueryContext(
       complexity: analysis.complexity || 'moderate',
     };
 
-    chatLog.success(`[ContextualAnalysis] Contexto extraído: ${context.intent}, ${context.entities.length} entidades, ${context.topics.length} tópicos`);
+    chatLog.info(`[ContextualAnalysis] Contexto extraído: ${context.intent}, ${context.entities.length} entidades, ${context.topics.length} tópicos`);
 
     return context;
   } catch (error) {
-    chatLog.error(`[ContextualAnalysis] Erro ao analisar contexto:`, error);
+    chatLog.error(`[ContextualAnalysis] Erro ao analisar contexto: ${error instanceof Error ? error.message : String(error)}`);
 
     // Fallback: análise básica usando heurísticas
     return createFallbackContext(query);

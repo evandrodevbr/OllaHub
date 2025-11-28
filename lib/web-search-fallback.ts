@@ -132,7 +132,7 @@ Query expandida:`;
     chatLog.info(`Query expanded: "${originalQuery}" → "${expanded}"`);
     return expanded;
   } catch (error) {
-    chatLog.warn('Error expanding query, using original:', error);
+    chatLog.warn(`Error expanding query, using original: ${error instanceof Error ? error.message : String(error)}`);
     return originalQuery;
   }
 }
@@ -352,7 +352,7 @@ export async function executeProgressiveSearch(
         const results = await searchFn(finalQuery, finalConfig.maxResultsPerRound, round);
         return { query: finalQuery, results };
       } catch (error) {
-        chatLog.warn(`[Round ${round}] Query "${finalQuery}" failed:`, error);
+        chatLog.warn(`[Round ${round}] Query "${finalQuery}" failed: ${error instanceof Error ? error.message : String(error)}`);
         return { query: finalQuery, results: [] };
       }
     });

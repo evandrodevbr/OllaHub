@@ -392,7 +392,7 @@ export function useChatStorage() {
           const keywords = Array.isArray(msg.metadata.keywords) 
             ? msg.metadata.keywords 
             : [];
-          memoryContext.push(...keywords.filter(k => typeof k === 'string'));
+          memoryContext.push(...keywords.filter((k: unknown) => typeof k === 'string'));
         }
       });
       const uniqueMemoryContext = Array.from(new Set(memoryContext));
@@ -457,7 +457,7 @@ export function useChatStorage() {
         const keywords = Array.isArray(msg.metadata.keywords) 
           ? msg.metadata.keywords 
           : [];
-        memoryContext.push(...keywords.filter(k => typeof k === 'string'));
+        memoryContext.push(...keywords.filter((k: unknown) => typeof k === 'string'));
       }
     });
     // Deduplicate

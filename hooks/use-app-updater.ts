@@ -87,23 +87,18 @@ export function useAppUpdater(): AppUpdaterState {
       const update = await checkForUpdate();
 
       if (update?.available) {
-        // Escutar progresso do download
-        const unlisten = await update.on('download-progress', (progress: any) => {
-          setDownloadProgress(progress.progress || 0);
-        });
-
         // Baixar e instalar atualização
+        // O progresso pode ser monitorado via eventos do Tauri se necessário
         await update.downloadAndInstall();
-
-        unlisten();
-
-        // Reiniciar aplicativo após instalação
-        await update.installAndRestart();
+        
+        // Após downloadAndInstall(), o app será reiniciado automaticamente
+        // Não é necessário chamar installAndRestart() que não existe na API
       }
     } catch (err) {
       console.error('Failed to install update:', err);
       setError(err instanceof Error ? err.message : 'Erro ao instalar atualização');
       setIsDownloading(false);
+      setDownloadProgress(0);
     }
   }, [updateAvailable]);
 

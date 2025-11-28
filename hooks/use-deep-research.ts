@@ -195,7 +195,7 @@ export function useDeepResearch() {
       setState(s => ({ ...s, context }));
       return context;
     } catch (error) {
-      log.warn('Contextual analysis failed, continuing without context:', error);
+      log.warn(`Contextual analysis failed, continuing without context: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }, []);
@@ -219,7 +219,7 @@ export function useDeepResearch() {
       setState(s => ({ ...s, enrichedQueries: enriched }));
       return enriched;
     } catch (error) {
-      log.warn('Query enrichment failed, continuing without enrichment:', error);
+      log.warn(`Query enrichment failed, continuing without enrichment: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }, []);

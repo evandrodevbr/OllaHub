@@ -24,12 +24,13 @@ export interface CondensationOptions {
   context?: QueryContext; // Contexto analisado para ranqueamento semântico
 }
 
-const DEFAULT_OPTIONS: Required<CondensationOptions> = {
+const DEFAULT_OPTIONS: Omit<Required<CondensationOptions>, 'context'> & { context?: QueryContext } = {
   maxTokens: 12000,
   minRelevanceScore: 0.1,
   autoSummarize: true,
   summarizeThreshold: 5000,
   fallbackToSummarization: true,
+  context: undefined,
 };
 
 /**
@@ -108,7 +109,6 @@ export function condenseKnowledgeBase(
   entries.forEach((entry, entryIndex) => {
     const processed = processContent(entry.content, query, {
       summarizeThreshold: opts.summarizeThreshold,
-      autoSummarize: opts.autoSummarize,
     });
 
     // Atribuir sourceIndex e metadados aos chunks

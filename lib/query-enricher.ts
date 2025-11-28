@@ -176,7 +176,7 @@ export async function enrichQueries(
       result.expanded.length +
       result.contextual.length;
 
-    chatLog.success(
+    chatLog.info(
       `[QueryEnricher] ${totalQueries} queries geradas: ` +
       `${result.literal.length} literal, ${result.semantic.length} semântica, ` +
       `${result.related.length} relacionadas, ${result.expanded.length} expandidas, ` +
@@ -185,7 +185,7 @@ export async function enrichQueries(
 
     return result;
   } catch (error) {
-    chatLog.error(`[QueryEnricher] Erro ao enriquecer queries:`, error);
+    chatLog.error(`[QueryEnricher] Erro ao enriquecer queries: ${error instanceof Error ? error.message : String(error)}`);
 
     // Fallback: usar apenas query original
     return createFallbackEnrichment(originalQuery, context);

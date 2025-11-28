@@ -156,7 +156,7 @@ export async function extractKeyFacts(
       entities: f.entities || [],
     }));
   } catch (error) {
-    chatLog.warn(`[ContextUnifier] Erro ao extrair fatos de ${entry.title}:`, error);
+    chatLog.warn(`[ContextUnifier] Erro ao extrair fatos de ${entry.title}: ${error instanceof Error ? error.message : String(error)}`);
     // Fallback: criar fato básico do título
     return [{
       fact: entry.title,
@@ -273,7 +273,7 @@ export async function unifyContext(
 
   // Criar texto unificado
   const unifiedSections: string[] = [];
-  const sourceMap = new Map<string, { title: string; url: string; factsCount: number }>();
+  const sourceMap = new Map<string, { id: string; title: string; url: string; factsCount: number }>();
 
   // Agrupar por fonte
   for (const entry of entries) {
@@ -281,6 +281,7 @@ export async function unifyContext(
     
     if (entryFacts.length > 0) {
       sourceMap.set(entry.id, {
+        id: entry.id,
         title: entry.title,
         url: entry.sourceUrl,
         factsCount: entryFacts.length,

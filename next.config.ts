@@ -5,19 +5,17 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
-  webpack: (config, { isServer }) => {
-    // Adiciona suporte para raw-loader apenas no cliente
-    if (!isServer) {
-      config.module.rules.push({
-        test: /\.md$/,
-        use: {
-          loader: 'raw-loader',
-          options: {
-            esModule: false,
-          },
+  webpack: (config) => {
+    // Adiciona suporte para raw-loader para arquivos .md
+    config.module.rules.push({
+      test: /\.md$/,
+      use: {
+        loader: 'raw-loader',
+        options: {
+          esModule: false,
         },
-      });
-    }
+      },
+    });
     return config;
   },
   // Configuração Turbopack: objeto vazio silencia o erro

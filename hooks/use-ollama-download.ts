@@ -53,6 +53,8 @@ export function useOllamaDownload() {
       downloadError: null,
       filePath: null,
       isInstalled: false,
+      isChecking: false,
+      checkStatus: '',
     });
 
     try {
@@ -66,6 +68,8 @@ export function useOllamaDownload() {
           downloadError: null,
           filePath: existingPath,
           isInstalled: false,
+          isChecking: false,
+          checkStatus: '',
         });
         return;
       }
@@ -79,6 +83,8 @@ export function useOllamaDownload() {
         downloadError: null,
         filePath,
         isInstalled: false,
+        isChecking: false,
+        checkStatus: '',
       });
     } catch (error) {
       setState({
@@ -88,6 +94,8 @@ export function useOllamaDownload() {
         downloadError: error instanceof Error ? error.message : 'Erro desconhecido durante download',
         filePath: null,
         isInstalled: false,
+        isChecking: false,
+        checkStatus: '',
       });
     }
   };
