@@ -14,12 +14,22 @@ interface ModelSelectorProps {
   onComplete: () => void;
 }
 
+interface DownloadInfo {
+  status: string;
+  percent?: number;
+  downloaded?: string;
+  total?: string;
+  speed?: string;
+  raw: string;
+}
+
 export function ModelSelector({ recommendation, onComplete }: ModelSelectorProps) {
   const [selectedModelId, setSelectedModelId] = useState(recommendation.modelId);
   const [isInstalled, setIsInstalled] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadStatus, setDownloadStatus] = useState("");
+  const [downloadInfo, setDownloadInfo] = useState<DownloadInfo | null>(null);
 
   const selectedModel = RECOMMENDED_MODELS.find(m => m.id === selectedModelId) || RECOMMENDED_MODELS[0];
 
@@ -29,25 +39,60 @@ export function ModelSelector({ recommendation, onComplete }: ModelSelectorProps
 
   useEffect(() => {
     const unlisten = listen<string>('download-progress', (event) => {
-      const line = event.payload;
-      setDownloadStatus(line);
+      const payload = event.payload;
       
-      // Simple heuristic parsing for progress
-      // Ollama output example: "pulling manifest", "downloading 10%", "verifying sha256 digest"
-      if (line.includes('%')) {
-        const match = line.match(/(\d+)%/);
-        if (match) {
-          setDownloadProgress(parseInt(match[1], 10));
+      // Tentar parsear como JSON estruturado
+      let info: DownloadInfo | null = null;
+      try {
+        info = JSON.parse(payload) as DownloadInfo;
+      } catch {
+        // Fallback: tratar como string raw
+        info = {
+          status: "downloading",
+          raw: payload,
+        };
+      }
+      
+      if (info) {
+        setDownloadInfo(info);
+        
+        // Atualizar status text
+        const statusText = info.status === "pulling" ? "Baixando modelo..." :
+                         info.status === "verifying" ? "Verificando..." :
+                         info.status === "writing" ? "Salvando..." :
+                         info.status === "success" ? "Concluído!" :
+                         "Baixando...";
+        setDownloadStatus(statusText);
+        
+        // Atualizar progresso
+        if (info.percent !== undefined) {
+          setDownloadProgress(info.percent);
+        } else {
+          // Fallback: estimar progresso baseado no status
+          if (info.status === "pulling") {
+            setDownloadProgress(prev => prev < 10 ? 10 : prev);
+          } else if (info.status === "verifying") {
+            setDownloadProgress(90);
+          } else if (info.status === "writing") {
+            setDownloadProgress(95);
+          }
         }
-      } else if (line.includes('success')) {
-        setDownloadProgress(100);
+        
+        // Se chegou a 100% ou success, marcar como instalado após um pequeno delay
+        if (info.percent === 100 || info.status === "success") {
+          setTimeout(() => {
+            setIsInstalled(true);
+            setIsDownloading(false);
+            checkInstallation(selectedModelId);
+          }, 500);
+        }
       }
     });
 
     return () => {
       unlisten.then(f => f());
     };
-  }, []);
+  }, [selectedModelId]);
 
   const checkInstallation = async (modelId: string) => {
     try {
@@ -61,13 +106,15 @@ export function ModelSelector({ recommendation, onComplete }: ModelSelectorProps
   const handleDownload = async () => {
     setIsDownloading(true);
     setDownloadProgress(0);
+    setDownloadStatus("Iniciando download...");
     try {
       await invoke('pull_model', { name: selectedModelId });
-      setIsInstalled(true);
-      setIsDownloading(false);
+      // O status será atualizado pelo listener quando o download completar
+      // Não precisamos setar aqui pois o listener já faz isso
     } catch (error) {
       console.error("Download failed", error);
       setDownloadStatus("Falha no download. Tente novamente.");
+      setDownloadProgress(0);
       setIsDownloading(false);
     }
   };
@@ -128,6 +175,18 @@ export function ModelSelector({ recommendation, onComplete }: ModelSelectorProps
               <span>{downloadProgress}%</span>
             </div>
             <Progress value={downloadProgress} className="h-2" />
+            {downloadInfo && (downloadInfo.downloaded || downloadInfo.speed) && (
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>
+                  {downloadInfo.downloaded && downloadInfo.total 
+                    ? `${downloadInfo.downloaded} / ${downloadInfo.total}`
+                    : downloadInfo.downloaded || ""}
+                </span>
+                {downloadInfo.speed && (
+                  <span>{downloadInfo.speed}</span>
+                )}
+              </div>
+            )}
           </div>
         )}
       </CardContent>

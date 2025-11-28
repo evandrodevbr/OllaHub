@@ -4,12 +4,35 @@ import { useOllamaCheck } from "@/hooks/use-ollama-check";
 import { Hero } from "@/components/landing/hero";
 import { InstallModal } from "@/components/modals/install-modal";
 import { StoppedCard } from "@/components/landing/stopped-card";
+import { WelcomeNotification } from "@/components/notifications/welcome-notification";
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 export default function Home() {
   const { status, check } = useOllamaCheck();
   const router = useRouter();
+
+  // Tentar iniciar Ollama automaticamente quando o componente montar
+  useEffect(() => {
+    const tryAutoStart = async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke('auto_start_ollama');
+        // Aguardar um pouco e verificar novamente
+        setTimeout(() => {
+          check();
+        }, 2000);
+      } catch (error) {
+        console.error('Erro ao tentar iniciar Ollama automaticamente:', error);
+      }
+    };
+    
+    // Só tentar se estiver instalado mas não rodando
+    if (status === 'installed_stopped') {
+      tryAutoStart();
+    }
+  }, [status, check]);
 
   const handleStart = () => {
     const setupComplete = localStorage.getItem("ollahub_setup_complete");
@@ -31,6 +54,8 @@ export default function Home() {
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-4 bg-background text-foreground transition-colors duration-300">
+      {/* Notificação de boas-vindas */}
+      <WelcomeNotification />
       
       {/* Layout for Running State */}
       {status === 'running' && (

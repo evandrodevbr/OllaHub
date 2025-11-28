@@ -2,12 +2,13 @@
 
 import { useHardware } from "@/hooks/use-hardware";
 import { HardwareScan } from "@/components/setup/hardware-scan";
+import { GpuSelector } from "@/components/setup/gpu-selector";
 import { ModelSelector } from "@/components/setup/model-selector";
 import { getRecommendation } from "@/lib/recommendation";
 import { useRouter } from "next/navigation";
 
 export default function SetupPage() {
-  const { specs, loading } = useHardware();
+  const { specs, loading, gpus } = useHardware();
   const router = useRouter();
 
   const handleComplete = () => {
@@ -25,6 +26,12 @@ export default function SetupPage() {
         </div>
 
         <HardwareScan specs={specs} loading={loading} />
+
+        {!loading && specs && gpus.length > 0 && (
+          <div className="animate-in slide-in-from-bottom-8 duration-700 delay-200 fill-mode-backwards">
+            <GpuSelector gpus={gpus} />
+          </div>
+        )}
 
         {!loading && specs && (
           <div className="animate-in slide-in-from-bottom-8 duration-700 delay-300 fill-mode-backwards">

@@ -5,8 +5,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Copy, FileJson, FileText, MoreHorizontal } from "lucide-react";
-import { useState } from "react";
+import { Copy, FileJson, FileText, MoreHorizontal, Contrast } from "lucide-react";
+import { useEffect, useState } from "react";
 
 interface MessageActionsProps {
   content: string;
@@ -15,6 +15,16 @@ interface MessageActionsProps {
 
 export function MessageActions({ content, role }: MessageActionsProps) {
   const [copied, setCopied] = useState(false);
+  const [highContrast, setHighContrast] = useState(false);
+
+  useEffect(() => {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('highContrast') === 'true' : false;
+    setHighContrast(saved);
+    if (typeof document !== 'undefined') {
+      if (saved) document.documentElement.setAttribute('data-high-contrast', 'true');
+      else document.documentElement.removeAttribute('data-high-contrast');
+    }
+  }, []);
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -73,9 +83,27 @@ export function MessageActions({ content, role }: MessageActionsProps) {
             <FileJson className="mr-2 h-4 w-4" />
             <span>Copiar JSON</span>
           </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => {
+              const next = !highContrast;
+              setHighContrast(next);
+              if (typeof document !== 'undefined') {
+                if (next) document.documentElement.setAttribute('data-high-contrast', 'true');
+                else document.documentElement.removeAttribute('data-high-contrast');
+              }
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('highContrast', String(next));
+              }
+            }}
+          >
+            <Contrast className="mr-2 h-4 w-4" />
+            <span>{highContrast ? 'Desativar Alto Contraste' : 'Ativar Alto Contraste'}</span>
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
   );
 }
+
+
 

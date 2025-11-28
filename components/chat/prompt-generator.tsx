@@ -2,6 +2,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Sparkles, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { usePromptGenerator } from "@/hooks/use-prompt-generator";
@@ -92,30 +93,54 @@ export function PromptGeneratorDialog({ defaultModel, onPromptGenerated }: Promp
             <label htmlFor="model-select" className="text-sm font-medium">
               Modelo para Geração
             </label>
-            <Select 
-              value={selectedModel || undefined} 
-              onValueChange={setSelectedModel}
-              disabled={loading || models.length === 0}
-            >
-              <SelectTrigger id="model-select">
-                <SelectValue placeholder={
-                  loading 
-                    ? "Carregando modelos..." 
-                    : models.length === 0 
-                      ? "Nenhum modelo disponível" 
-                      : "Selecione um modelo..."
-                } />
-              </SelectTrigger>
-              <SelectContent>
-                {models.length === 0 ? (
-                  <SelectItem value="" disabled>Nenhum modelo disponível</SelectItem>
-                ) : (
-                  models.map(m => (
-                    <SelectItem key={m.name} value={m.name}>{m.name}</SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
+            <TooltipProvider>
+              <Select 
+                value={selectedModel || undefined} 
+                onValueChange={setSelectedModel}
+                disabled={loading || models.length === 0}
+              >
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <SelectTrigger id="model-select" className="min-w-0 max-w-full">
+                      <SelectValue placeholder={
+                        loading 
+                          ? "Carregando modelos..." 
+                          : models.length === 0 
+                            ? "Nenhum modelo disponível" 
+                            : "Selecione um modelo..."
+                      } className="truncate" />
+                    </SelectTrigger>
+                  </TooltipTrigger>
+                  {selectedModel && (
+                    <TooltipContent side="top" className="max-w-[70vw] break-words">
+                      <p className="text-sm">{selectedModel}</p>
+                    </TooltipContent>
+                  )}
+                </Tooltip>
+                <SelectContent className="max-w-[90vw]">
+                  {models.length === 0 ? (
+                    <SelectItem value="" disabled>Nenhum modelo disponível</SelectItem>
+                  ) : (
+                    models.map(m => (
+                      <Tooltip key={m.name}>
+                        <TooltipTrigger asChild>
+                          <SelectItem value={m.name} className="min-w-0">
+                            <span className="truncate block" style={{ maxWidth: '70vw' }}>
+                              {m.name}
+                            </span>
+                          </SelectItem>
+                        </TooltipTrigger>
+                        {m.name.length > 40 && (
+                          <TooltipContent side="right" className="max-w-[70vw] break-words">
+                            <p className="text-sm">{m.name}</p>
+                          </TooltipContent>
+                        )}
+                      </Tooltip>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </TooltipProvider>
             <p className="text-xs text-muted-foreground">
               Recomendado: Modelos com boa capacidade de instrução (ex: Llama 3, Mistral).
             </p>
@@ -130,7 +155,7 @@ export function PromptGeneratorDialog({ defaultModel, onPromptGenerated }: Promp
               value={goal}
               onChange={(e) => setGoal(e.target.value)}
               placeholder="Ex: Quero um assistente especialista em Python que explique conceitos complexos de forma simples..."
-              className="min-h-[150px]"
+              className="min-h-[160px]"
               disabled={isGenerating}
             />
           </div>

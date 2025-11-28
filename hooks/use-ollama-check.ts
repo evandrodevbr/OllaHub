@@ -7,28 +7,37 @@ export function useOllamaCheck() {
   const [status, setStatus] = useState<OllamaStatus>('checking');
 
   const check = async () => {
-    // Don't set checking here if we want to silently revalidate, 
-    // but for initial load or explicit re-check it is fine.
-    // Only set checking if it's not already in a known state to avoid flicker?
-    // For now simple is better.
+    setStatus('checking');
     try {
-      const installed = await invoke<boolean>('check_ollama_installed');
-      if (!installed) {
-        setStatus('not_installed');
-        return;
-      }
-
-      const running = await invoke<boolean>('check_ollama_running');
-      if (!running) {
-        setStatus('installed_stopped');
-        return;
-      }
-
-      setStatus('running');
+      // Usar verificação completa que checa instalação E execução
+      const result = await invoke<{
+        installed: boolean;
+        running: boolean;
+        status: string;
+      }>('check_ollama_full');
+      
+      setStatus(result.status as OllamaStatus);
     } catch (error) {
       console.error('Failed to check ollama:', error);
-      // If invoke fails (e.g. backend not ready), we might want to handle gracefully
-      setStatus('not_installed');
+      // Se falhar, tentar verificação individual como fallback
+      try {
+        const installed = await invoke<boolean>('check_ollama_installed');
+        if (!installed) {
+          setStatus('not_installed');
+          return;
+        }
+
+        const running = await invoke<boolean>('check_ollama_running');
+        if (!running) {
+          setStatus('installed_stopped');
+          return;
+        }
+
+        setStatus('running');
+      } catch (fallbackError) {
+        console.error('Fallback check also failed:', fallbackError);
+        setStatus('not_installed');
+      }
     }
   };
 

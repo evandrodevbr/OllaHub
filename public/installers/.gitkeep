@@ -1,0 +1,9 @@
+# Instaladores de fallback do Ollama
+# 
+# Adicione os seguintes arquivos aqui:
+# - OllamaSetup.exe (Windows)
+# - Ollama-darwin.zip (macOS)
+# - install.sh (Linux)
+#
+# Estes arquivos serão usados como fallback caso os links oficiais não estejam disponíveis.
+

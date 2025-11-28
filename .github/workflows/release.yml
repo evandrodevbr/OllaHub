@@ -1,0 +1,185 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+env:
+  TAURI_VERSION: "2.9.4"
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'windows-latest'
+            target: 'x86_64-pc-windows-msvc'
+            bundle: 'msi'
+          - platform: 'macos-latest'
+            target: 'aarch64-apple-darwin'
+            bundle: 'dmg'
+          - platform: 'macos-latest'
+            target: 'x86_64-apple-darwin'
+            bundle: 'dmg'
+          - platform: 'ubuntu-latest'
+            target: 'x86_64-unknown-linux-gnu'
+            bundle: 'appimage'
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: Install dependencies (Ubuntu only)
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate changelog
+        run: pnpm generate-changelog
+
+      - name: Build Tauri app
+        run: |
+          cd src-tauri
+          cargo build --release --target ${{ matrix.target }}
+
+      - name: Build Tauri bundle
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_UPDATER_PRIVATE_KEY }}
+        run: |
+          cd src-tauri
+          if [ -n "$TAURI_PRIVATE_KEY" ]; then
+            echo "$TAURI_PRIVATE_KEY" > /tmp/private.key
+            cargo tauri build --target ${{ matrix.target }} --config '{"updater":{"active":true}}'
+            rm /tmp/private.key
+          else
+            cargo tauri build --target ${{ matrix.target }}
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}-${{ matrix.target }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.${{ matrix.bundle }}
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
+          retention-days: 7
+
+  create-release:
+    needs: build
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8
+
+      - name: Get version
+        id: get_version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Generate changelog for release
+        run: pnpm generate-changelog
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Extract release notes
+        id: extract_notes
+        run: |
+          if [ -f "data/changelog.json" ]; then
+            NOTES=$(node -e "
+              const fs = require('fs');
+              try {
+                const changelog = JSON.parse(fs.readFileSync('data/changelog.json', 'utf-8'));
+                const latestRelease = changelog.releases[0];
+                if (latestRelease) {
+                  let notes = '## ' + (latestRelease.version === 'unreleased' ? 'Próxima Versão' : 'v' + latestRelease.version) + '\\n\\n';
+                  notes += '**Data:** ' + latestRelease.date + '\\n\\n';
+                  notes += '### Mudanças\\n\\n';
+                  latestRelease.commits.forEach(commit => {
+                    const icon = commit.type === 'feat' ? '✨' : '🐛';
+                    notes += '- ' + icon + ' **' + (commit.type === 'feat' ? 'Nova Funcionalidade' : 'Correção') + ':** ' + commit.message + '\\n';
+                  });
+                  console.log(notes);
+                } else {
+                  console.log('## Release ${{ steps.get_version.outputs.version }}');
+                }
+              } catch (e) {
+                console.log('## Release ${{ steps.get_version.outputs.version }}');
+              }
+            ")
+            echo "notes<<EOF" >> $GITHUB_OUTPUT
+            echo "$NOTES" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "notes=## Release ${{ steps.get_version.outputs.version }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.get_version.outputs.tag }}
+          name: Release ${{ steps.get_version.outputs.tag }}
+          body: |
+            ${{ steps.extract_notes.outputs.notes }}
+            
+            ## Downloads
+            
+            Baixe o instalador para sua plataforma nos assets abaixo.
+          draft: false
+          files: artifacts/**/*
+          generate_release_notes: false
+
