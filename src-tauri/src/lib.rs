@@ -3613,6 +3613,9 @@ pub fn run() {
       // Plugin de notificações
       app.handle().plugin(tauri_plugin_notification::init())?;
       
+      // Plugin de atualização automática
+      app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+      
       // Modificar comportamento de fechar janela (ocultar ao invés de fechar)
       if let Some(window) = app.get_webview_window("main") {
         let window_clone = window.clone();

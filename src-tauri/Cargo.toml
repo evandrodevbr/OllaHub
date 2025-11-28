@@ -44,6 +44,7 @@ futures-util = "0.3"
 regex = "1.10"
 walkdir = "2.5"
 tauri-plugin-autostart = "2"
+tauri-plugin-updater = "2"
 dirs = "5.0"
 rfd = "0.14"
 rusqlite = { version = "0.31", features = ["bundled"] }

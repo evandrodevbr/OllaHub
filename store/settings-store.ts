@@ -56,6 +56,9 @@ export interface SettingsState {
     keywords: string[];
   };
 
+  // Updates
+  autoCheckUpdates: boolean;
+
   // Query Preprocessing
   queryPreprocessing: {
     enabled: boolean;
@@ -95,6 +98,9 @@ export interface SettingsState {
   setNotificationsEnabled: (enabled: boolean) => void;
   addNotificationKeyword: (keyword: string) => void;
   removeNotificationKeyword: (keyword: string) => void;
+  
+  // Updates Actions
+  setAutoCheckUpdates: (enabled: boolean) => void;
   
   // Query Preprocessing Actions
   setQueryPreprocessingEnabled: (enabled: boolean) => void;
@@ -221,6 +227,7 @@ const initialState = {
     enabled: true,
     keywords: [],
   },
+  autoCheckUpdates: true,
   queryPreprocessing: {
     enabled: true,
     minLength: 3,
@@ -407,6 +414,10 @@ export const useSettingsStore = create<SettingsState>()(
           },
         })),
       
+      // Updates Actions
+      setAutoCheckUpdates: (enabled) =>
+        set({ autoCheckUpdates: enabled }),
+      
       // Query Preprocessing Actions
       setQueryPreprocessingEnabled: (enabled) =>
         set((state) => ({
@@ -479,7 +490,17 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'ollahub-settings',
-      version: 1,
+      version: 3,
+      migrate: (persistedState: any, version: number) => {
+        // Migração da versão 1 para 3
+        if (version < 3) {
+          return {
+            ...persistedState,
+            autoCheckUpdates: persistedState.autoCheckUpdates ?? true,
+          };
+        }
+        return persistedState;
+      },
     }
   )
 );
