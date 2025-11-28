@@ -83,6 +83,19 @@ jobs:
       - name: Generate changelog
         run: pnpm generate-changelog
 
+      - name: Build frontend (Next.js)
+        shell: bash
+        env:
+          NODE_OPTIONS: ${{ matrix.platform == 'macos-latest' && matrix.target == 'aarch64-apple-darwin' && '--max-old-space-size=4096' || '--max-old-space-size=2048' }}
+        run: |
+          echo "Building Next.js frontend with NODE_OPTIONS=${NODE_OPTIONS}"
+          pnpm build
+          if [ ! -d "out" ]; then
+            echo "Error: Frontend build failed - 'out' directory not found"
+            exit 1
+          fi
+          echo "Frontend build successful - 'out' directory exists"
+
       - name: Build Tauri app
         run: |
           cd src-tauri
@@ -92,6 +105,7 @@ jobs:
         shell: bash
         env:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_UPDATER_PRIVATE_KEY }}
+          NODE_OPTIONS: ${{ matrix.platform == 'macos-latest' && matrix.target == 'aarch64-apple-darwin' && '--max-old-space-size=4096' || '--max-old-space-size=2048' }}
         run: |
           cd src-tauri
           if [ -n "$TAURI_PRIVATE_KEY" ]; then
