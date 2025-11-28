@@ -64,6 +64,7 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
       - name: Install frontend dependencies
+        shell: bash
         run: |
           if [ -f pnpm-lock.yaml ]; then
             pnpm install --frozen-lockfile
@@ -80,6 +81,7 @@ jobs:
           cargo build --release --target ${{ matrix.target }}
 
       - name: Build Tauri bundle
+        shell: bash
         env:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_UPDATER_PRIVATE_KEY }}
         run: |
@@ -128,6 +130,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install frontend dependencies
+        shell: bash
         run: |
           if [ -f pnpm-lock.yaml ]; then
             pnpm install --frozen-lockfile
@@ -152,6 +155,7 @@ jobs:
 
       - name: Extract release notes
         id: extract_notes
+        shell: bash
         run: |
           if [ -f "data/changelog.json" ]; then
             NOTES=$(node -e "
