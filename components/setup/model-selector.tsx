@@ -8,6 +8,7 @@ import { RECOMMENDED_MODELS, ModelRecommendation } from "@/lib/recommendation";
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { startTransition } from "react";
 
 interface ModelSelectorProps {
   recommendation: ModelRecommendation;
@@ -30,6 +31,7 @@ export function ModelSelector({ recommendation, onComplete }: ModelSelectorProps
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadStatus, setDownloadStatus] = useState("");
   const [downloadInfo, setDownloadInfo] = useState<DownloadInfo | null>(null);
+  const [isNavigating, setIsNavigating] = useState(false);
 
   const selectedModel = RECOMMENDED_MODELS.find(m => m.id === selectedModelId) || RECOMMENDED_MODELS[0];
 
@@ -80,10 +82,11 @@ export function ModelSelector({ recommendation, onComplete }: ModelSelectorProps
         
         // Se chegou a 100% ou success, marcar como instalado após um pequeno delay
         if (info.percent === 100 || info.status === "success") {
-          setTimeout(() => {
+          setTimeout(async () => {
             setIsInstalled(true);
             setIsDownloading(false);
-            checkInstallation(selectedModelId);
+            // Verificar instalação de forma assíncrona sem bloquear
+            checkInstallation(selectedModelId).catch(console.error);
           }, 500);
         }
       }
@@ -101,6 +104,14 @@ export function ModelSelector({ recommendation, onComplete }: ModelSelectorProps
     } catch (e) {
       console.error("Check failed", e);
     }
+  };
+
+  const handleNavigate = () => {
+    setIsNavigating(true);
+    // Usar startTransition para navegação não-bloqueante
+    startTransition(() => {
+      onComplete();
+    });
   };
 
   const handleDownload = async () => {
@@ -192,9 +203,22 @@ export function ModelSelector({ recommendation, onComplete }: ModelSelectorProps
       </CardContent>
       <CardFooter>
         {isInstalled ? (
-          <Button className="w-full h-12 text-lg" onClick={onComplete}>
-            Ir para o Chat
-            <Play className="ml-2 w-5 h-5" />
+          <Button 
+            className="w-full h-12 text-lg" 
+            onClick={handleNavigate}
+            disabled={isNavigating}
+          >
+            {isNavigating ? (
+              <>
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                Inicializando...
+              </>
+            ) : (
+              <>
+                Ir para o Chat
+                <Play className="ml-2 w-5 h-5" />
+              </>
+            )}
           </Button>
         ) : (
           <Button 

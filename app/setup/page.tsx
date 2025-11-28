@@ -6,15 +6,22 @@ import { GpuSelector } from "@/components/setup/gpu-selector";
 import { ModelSelector } from "@/components/setup/model-selector";
 import { getRecommendation } from "@/lib/recommendation";
 import { useRouter } from "next/navigation";
+import { startTransition, useState } from "react";
 
 export default function SetupPage() {
   const { specs, loading, gpus } = useHardware();
   const router = useRouter();
+  const [isNavigating, setIsNavigating] = useState(false);
 
   const handleComplete = () => {
+    setIsNavigating(true);
     // Save setup state if needed
     localStorage.setItem("ollahub_setup_complete", "true");
-    router.push("/chat");
+    
+    // Usar startTransition para navegação não-bloqueante
+    startTransition(() => {
+      router.push("/chat");
+    });
   };
 
   return (

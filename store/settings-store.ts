@@ -59,6 +59,9 @@ export interface SettingsState {
   // Updates
   autoCheckUpdates: boolean;
 
+  // Debug
+  debugMode: boolean;
+
   // Query Preprocessing
   queryPreprocessing: {
     enabled: boolean;
@@ -101,6 +104,9 @@ export interface SettingsState {
   
   // Updates Actions
   setAutoCheckUpdates: (enabled: boolean) => void;
+  
+  // Debug Actions
+  setDebugMode: (enabled: boolean) => void;
   
   // Query Preprocessing Actions
   setQueryPreprocessingEnabled: (enabled: boolean) => void;
@@ -161,7 +167,7 @@ const defaultCategories: SearchCategory[] = [
       'pubmed.ncbi.nlm.nih.gov',
       'researchgate.net',
     ],
-    enabled: false,
+    enabled: true,
   },
   {
     id: 'news',
@@ -197,7 +203,7 @@ const defaultCategories: SearchCategory[] = [
       'investing.com',
       'yahoo.com/finance',
     ],
-    enabled: false,
+    enabled: true,
   },
 ];
 
@@ -228,6 +234,7 @@ const initialState = {
     keywords: [],
   },
   autoCheckUpdates: true,
+  debugMode: false,
   queryPreprocessing: {
     enabled: true,
     minLength: 3,
@@ -418,6 +425,10 @@ export const useSettingsStore = create<SettingsState>()(
       setAutoCheckUpdates: (enabled) =>
         set({ autoCheckUpdates: enabled }),
       
+      // Debug Actions
+      setDebugMode: (enabled) =>
+        set({ debugMode: enabled }),
+      
       // Query Preprocessing Actions
       setQueryPreprocessingEnabled: (enabled) =>
         set((state) => ({
@@ -490,13 +501,20 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'ollahub-settings',
-      version: 3,
+      version: 4,
       migrate: (persistedState: any, version: number) => {
         // Migração da versão 1 para 3
         if (version < 3) {
           return {
             ...persistedState,
             autoCheckUpdates: persistedState.autoCheckUpdates ?? true,
+          };
+        }
+        // Migração da versão 3 para 4
+        if (version < 4) {
+          return {
+            ...persistedState,
+            debugMode: persistedState.debugMode ?? false,
           };
         }
         return persistedState;

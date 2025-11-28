@@ -210,6 +210,7 @@ pub fn detect_all_gpus() -> Vec<GpuInfo> {
 #[cfg(target_os = "windows")]
 fn detect_gpus_windows() -> Vec<GpuInfo> {
     use std::process::Command;
+    use std::os::windows::process::CommandExt;
     let mut gpus = Vec::new();
     
     log::info!("Tentando detectar GPUs via wmic...");
@@ -217,6 +218,7 @@ fn detect_gpus_windows() -> Vec<GpuInfo> {
     // Tentar formato CSV primeiro (mais confiável)
     if let Ok(output) = Command::new("wmic")
         .args(&["path", "win32_VideoController", "get", "name,AdapterRAM,PNPDeviceID", "/format:csv"])
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
         .output()
     {
         // wmic pode retornar UTF-16LE no Windows, precisamos converter
@@ -282,6 +284,7 @@ fn detect_gpus_windows() -> Vec<GpuInfo> {
         // Fallback para formato list
         if let Ok(output) = Command::new("wmic")
             .args(&["path", "win32_VideoController", "get", "name,AdapterRAM,PNPDeviceID", "/format:list"])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
             .output()
         {
             if let Ok(stdout) = String::from_utf8(output.stdout) {
@@ -337,11 +340,13 @@ fn detect_gpus_windows() -> Vec<GpuInfo> {
 #[cfg(target_os = "windows")]
 fn detect_gpus_nvidia_smi() -> Result<Vec<GpuInfo>, String> {
     use std::process::Command;
+    use std::os::windows::process::CommandExt;
     
     log::info!("Executando nvidia-smi...");
     
     let output = Command::new("nvidia-smi")
         .args(&["--query-gpu=name,memory.total", "--format=csv,noheader,nounits"])
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
         .output()
         .map_err(|e| format!("nvidia-smi não encontrado: {}", e))?;
     
@@ -678,13 +683,19 @@ fn get_nvidia_gpu_stats(gpu: &GpuInfo) -> Option<GpuStats> {
     // Query nvidia-smi para obter todas as métricas
     let query = "name,memory.used,memory.total,utilization.gpu,utilization.memory,temperature.gpu,temperature.max,power.draw,power.limit,fan.speed,driver_version";
     
-    let output = Command::new("nvidia-smi")
-        .args(&[
-            "--query-gpu", query,
-            "--format=csv,noheader,nounits"
-        ])
-        .output()
-        .ok()?;
+    #[cfg(target_os = "windows")]
+    use std::os::windows::process::CommandExt;
+    
+    let mut cmd = Command::new("nvidia-smi");
+    cmd.args(&[
+        "--query-gpu", query,
+        "--format=csv,noheader,nounits"
+    ]);
+    
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    
+    let output = cmd.output().ok()?;
     
     if !output.status.success() {
         log::warn!("nvidia-smi falhou ao coletar stats");
@@ -757,9 +768,16 @@ fn get_nvidia_gpu_stats(gpu: &GpuInfo) -> Option<GpuStats> {
 fn count_nvidia_gpu_processes() -> Result<usize, String> {
     use std::process::Command;
     
-    let output = Command::new("nvidia-smi")
-        .args(&["--query-compute-apps=pid", "--format=csv,noheader"])
-        .output()
+    #[cfg(target_os = "windows")]
+    use std::os::windows::process::CommandExt;
+    
+    let mut cmd = Command::new("nvidia-smi");
+    cmd.args(&["--query-compute-apps=pid", "--format=csv,noheader"]);
+    
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    
+    let output = cmd.output()
         .map_err(|e| format!("nvidia-smi não encontrado: {}", e))?;
     
     if !output.status.success() {

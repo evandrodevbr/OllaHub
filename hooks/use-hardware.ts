@@ -10,11 +10,8 @@ export function useHardware() {
     async function fetchSpecs() {
       try {
         const data = await invoke<SystemSpecs>('get_system_specs');
-        // Simulate a small delay for the "scanning" effect
-        setTimeout(() => {
-          setSpecs(data);
-          setLoading(false);
-        }, 1500);
+        setSpecs(data);
+        setLoading(false);
       } catch (error) {
         console.error("Failed to get system specs:", error);
         setLoading(false);

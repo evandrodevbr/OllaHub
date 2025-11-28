@@ -43,11 +43,33 @@ export function HardwareDashboard() {
 
   if (isLoading || !stats) {
     return (
-      <Card>
-        <CardContent className="py-8 text-center text-muted-foreground">
-          Carregando estatísticas do sistema...
-        </CardContent>
-      </Card>
+      <div className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {/* Skeleton Cards */}
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i}>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="h-4 w-16 bg-muted animate-pulse rounded" />
+                  <div className="h-5 w-12 bg-muted animate-pulse rounded" />
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <div className="h-2 w-full bg-muted animate-pulse rounded" />
+                <div className="h-3 w-24 bg-muted animate-pulse rounded" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            <div className="flex items-center justify-center gap-2">
+              <div className="h-4 w-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              <span>Carregando estatísticas do sistema...</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 

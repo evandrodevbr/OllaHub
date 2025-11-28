@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/dialog';
 import { useSettingsStore } from '@/store/settings-store';
 import { DomainTagsInput } from '@/components/settings/domain-tags-input';
-import { HardwareDashboard } from '@/components/settings/HardwareDashboard';
+const HardwareDashboard = lazy(() => import('@/components/settings/HardwareDashboard').then(m => ({ default: m.HardwareDashboard })));
 import { invoke } from '@tauri-apps/api/core';
 import { CheckCircle2, XCircle, Loader2, Download, Trash2, Copy, ExternalLink, Plus, X, BookOpen, GraduationCap, Newspaper, Code, DollarSign, Edit, RotateCcw, Terminal, Power, ArrowLeft, Sparkles, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -55,6 +55,7 @@ export default function SettingsPage() {
   const [recentLogs, setRecentLogs] = useState<string[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [appVersion, setAppVersion] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<string>('overview');
   
   const updater = useAppUpdater();
 
@@ -252,7 +253,7 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="overview" className="space-y-4 sm:space-y-6">
+      <Tabs defaultValue="overview" value={activeTab} onValueChange={setActiveTab} className="space-y-4 sm:space-y-6">
         <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-1 sm:gap-2 h-auto">
           <TabsTrigger value="overview" className="text-xs sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2 truncate">
             Visão Geral
@@ -284,7 +285,30 @@ export default function SettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <HardwareDashboard />
+              {activeTab === 'overview' && (
+                <Suspense fallback={
+                  <div className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                      {[1, 2, 3, 4].map((i) => (
+                        <Card key={i}>
+                          <CardHeader className="pb-3">
+                            <div className="flex items-center justify-between">
+                              <div className="h-4 w-16 bg-muted animate-pulse rounded" />
+                              <div className="h-5 w-12 bg-muted animate-pulse rounded" />
+                            </div>
+                          </CardHeader>
+                          <CardContent className="space-y-2">
+                            <div className="h-2 w-full bg-muted animate-pulse rounded" />
+                            <div className="h-3 w-24 bg-muted animate-pulse rounded" />
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </div>
+                }>
+                  <HardwareDashboard />
+                </Suspense>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -1103,6 +1127,38 @@ export default function SettingsPage() {
                   Encerrar Processos Chrome
                 </Button>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Debug & Desenvolvimento</CardTitle>
+              <CardDescription>
+                Ferramentas de debug e introspecção técnica
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="debug-mode">Modo Debug (God-Mode)</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Exibe console completo de introspecção técnica para cada resposta da IA
+                  </p>
+                </div>
+                <Switch
+                  id="debug-mode"
+                  checked={settings.debugMode}
+                  onCheckedChange={settings.setDebugMode}
+                />
+              </div>
+              {settings.debugMode && (
+                <div className="p-3 bg-muted/50 rounded-lg border border-border/50">
+                  <p className="text-xs text-muted-foreground">
+                    O console de debug mostrará: System Prompt, Histórico da Sessão, Deep Research Pipeline, 
+                    Dados Processados e Resposta Raw para cada mensagem do assistente.
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
 

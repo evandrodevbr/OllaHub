@@ -6,7 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tauri::{command, Window, Emitter, Manager, AppHandle, State};
+use tauri::{command, Window, Emitter, Manager, AppHandle, State, WebviewWindow};
 use sysinfo::System;
 use chrono::{DateTime, Utc};
 use zip::write::{FileOptions, ZipWriter};
@@ -326,6 +326,23 @@ fn get_mcp_config_path(app_handle: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
     
     Ok(app_data_dir.join("mcp_config.json"))
+}
+
+#[command]
+fn toggle_devtools(window: WebviewWindow) -> Result<(), String> {
+    #[cfg(debug_assertions)]
+    {
+        if window.is_devtools_open() {
+            window.close_devtools();
+        } else {
+            window.open_devtools();
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        // Em release, não fazer nada
+    }
+    Ok(())
 }
 
 #[command]
@@ -3697,6 +3714,7 @@ pub fn run() {
         delete_model,
         save_chat_session,
         load_chat_sessions,
+        toggle_devtools,
         search_chat_sessions,
         load_chat_history,
         load_chat_history_paginated,

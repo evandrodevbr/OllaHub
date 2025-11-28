@@ -1,53 +1,63 @@
 'use client';
 
-import { useOllamaCheck } from "@/hooks/use-ollama-check";
+import { useSetupCheck } from "@/hooks/use-setup-check";
 import { Hero } from "@/components/landing/hero";
 import { InstallModal } from "@/components/modals/install-modal";
 import { StoppedCard } from "@/components/landing/stopped-card";
 import { WelcomeNotification } from "@/components/notifications/welcome-notification";
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, startTransition } from "react";
 
 export default function Home() {
-  const { status, check } = useOllamaCheck();
+  const { status, ollamaStatus, checkingStep, recheck } = useSetupCheck();
   const router = useRouter();
 
-  // Tentar iniciar Ollama automaticamente quando o componente montar
+  // Redirecionar automaticamente se tudo estiver pronto
   useEffect(() => {
-    const tryAutoStart = async () => {
-      try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        await invoke('auto_start_ollama');
-        // Aguardar um pouco e verificar novamente
-        setTimeout(() => {
-          check();
-        }, 2000);
-      } catch (error) {
-        console.error('Erro ao tentar iniciar Ollama automaticamente:', error);
+    if (status === 'ready') {
+      const setupComplete = localStorage.getItem("ollahub_setup_complete");
+      
+      // Se setup não foi marcado como completo, marcar agora
+      if (!setupComplete) {
+        localStorage.setItem("ollahub_setup_complete", "true");
       }
-    };
-    
-    // Só tentar se estiver instalado mas não rodando
-    if (status === 'installed_stopped') {
-      tryAutoStart();
+      
+      // Redirecionar para chat após um breve delay para mostrar feedback
+      const timer = setTimeout(() => {
+        startTransition(() => {
+          router.push("/chat");
+        });
+      }, 500);
+      
+      return () => clearTimeout(timer);
     }
-  }, [status, check]);
+  }, [status, router]);
 
   const handleStart = () => {
     const setupComplete = localStorage.getItem("ollahub_setup_complete");
     if (setupComplete) {
-      router.push("/chat");
+      startTransition(() => {
+        router.push("/chat");
+      });
     } else {
-      router.push("/setup");
+      startTransition(() => {
+        router.push("/setup");
+      });
     }
   };
 
+  // Mostrar loading durante verificação
   if (status === 'checking') {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <span className="ml-2 text-muted-foreground">Verificando sistema...</span>
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <div className="flex flex-col items-center gap-1">
+            <span className="text-sm font-medium text-foreground">{checkingStep}</span>
+            <span className="text-xs text-muted-foreground">Aguarde um momento...</span>
+          </div>
+        </div>
       </div>
     );
   }
@@ -57,24 +67,37 @@ export default function Home() {
       {/* Notificação de boas-vindas */}
       <WelcomeNotification />
       
-      {/* Layout for Running State */}
-      {status === 'running' && (
+      {/* Layout for Ready State - Redirecionamento automático */}
+      {status === 'ready' && (
+        <div className="flex h-screen w-full items-center justify-center bg-background">
+          <div className="flex flex-col items-center gap-4 animate-in fade-in duration-300">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <div className="flex flex-col items-center gap-1">
+              <span className="text-sm font-medium text-foreground">Tudo pronto!</span>
+              <span className="text-xs text-muted-foreground">Redirecionando para o chat...</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Layout for Needs Setup State */}
+      {status === 'needs_setup' && ollamaStatus === 'running' && (
         <Hero onStart={handleStart} />
       )}
 
       {/* Layout for Stopped State */}
-      {status === 'installed_stopped' && (
+      {status === 'needs_setup' && ollamaStatus === 'installed_stopped' && (
         <div className="flex flex-col items-center gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
            <div className="text-center space-y-2">
               <h1 className="text-3xl font-bold tracking-tighter">OllaHub</h1>
               <p className="text-muted-foreground">Detectamos o Ollama, mas ele não está rodando.</p>
            </div>
-           <StoppedCard onCheckAgain={check} />
+           <StoppedCard onCheckAgain={recheck} />
         </div>
       )}
 
       {/* Layout for Not Installed State (Background + Modal) */}
-      {status === 'not_installed' && (
+      {status === 'needs_ollama' && (
         <>
           <div className="opacity-20 pointer-events-none blur-sm">
              <Hero onStart={() => {}} /> 
@@ -82,7 +105,7 @@ export default function Home() {
           {/* Hero is shown in background, modal is open */}
           <InstallModal 
             open={true} 
-            onCheckAgain={check} 
+            onCheckAgain={recheck} 
           />
         </>
       )}

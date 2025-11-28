@@ -3,7 +3,7 @@
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { MessageSquare, Settings, Server, Moon, Sun, PanelLeftClose, PanelLeftOpen, Loader2, ChevronDown, Plus, ScrollText, Copy, Check, Globe, RefreshCw, Cpu } from "lucide-react";
+import { MessageSquare, Settings, Server, Moon, Sun, PanelLeftClose, PanelLeftOpen, Loader2, ChevronDown, Plus, RefreshCw, Cpu } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ChatInput } from "@/components/chat/chat-input";
 import { ChatMessage } from "@/components/chat/chat-message";
@@ -33,6 +33,7 @@ import { chatLog } from "@/lib/terminal-logger";
 import { useQueryPreprocessor, type PreprocessedQuery } from "@/hooks/use-query-preprocessor";
 import type { Message, ThinkingMessageMetadata, ThinkingStepType, ThinkingStepStatus } from "@/hooks/use-chat";
 import { executeProgressiveSearch } from "@/lib/web-search-fallback";
+import type { DebugData } from "@/components/chat/debug-console";
 // @ts-expect-error - MD file import
 import defaultFormatPrompt from "@/data/prompts/default-format.md";
 
@@ -125,14 +126,9 @@ export default function ChatPage() {
   const lastSavedMessagesRef = useRef<number>(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const [showContextDebug, setShowContextDebug] = useState(false);
-  const [showProcessDebug, setShowProcessDebug] = useState(false);
-  const [lastWebContext, setLastWebContext] = useState('');
-  const [lastContextSources, setLastContextSources] = useState<ScrapedContent[]>([]);
   const [showDownloadDialog, setShowDownloadDialog] = useState(false);
-  const [logsCopied, setLogsCopied] = useState(false);
-  const [lastUserQuery, setLastUserQuery] = useState('');
   const [searchMatchIndex, setSearchMatchIndex] = useState(0);
+  const [debugDataMap, setDebugDataMap] = useState<Map<number, DebugData>>(new Map());
   
   // Resetar índice quando busca é limpa ou sessão muda
   useEffect(() => {
@@ -369,13 +365,6 @@ export default function ChatPage() {
     chatLog.info(`Should Search: ${preprocessed.shouldSearch}`);
     chatLog.info(`Timestamp: ${new Date().toISOString()}`);
     
-    setShowContextDebug(false);
-    setShowProcessDebug(false);
-    setLastWebContext('');
-    setLastContextSources([]);
-    setLastUserQuery(content); // Store for copy logs
-    setLogsCopied(false);
-    
     // Generate ID if new session (but don't create card yet - wait for title)
     if (!currentSessionId) {
       const newId = crypto.randomUUID();
@@ -598,8 +587,6 @@ export default function ChatPage() {
                chatLog.warn('⚠️ Knowledge Base Context is empty!');
              }
                
-             setLastWebContext(knowledgeBaseContext);
-             setLastContextSources(scrapedSources);
              
              // Atualizar mensagem: Processamento concluído
              updateThinkingMessage('processing', {
@@ -627,8 +614,6 @@ export default function ChatPage() {
                deepResearch.addToKnowledgeBase(simpleQuery, results);
                knowledgeBaseContext = deepResearch.getCuratedContext();
                scrapedSources = results;
-               setLastWebContext(knowledgeBaseContext);
-               setLastContextSources(scrapedSources);
              }
            } else {
              chatLog.info('Simple query returned NO_SEARCH, skipping web search');
@@ -837,6 +822,46 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
     chatLog.info('✅ Response generation complete');
     chatLog.info('========== QUERY COMPLETE ==========\n');
     
+    // Construir dados de debug para a última mensagem do assistente
+    setMessages(prev => {
+      const newMessages = [...prev];
+      const lastMsgIndex = newMessages.length - 1;
+      if (lastMsgIndex >= 0 && newMessages[lastMsgIndex].role === 'assistant') {
+        const lastMsg = newMessages[lastMsgIndex];
+        const debugData: DebugData = {
+          model: selectedModel,
+          timestamp: Date.now(),
+          latency: Date.now() - responseStart,
+          systemPrompt: enhancedSystemPrompt,
+          userQuery: content,
+          contextUsed: messages.filter(m => m.role !== 'system'),
+          webResearch: {
+            queries: deepResearch.state.plan || [],
+            enrichedQueries: deepResearch.state.enrichedQueries || undefined,
+            sources: scrapedSources,
+            logs: deepResearch.state.logs,
+            plan: deepResearch.state.plan,
+            knowledgeBase: deepResearch.state.knowledgeBase.map(entry => ({
+              sourceUrl: entry.sourceUrl,
+              title: entry.title,
+              content: entry.content,
+            })),
+          },
+          deepResearchState: deepResearch.state,
+          finalResponse: lastMsg.content,
+          rawResponse: lastMsg.content,
+        };
+        
+        // Armazenar debug data usando o índice da mensagem
+        setDebugDataMap(prevMap => {
+          const newMap = new Map(prevMap);
+          newMap.set(lastMsgIndex, debugData);
+          return newMap;
+        });
+      }
+      return newMessages;
+    });
+    
     // Persistir fontes na mensagem do assistente (metadata)
     if (scrapedSources.length > 0) {
       // Aguardar um pouco para garantir que o sendMessage iniciou e criou a mensagem do assistente
@@ -998,45 +1023,6 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
     }
   };
 
-  // Copy Logs to Clipboard
-  const handleCopyLogs = async () => {
-    const logs = deepResearch.state.logs;
-    const lastAssistantMessage = messages.filter(m => m.role === 'assistant').pop();
-    
-    let logText = `# Deep Research Debug Log\n\n`;
-    logText += `## User Query\n${lastUserQuery}\n\n`;
-    logText += `## Model\n${selectedModel}\n\n`;
-    logText += `## Process Logs\n\n`;
-    
-    logs.forEach((log, idx) => {
-      logText += `### ${idx + 1}. Stage: ${log.stage.toUpperCase()}\n`;
-      logText += `- **Time**: ${new Date(log.timestamp).toLocaleTimeString()}\n`;
-      logText += `- **Input**: ${log.input.substring(0, 500)}${log.input.length > 500 ? '...' : ''}\n`;
-      if (log.rawOutput) {
-        logText += `- **Raw Output**: ${log.rawOutput.substring(0, 500)}${log.rawOutput.length > 500 ? '...' : ''}\n`;
-      }
-      if (log.parsedOutput) {
-        logText += `- **Parsed Output**: \`\`\`json\n${JSON.stringify(log.parsedOutput, null, 2)}\n\`\`\`\n`;
-      }
-      if (log.error) {
-        logText += `- **Error**: ${log.error}\n`;
-      }
-      logText += '\n';
-    });
-    
-    logText += `## AI Response\n`;
-    logText += lastAssistantMessage?.content || '[No response yet]';
-    logText += '\n\n---\n';
-    logText += `Generated at: ${new Date().toISOString()}`;
-    
-    try {
-      await navigator.clipboard.writeText(logText);
-      setLogsCopied(true);
-      setTimeout(() => setLogsCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy logs:', err);
-    }
-  };
 
   return (
     <div className="h-screen w-full bg-background overflow-hidden flex flex-col overflow-x-hidden">
@@ -1380,6 +1366,7 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                                   highlightTerm={searchQuery && searchQuery.trim().length >= 2 ? searchQuery.trim() : undefined}
                                   highlightIndex={messageMatchIndex}
                                   messageIndex={group.index}
+                                  debugData={group.index !== undefined ? debugDataMap.get(group.index) : undefined}
                                 />
                               </div>
                             );
@@ -1387,71 +1374,6 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                           return null;
                         });
                       })()}
-                    </div>
-                  )}
-
-                  {/* Debug Info (Moved inside scroll) */}
-                  {(deepResearch.state.logs.length > 0 || lastWebContext) && (
-                    <div className="mt-12 pt-6 border-t border-dashed border-muted/50 opacity-70 hover:opacity-100 transition-opacity">
-                      <div className="space-y-4">
-                         {/* Process Log Toggle */}
-                         {deepResearch.state.logs.length > 0 && (
-                            <div>
-                                <button
-                                    type="button"
-                                    onClick={() => setShowProcessDebug((prev) => !prev)}
-                                    className="flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
-                                >
-                                    <ScrollText className="w-3 h-3" />
-                                    Debug: Processo de Pensamento
-                                    <ChevronDown className={`w-3 h-3 transition-transform ${showProcessDebug ? 'rotate-180' : ''}`} />
-                                </button>
-                                {showProcessDebug && (
-                                    <div className="mt-2 space-y-2 p-4 rounded-lg bg-muted/30 text-xs border border-muted/50 max-h-60 overflow-y-auto">
-                                        <div className="flex justify-end mb-2">
-                                            <Button variant="ghost" size="sm" onClick={handleCopyLogs} className="h-6 px-2 text-[10px]">
-                                                {logsCopied ? <Check className="w-3 h-3 mr-1" /> : <Copy className="w-3 h-3 mr-1" />} Copiar Logs
-                                            </Button>
-                                        </div>
-                                        {deepResearch.state.logs.map((log, idx) => (
-                                            <div key={idx} className="grid grid-cols-[60px_1fr] gap-2 border-b border-muted/20 pb-2 last:border-0">
-                                                <span className="text-muted-foreground uppercase text-[10px]">{log.stage}</span>
-                                                <span>{log.input ? (log.input.length > 50 ? log.input.substring(0, 50) + '...' : log.input) : '-'}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                         )}
-                         
-                         {/* Context Debug Toggle */}
-                         {lastWebContext && (
-                            <div>
-                                <button
-                                    type="button"
-                                    onClick={() => setShowContextDebug((prev) => !prev)}
-                                    className="flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
-                                >
-                                    <Globe className="w-3 h-3" />
-                                    Debug: Contexto Web ({lastContextSources.length} fontes)
-                                    <ChevronDown className={`w-3 h-3 transition-transform ${showContextDebug ? 'rotate-180' : ''}`} />
-                                </button>
-                                {showContextDebug && (
-                                    <div className="mt-2 p-4 rounded-lg bg-muted/30 text-xs border border-muted/50 space-y-3">
-                                        <div className="max-h-32 overflow-y-auto space-y-1">
-                                            {lastContextSources.map((s, i) => (
-                                                <a key={i} href={s.url} target="_blank" className="block hover:underline text-primary truncate">{s.title || s.url}</a>
-                                            ))}
-                                        </div>
-                                        <div className="border-t border-muted/20 pt-2">
-                                            <p className="mb-1 font-semibold">Preview Contexto:</p>
-                                            <pre className="max-h-32 overflow-y-auto p-2 bg-background rounded border text-[10px]">{lastWebContext.substring(0, 500)}...</pre>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                         )}
-                      </div>
                     </div>
                   )}
 

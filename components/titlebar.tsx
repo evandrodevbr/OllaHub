@@ -85,6 +85,12 @@ export function TitleBar() {
         className="flex items-center gap-2 px-4 h-full flex-1"
         data-tauri-drag-region
       >
+        <img 
+          src="/icon.png" 
+          alt="OllaHub" 
+          className="w-5 h-5 shrink-0"
+          draggable={false}
+        />
         <span className="text-sm font-medium text-sidebar-foreground">
           OllaHub
         </span>
