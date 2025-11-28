@@ -2,13 +2,44 @@ use anyhow::Result;
 use headless_chrome::{Browser, LaunchOptions, Tab};
 use reqwest::header::USER_AGENT;
 use scraper::{Html, Selector};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use url::Url;
 use rand::Rng;
 use tokio::sync::Semaphore;
 use regex::Regex;
 use std::time::Instant;
+
+/// Lazy-initialized global browser instance
+/// Evita criar o browser no startup, economizando ~500MB de RAM até ser necessário
+static LAZY_BROWSER: OnceLock<Mutex<Option<Arc<Browser>>>> = OnceLock::new();
+
+/// Obtém ou cria a instância global do browser (lazy initialization)
+pub fn get_or_create_browser() -> Result<Arc<Browser>> {
+    let mutex = LAZY_BROWSER.get_or_init(|| Mutex::new(None));
+    let mut guard = mutex.lock().map_err(|e| anyhow::anyhow!("Browser mutex poisoned: {}", e))?;
+    
+    if guard.is_none() {
+        log::info!("[LazyBrowser] Initializing headless browser on first use...");
+        let browser = create_browser()?;
+        *guard = Some(Arc::new(browser));
+        log::info!("[LazyBrowser] Browser initialized successfully");
+    }
+    
+    Ok(guard.as_ref().unwrap().clone())
+}
+
+/// Limpa a instância do browser (para liberar memória quando não em uso)
+pub fn clear_browser() {
+    if let Some(mutex) = LAZY_BROWSER.get() {
+        if let Ok(mut guard) = mutex.lock() {
+            if guard.is_some() {
+                log::info!("[LazyBrowser] Clearing browser instance to free memory");
+                *guard = None;
+            }
+        }
+    }
+}
 
 /// Resultado da extração de conteúdo de uma URL
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -1302,7 +1333,7 @@ pub async fn search_and_scrape_with_config(
     if connection_closed && !failed_urls.is_empty() {
         let retry_concurrency = std::cmp::min(3, config.max_concurrent_tabs.max(1));
         let semaphore = Arc::new(Semaphore::new(retry_concurrency));
-        let browser_new = Arc::new(create_browser()?);
+        let browser_new = get_or_create_browser()?;
         let mut retry_handles = Vec::new();
         for url in failed_urls.clone() {
             let browser_clone = browser_new.clone();
@@ -1341,11 +1372,79 @@ pub async fn search_and_scrape_with_config(
     Ok(results)
 }
 
-/// Busca e extrai conteúdo de uma única URL
+/// Scraping estático usando apenas reqwest (sem headless browser)
+/// Muito mais rápido (~100ms vs ~3s) e consome menos RAM
+/// Retorna None se o conteúdo for insuficiente (SPA/JavaScript-heavy)
+pub async fn scrape_url_static(url: &str) -> Result<Option<ScrapedContent>> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .build()?;
+    
+    let user_agent = get_random_user_agent();
+    let start_time = Instant::now();
+    
+    log::debug!("[StaticScrape] Fetching: {}", url);
+    
+    let response = match client
+        .get(url)
+        .header(USER_AGENT, user_agent)
+        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        .header("Accept-Language", "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7")
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            log::debug!("[StaticScrape] Request failed for {}: {}", url, e);
+            return Ok(None);
+        }
+    };
+    
+    if !response.status().is_success() {
+        log::debug!("[StaticScrape] HTTP {} for {}", response.status(), url);
+        return Ok(None);
+    }
+    
+    let html = match response.text().await {
+        Ok(t) => t,
+        Err(e) => {
+            log::debug!("[StaticScrape] Failed to read body for {}: {}", url, e);
+            return Ok(None);
+        }
+    };
+    
+    let duration = start_time.elapsed().as_millis();
+    
+    // Usar extract_paragraph_fallback existente
+    let result = extract_paragraph_fallback(url, &html);
+    
+    if let Some(ref content) = result {
+        log::info!("[StaticScrape] Success for {} ({} chars, {}ms)", 
+            url, content.content.len(), duration);
+    } else {
+        log::debug!("[StaticScrape] Insufficient content for {} ({}ms)", url, duration);
+    }
+    
+    Ok(result)
+}
+
+/// Busca e extrai conteúdo de uma única URL (híbrido: tenta estático primeiro)
 pub async fn scrape_url(
     url: &str,
     browser: Arc<Browser>,
 ) -> Result<ScrapedContent> {
+    // OTIMIZAÇÃO: Tentar scraping estático primeiro (muito mais rápido)
+    if let Ok(Some(content)) = scrape_url_static(url).await {
+        // Se conseguiu conteúdo suficiente (>500 chars), usar resultado estático
+        if content.content.len() > 500 {
+            log::info!("[ScrapeHybrid] Using static result for {} ({} chars)", url, content.content.len());
+            return Ok(content);
+        }
+    }
+    
+    // Fallback: usar headless browser para SPAs/JS-heavy pages
+    log::info!("[ScrapeHybrid] Falling back to headless for {}", url);
     let browser_clone = browser.clone();
     let url_str = url.to_string();
     tokio::task::spawn_blocking(move || {

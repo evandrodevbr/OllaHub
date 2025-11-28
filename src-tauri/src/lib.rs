@@ -21,6 +21,7 @@ mod sources_config;
 mod system_monitor;
 mod intent_classifier;
 mod db;
+mod embeddings;
 
 use web_scraper::{
     ScrapedContent,
@@ -2984,11 +2985,17 @@ async fn chat_stream(
         return Err(error_msg);
     }
     
-    // 5. Processar stream e emitir tokens
-    // IMPORTANTE: O Ollama envia tokens INCREMENTAIS (cada chunk contém apenas o novo conteúdo)
+    // 5. Processar stream e emitir tokens COM BUFFERING
+    // OTIMIZAÇÃO: Acumular tokens e emitir em batches para reduzir overhead da bridge
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
     let mut full_content = String::new();
+    
+    // Buffer de tokens para reduzir eventos na bridge
+    let mut token_buffer = String::new();
+    let mut last_emit = std::time::Instant::now();
+    const EMIT_INTERVAL_MS: u64 = 16; // ~60fps para sincronizar com RAF do frontend
+    const MAX_BUFFER_CHARS: usize = 50; // Emitir quando buffer tiver ~50 chars
     
     while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result.map_err(|e| format!("Stream error: {}", e))?;
@@ -3013,20 +3020,23 @@ async fn chat_stream(
                     // Extrair conteúdo do chunk (Ollama envia tokens incrementais)
                     if let Some(message) = json.get("message") {
                         if let Some(content) = message.get("content").and_then(|c| c.as_str()) {
-                            // O Ollama envia apenas o NOVO conteúdo em cada chunk, não o acumulado
-                            // Então podemos emitir diretamente
                             if !content.is_empty() {
                                 full_content.push_str(content);
+                                token_buffer.push_str(content);
                                 
-                                // Emitir token para frontend
-                                let token_event = ChatTokenEvent {
-                                    session_id: session_id.clone(),
-                                    content: content.to_string(),
-                                    done: false,
-                                };
-                                
-                                if let Err(e) = window.emit("chat-token", &token_event) {
-                                    log::warn!("Erro ao emitir token: {}", e);
+                                // Emitir buffer quando: tempo >= 16ms OU buffer >= 50 chars
+                                let elapsed = last_emit.elapsed().as_millis() as u64;
+                                if elapsed >= EMIT_INTERVAL_MS || token_buffer.len() >= MAX_BUFFER_CHARS {
+                                    let token_event = ChatTokenEvent {
+                                        session_id: session_id.clone(),
+                                        content: std::mem::take(&mut token_buffer),
+                                        done: false,
+                                    };
+                                    
+                                    if let Err(e) = window.emit("chat-token", &token_event) {
+                                        log::warn!("Erro ao emitir token: {}", e);
+                                    }
+                                    last_emit = std::time::Instant::now();
                                 }
                             }
                         }
@@ -3034,6 +3044,16 @@ async fn chat_stream(
                     
                     // Verificar se stream terminou
                     if is_done {
+                        // Flush do buffer residual antes de finalizar
+                        if !token_buffer.is_empty() {
+                            let flush_event = ChatTokenEvent {
+                                session_id: session_id.clone(),
+                                content: std::mem::take(&mut token_buffer),
+                                done: false,
+                            };
+                            let _ = window.emit("chat-token", &flush_event);
+                        }
+                        
                         // Emitir evento final
                         let final_event = ChatTokenEvent {
                             session_id: session_id.clone(),
@@ -3125,6 +3145,113 @@ async fn chat_stream(
     }
     
     Ok(session_id)
+}
+
+// ============== COMANDOS DE EMBEDDINGS ==============
+
+/// Baixa o modelo de embeddings se não existir
+#[command]
+async fn download_embedding_model(app_handle: AppHandle) -> Result<bool, String> {
+    let app_data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    
+    match embeddings::ensure_model_files(&app_data_dir).await {
+        Ok(_) => {
+            log::info!("[Embeddings] Model files ready");
+            Ok(true)
+        }
+        Err(e) => {
+            log::error!("[Embeddings] Failed to ensure model files: {}", e);
+            Err(format!("Failed to download model: {}", e))
+        }
+    }
+}
+
+/// Verifica se o modelo de embeddings está disponível
+#[command]
+fn is_embedding_model_available(app_handle: AppHandle) -> Result<bool, String> {
+    let app_data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    
+    Ok(embeddings::is_model_available(&app_data_dir))
+}
+
+/// Calcula scores de relevância para textos em relação a uma query
+#[command]
+fn calculate_relevance_scores(
+    app_handle: AppHandle,
+    query: String,
+    texts: Vec<String>,
+) -> Result<Vec<(usize, f32)>, String> {
+    let app_data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    
+    let model_arc = embeddings::get_or_init_model(&app_data_dir)
+        .map_err(|e| format!("Failed to load model: {}", e))?;
+    
+    let mut model = model_arc.lock()
+        .map_err(|e| format!("Failed to lock model: {}", e))?;
+    
+    let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+    
+    embeddings::rank_by_relevance(&mut model, &query, &text_refs)
+        .map_err(|e| format!("Failed to calculate relevance: {}", e))
+}
+
+/// Gera embedding para um texto
+#[command]
+fn generate_embedding(
+    app_handle: AppHandle,
+    text: String,
+) -> Result<Vec<f32>, String> {
+    let app_data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    
+    let model_arc = embeddings::get_or_init_model(&app_data_dir)
+        .map_err(|e| format!("Failed to load model: {}", e))?;
+    
+    let mut model = model_arc.lock()
+        .map_err(|e| format!("Failed to lock model: {}", e))?;
+    
+    model.embed(&text)
+        .map_err(|e| format!("Failed to generate embedding: {}", e))
+}
+
+/// Poda o contexto mantendo apenas os parágrafos mais relevantes
+#[command]
+fn prune_context(
+    app_handle: AppHandle,
+    query: String,
+    context: String,
+    max_tokens: Option<usize>,
+    min_score: Option<f32>,
+) -> Result<String, String> {
+    let max_tokens = max_tokens.unwrap_or(2000);
+    let min_score = min_score.unwrap_or(0.3);
+    
+    let app_data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    
+    // Tentar usar embeddings se modelo disponível
+    if embeddings::is_model_available(&app_data_dir) {
+        let model_arc = embeddings::get_or_init_model(&app_data_dir)
+            .map_err(|e| format!("Failed to load model: {}", e))?;
+        
+        let mut model = model_arc.lock()
+            .map_err(|e| format!("Failed to lock model: {}", e))?;
+        
+        embeddings::prune_context(&mut model, &query, &context, max_tokens, min_score)
+            .map_err(|e| format!("Failed to prune context: {}", e))
+    } else {
+        // Fallback para BM25-like
+        log::info!("[PruneContext] Using BM25 fallback (embedding model not available)");
+        Ok(embeddings::prune_context_bm25(&query, &context, max_tokens))
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -3267,7 +3394,13 @@ pub fn run() {
         get_downloaded_installer_path,
         check_ollama_full,
         auto_start_ollama,
-        classify_intent
+        classify_intent,
+        // Embeddings commands
+        download_embedding_model,
+        is_embedding_model_available,
+        calculate_relevance_scores,
+        generate_embedding,
+        prune_context
     ])
     .manage(Arc::new(Mutex::new(HashMap::<String, McpProcessHandle>::new())) as McpProcessMap)
     .run(tauri::generate_context!())

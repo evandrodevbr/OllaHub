@@ -255,6 +255,34 @@ export default function ChatPage() {
     }
   }, [settings.queryPreprocessing, webSearch.isEnabled, preprocess]);
 
+  // ========== EXECUÇÃO ESPECULATIVA DE BUSCA ==========
+  // Heurística rápida para detectar se a query provavelmente precisa de busca web
+  const mightNeedWebSearch = useCallback((text: string): boolean => {
+    if (!webSearch.isEnabled) return false;
+    
+    const lowerText = text.toLowerCase();
+    
+    // Padrões que indicam alta probabilidade de precisar de busca
+    const questionPatterns = /\b(o que|como|quando|onde|quem|porque|por que|qual|quais|quanto|quantos|me explique|me diga|existe|há)\b/i;
+    const recentPatterns = /\b(hoje|ontem|esta semana|este mês|este ano|atualmente|recentemente|últimas notícias|novo|novos|última|últimas|2024|2025)\b/i;
+    const searchPatterns = /\?$|buscar|pesquisar|encontrar|procurar|descobrir/i;
+    
+    // Se contém padrões de pergunta ou busca, provavelmente precisa de pesquisa
+    if (questionPatterns.test(lowerText) || recentPatterns.test(lowerText) || searchPatterns.test(lowerText)) {
+      chatLog.debug('[SpeculativeSearch] Query might need web search (pattern match)');
+      return true;
+    }
+    
+    // Se tem mais de 5 palavras e termina com ?, provavelmente é uma pergunta
+    const wordCount = text.trim().split(/\s+/).length;
+    if (wordCount > 5 && text.trim().endsWith('?')) {
+      chatLog.debug('[SpeculativeSearch] Query might need web search (question detected)');
+      return true;
+    }
+    
+    return false;
+  }, [webSearch.isEnabled]);
+
   const handleSend = async (content: string) => {
     if (!selectedModel) return;
     
@@ -270,6 +298,22 @@ export default function ChatPage() {
     
     // Limpar erros anteriores
     setError(null);
+    
+    // ========== EXECUÇÃO ESPECULATIVA ==========
+    // Iniciar busca web especulativamente se a query parecer precisar
+    // Isso reduz latência sobrepondo busca com pré-processamento
+    let speculativeSearchPromise: Promise<ScrapedContent[]> | null = null;
+    const shouldSpeculate = mightNeedWebSearch(content);
+    
+    if (shouldSpeculate) {
+      chatLog.info('[SpeculativeSearch] Starting speculative web search in parallel with preprocessing');
+      // Iniciar busca sem await - será usada depois se confirmada
+      speculativeSearchPromise = webSearch.smartSearchRag(content, settings.webSearch?.maxResults || 5)
+        .catch(err => {
+          chatLog.debug(`[SpeculativeSearch] Speculative search failed (will use normal flow): ${err}`);
+          return [] as ScrapedContent[];
+        });
+    }
     
     // ========== PRÉ-PROCESSAMENTO ==========
     let preprocessed: PreprocessedQuery;
@@ -339,7 +383,8 @@ export default function ChatPage() {
     // Função auxiliar para executar pesquisa web
     const executeWebResearch = async (
       content: string,
-      preprocessed: PreprocessedQuery
+      preprocessed: PreprocessedQuery,
+      speculativeResults?: ScrapedContent[] | null
     ): Promise<{
       knowledgeBaseContext: string;
       scrapedSources: ScrapedContent[];
@@ -352,6 +397,12 @@ export default function ChatPage() {
       // Roteamento inteligente: só buscar se shouldSearch for true
       if (webSearch.isEnabled && preprocessed.shouldSearch) {
       chatLog.info('\n--- STARTING DEEP RESEARCH PIPELINE ---');
+      
+      // Se temos resultados especulativos, usá-los como seed inicial
+      if (speculativeResults && speculativeResults.length > 0) {
+        chatLog.info(`[SpeculativeSearch] Using ${speculativeResults.length} speculative results as seed`);
+        deepResearch.addToKnowledgeBase('speculative_seed', speculativeResults);
+      }
       
       // Adicionar mensagem de processo: Pesquisa Web
       addThinkingMessage('web-research', 'Pesquisando na Web...', 'running');
@@ -614,10 +665,25 @@ export default function ChatPage() {
     // ========== LÓGICA DE DEEP RESEARCH (Knowledge Base Aggregation) ==========
     // Removido: setThinkingStep e setProcessSteps - agora usando mensagens thinking agrupadas
     
-    // Executar pesquisa web
+    // Aguardar resultado da busca especulativa se ela foi iniciada e shouldSearch é true
+    let speculativeResults: ScrapedContent[] | null = null;
+    if (speculativeSearchPromise && preprocessed.shouldSearch) {
+      chatLog.info('[SpeculativeSearch] Waiting for speculative search results...');
+      try {
+        speculativeResults = await speculativeSearchPromise;
+        chatLog.info(`[SpeculativeSearch] Got ${speculativeResults.length} speculative results`);
+      } catch (err) {
+        chatLog.debug(`[SpeculativeSearch] Failed to get speculative results: ${err}`);
+      }
+    } else if (speculativeSearchPromise && !preprocessed.shouldSearch) {
+      chatLog.info('[SpeculativeSearch] Discarding speculative search (preprocessing determined search not needed)');
+    }
+    
+    // Executar pesquisa web (usando resultados especulativos como seed se disponíveis)
     const { knowledgeBaseContext, scrapedSources, validationReport } = await executeWebResearch(
       content,
-      preprocessed
+      preprocessed,
+      speculativeResults
     );
     
     // Passo 5: Formular resposta
@@ -1150,6 +1216,13 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                             typeof msg.metadata === 'object' && 
                             'type' in msg.metadata && 
                             msg.metadata.type === 'thinking';
+                          
+                          // Pular mensagens de sistema que não são thinking (system prompt)
+                          // Essas mensagens nunca devem aparecer no chat
+                          const isSystemPrompt = msg.role === 'system' && !isThinkingMessage;
+                          if (isSystemPrompt) {
+                            continue;
+                          }
                           
                           if (isThinkingMessage) {
                             const thinkingMeta = msg.metadata as ThinkingMessageMetadata;
