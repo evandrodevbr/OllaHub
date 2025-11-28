@@ -4,9 +4,12 @@ import { useEffect, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Minus, Square, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useSystemHealth } from '@/hooks/use-system-health';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 export function TitleBar() {
   const [isMaximized, setIsMaximized] = useState(false);
+  const health = useSystemHealth();
 
   useEffect(() => {
     let isMounted = true;
@@ -94,6 +97,28 @@ export function TitleBar() {
         <span className="text-sm font-medium text-sidebar-foreground">
           OllaHub
         </span>
+        
+        {/* Indicador de saúde do sistema */}
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div
+                className={cn(
+                  "w-2 h-2 rounded-full shrink-0",
+                  health.status === 'healthy' && "bg-green-500",
+                  health.status === 'warning' && "bg-yellow-500",
+                  health.status === 'critical' && "bg-red-500"
+                )}
+              />
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">
+              <p>{health.message}</p>
+              <p className="text-muted-foreground mt-1">
+                RAM: {health.ram_percent.toFixed(1)}% | CPU: {health.cpu_percent.toFixed(1)}%
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
 
       {/* Controles de janela */}

@@ -23,12 +23,10 @@ export default function Home() {
         localStorage.setItem("ollahub_setup_complete", "true");
       }
       
-      // Redirecionar para chat após um breve delay para mostrar feedback
-      const timer = setTimeout(() => {
-        startTransition(() => {
-          router.push("/chat");
-        });
-      }, 500);
+      // Redirecionar para chat imediatamente (startTransition já garante não-bloqueio)
+      startTransition(() => {
+        router.push("/chat");
+      });
       
       return () => clearTimeout(timer);
     }

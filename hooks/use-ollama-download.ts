@@ -109,21 +109,24 @@ export function useOllamaDownload() {
       return;
     }
 
-    try {
-      await runInstaller(state.filePath);
-      setState(prev => ({
-        ...prev,
-        isInstalled: true,
-      }));
-      
-      // Iniciar verificação automática em segundo plano
-      startAutoCheck();
-    } catch (error) {
-      setState(prev => ({
-        ...prev,
-        downloadError: error instanceof Error ? error.message : 'Erro ao executar instalador',
-      }));
-    }
+    // Optimistic UI: atualizar estado imediatamente antes da chamada Tauri
+    setState(prev => ({
+      ...prev,
+      isInstalled: true, // Marcar como instalado imediatamente
+    }));
+    
+    // Iniciar verificação automática em segundo plano imediatamente
+    startAutoCheck();
+
+    // Chamar Tauri em background (não bloquear)
+    runInstaller(state.filePath)
+      .catch((error) => {
+        setState(prev => ({
+          ...prev,
+          downloadError: error instanceof Error ? error.message : 'Erro ao executar instalador',
+          isInstalled: false, // Reverter se falhar
+        }));
+      });
   };
 
   const checkOllama = async (): Promise<boolean> => {

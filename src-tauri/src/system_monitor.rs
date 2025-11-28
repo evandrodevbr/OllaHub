@@ -1,5 +1,33 @@
 use serde::Serialize;
 use sysinfo::System;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::time::Duration;
+
+/// Status de saúde do sistema
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum HealthStatus {
+    Healthy,
+    Warning,
+    Critical,
+}
+
+/// Estado de saúde do sistema com histerese
+#[derive(Serialize, Clone, Debug)]
+pub struct SystemHealth {
+    pub status: HealthStatus,
+    pub ram_percent: f32,
+    pub cpu_percent: f32,
+    pub message: String,
+}
+
+/// Estado interno para monitoramento com histerese
+struct HealthMonitorState {
+    current_status: AtomicU8, // 0=Healthy, 1=Warning, 2=Critical
+    consecutive_warnings: AtomicU8,
+    consecutive_critical: AtomicU8,
+}
 
 /// Informações sobre uma GPU
 #[derive(Serialize, Clone, Debug)]
@@ -58,6 +86,7 @@ pub struct SystemMonitorState {
     system: System,
     #[allow(dead_code)]
     last_cpu_check: std::time::Instant,
+    health_state: Arc<HealthMonitorState>,
 }
 
 impl SystemMonitorState {
@@ -68,7 +97,109 @@ impl SystemMonitorState {
         Self {
             system,
             last_cpu_check: std::time::Instant::now(),
+            health_state: Arc::new(HealthMonitorState {
+                current_status: AtomicU8::new(0), // Healthy
+                consecutive_warnings: AtomicU8::new(0),
+                consecutive_critical: AtomicU8::new(0),
+            }),
         }
+    }
+    
+    /// Obtém o estado de saúde do sistema com histerese
+    pub fn get_health(&mut self) -> SystemHealth {
+        self.system.refresh_all();
+        self.system.refresh_cpu_all();
+        
+        // Pequeno delay para cálculo preciso de CPU
+        std::thread::sleep(Duration::from_millis(100));
+        self.system.refresh_cpu_all();
+        
+        let cpu_percent = self.system.global_cpu_usage();
+        let ram_total = self.system.total_memory();
+        let ram_used = self.system.used_memory();
+        let ram_percent = if ram_total > 0 {
+            (ram_used as f32 / ram_total as f32) * 100.0
+        } else {
+            0.0
+        };
+        
+        // Determinar status baseado em thresholds com histerese
+        // Thresholds: Warning: RAM > 80% ou CPU > 85%, Critical: RAM > 90% ou CPU > 95%
+        // Histerese: precisa de 3 leituras consecutivas para mudar de status (evita alternância rápida)
+        
+        let should_be_warning = ram_percent > 80.0 || cpu_percent > 85.0;
+        let should_be_critical = ram_percent > 90.0 || cpu_percent > 95.0;
+        
+        let current_status = self.health_state.current_status.load(Ordering::Relaxed);
+        let mut new_status = current_status;
+        
+        if should_be_critical {
+            let count = self.health_state.consecutive_critical.fetch_add(1, Ordering::Relaxed) + 1;
+            if count >= 3 {
+                // 3 leituras consecutivas críticas
+                new_status = 2; // Critical
+                self.health_state.current_status.store(2, Ordering::Relaxed);
+                self.health_state.consecutive_warnings.store(0, Ordering::Relaxed);
+            } else if current_status == 2 {
+                // Já está em Critical, manter contador
+                self.health_state.consecutive_critical.store(2, Ordering::Relaxed);
+            }
+        } else if should_be_warning {
+            // Reset contador crítico se não está mais crítico
+            self.health_state.consecutive_critical.store(0, Ordering::Relaxed);
+            
+            let count = self.health_state.consecutive_warnings.fetch_add(1, Ordering::Relaxed) + 1;
+            if count >= 3 {
+                if current_status == 0 {
+                    // 3 leituras consecutivas de warning para entrar em Warning
+                    new_status = 1; // Warning
+                    self.health_state.current_status.store(1, Ordering::Relaxed);
+                } else if current_status == 1 {
+                    // Já está em Warning, manter contador
+                    self.health_state.consecutive_warnings.store(2, Ordering::Relaxed);
+                } else if current_status == 2 {
+                    // Estava em Critical, pode voltar para Warning após 3 leituras
+                    new_status = 1; // Warning
+                    self.health_state.current_status.store(1, Ordering::Relaxed);
+                }
+            }
+        } else {
+            // Sistema saudável - reset contadores e voltar para Healthy após 3 leituras
+            self.health_state.consecutive_critical.store(0, Ordering::Relaxed);
+            let count = self.health_state.consecutive_warnings.fetch_sub(1, Ordering::Relaxed);
+            if count <= 1 {
+                // Voltou para saudável após 3 leituras consecutivas
+                self.health_state.consecutive_warnings.store(0, Ordering::Relaxed);
+                if current_status != 0 {
+                    new_status = 0; // Healthy
+                    self.health_state.current_status.store(0, Ordering::Relaxed);
+                }
+            }
+        }
+        
+        let status = match new_status {
+            2 => HealthStatus::Critical,
+            1 => HealthStatus::Warning,
+            _ => HealthStatus::Healthy,
+        };
+        
+        let message = match status {
+            HealthStatus::Critical => format!("Sistema sobrecarregado (RAM: {:.1}%, CPU: {:.1}%)", ram_percent, cpu_percent),
+            HealthStatus::Warning => format!("Recursos elevados (RAM: {:.1}%, CPU: {:.1}%)", ram_percent, cpu_percent),
+            HealthStatus::Healthy => format!("Sistema saudável (RAM: {:.1}%, CPU: {:.1}%)", ram_percent, cpu_percent),
+        };
+        
+        SystemHealth {
+            status,
+            ram_percent,
+            cpu_percent,
+            message,
+        }
+    }
+    
+    /// Obtém uma referência ao estado de saúde para monitoramento contínuo
+    pub fn health_state(&self) -> Arc<HealthMonitorState> {
+        self.health_state.clone()
     }
     
     pub fn get_stats(&mut self) -> SystemStats {

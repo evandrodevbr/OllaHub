@@ -115,19 +115,21 @@ export function ModelSelector({ recommendation, onComplete }: ModelSelectorProps
   };
 
   const handleDownload = async () => {
+    // Optimistic UI: atualizar estado imediatamente antes da chamada Tauri
     setIsDownloading(true);
     setDownloadProgress(0);
     setDownloadStatus("Iniciando download...");
-    try {
-      await invoke('pull_model', { name: selectedModelId });
-      // O status será atualizado pelo listener quando o download completar
-      // Não precisamos setar aqui pois o listener já faz isso
-    } catch (error) {
-      console.error("Download failed", error);
-      setDownloadStatus("Falha no download. Tente novamente.");
-      setDownloadProgress(0);
-      setIsDownloading(false);
-    }
+    
+    // Chamar Tauri em background (não bloquear)
+    invoke('pull_model', { name: selectedModelId })
+      .catch((error) => {
+        console.error("Download failed", error);
+        setDownloadStatus("Falha no download. Tente novamente.");
+        setDownloadProgress(0);
+        setIsDownloading(false);
+      });
+    // O status será atualizado pelo listener quando o download completar
+    // Não precisamos aguardar aqui pois o listener já faz isso
   };
 
   return (

@@ -40,7 +40,7 @@ use web_scraper::{
 use headless_chrome::Browser;
 use scheduler::{SentinelTask, SchedulerService, SchedulerState, TaskAction};
 use sources_config::{SourcesConfig, load_sources_config, save_sources_config};
-use system_monitor::{SystemStats, SystemMonitorState, GpuInfo, GpuStats};
+use system_monitor::{SystemStats, SystemMonitorState, GpuInfo, GpuStats, SystemHealth, HealthStatus};
 
 // CommandExt é importado localmente onde necessário
 
@@ -180,6 +180,9 @@ type BrowserState = Arc<Mutex<Option<Arc<Browser>>>>;
 
 // File Lock Manager - previne corrupção de dados em escritas concorrentes
 type FileLockMap = Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>;
+
+// Ollama Process State - rastreia processo Ollama spawnado pelo app
+type OllamaProcessState = Arc<Mutex<Option<Child>>>;
 
 // Helper to send JSON-RPC request to MCP server
 fn send_jsonrpc_request(
@@ -1062,8 +1065,11 @@ fn get_operating_system() -> String {
 
 #[command]
 fn start_system_monitor(window: Window) {
+    let window_clone = window.clone();
     std::thread::spawn(move || {
         let mut sys = System::new_all();
+        let mut last_health_status: Option<HealthStatus> = None;
+        
         loop {
             sys.refresh_cpu_all();
             sys.refresh_memory();
@@ -1078,8 +1084,20 @@ fn start_system_monitor(window: Window) {
                 memory_total,
             };
 
-            if window.emit("system-stats", stats).is_err() {
+            if window_clone.emit("system-stats", stats).is_err() {
                 break; // Stop if window is closed
+            }
+            
+            // Verificar saúde do sistema e emitir apenas quando mudar
+            if let Ok(mut monitor) = monitor_state.lock() {
+                let health = monitor.get_health();
+                if last_health_status.as_ref() != Some(&health.status) {
+                    // Status mudou, emitir evento
+                    if window_clone.emit("system-state-change", health.clone()).is_err() {
+                        break;
+                    }
+                    last_health_status = Some(health.status);
+                }
             }
 
             std::thread::sleep(Duration::from_secs(2));
@@ -1087,11 +1105,54 @@ fn start_system_monitor(window: Window) {
     });
 }
 
+/// Inicia monitoramento contínuo da saúde do sistema
+#[command]
+fn start_health_monitor(app_handle: AppHandle) -> Result<(), String> {
+    let monitor_state = app_handle.state::<Arc<Mutex<SystemMonitorState>>>();
+    let window = app_handle.get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+    
+    // Iniciar monitoramento em background
+    tauri::async_runtime::spawn(async move {
+        let mut last_status: Option<HealthStatus> = None;
+        
+        loop {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            
+            let health = {
+                let mut monitor = match monitor_state.lock() {
+                    Ok(m) => m,
+                    Err(_) => break,
+                };
+                monitor.get_health()
+            };
+            
+            // Emitir evento apenas quando status mudar (histerese já aplicada)
+            if last_status.as_ref() != Some(&health.status) {
+                if window.emit("system-state-change", health.clone()).is_err() {
+                    break;
+                }
+                last_status = Some(health.status);
+            }
+        }
+    });
+    
+    Ok(())
+}
+
 #[command]
 fn list_local_models() -> Vec<LocalModel> {
-    let output = Command::new("ollama")
-        .arg("list")
-        .output();
+    let mut cmd = Command::new("ollama");
+    cmd.arg("list");
+    
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    
+    let output = cmd.output();
 
     match output {
         Ok(output) => {
@@ -1127,10 +1188,17 @@ fn list_local_models() -> Vec<LocalModel> {
 
 #[command]
 async fn delete_model(name: String) -> Result<(), String> {
-    let output = Command::new("ollama")
-        .arg("rm")
-        .arg(&name)
-        .output()
+    let mut cmd = Command::new("ollama");
+    cmd.arg("rm").arg(&name);
+    
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    
+    let output = cmd.output()
         .map_err(|e| e.to_string())?;
 
     if output.status.success() {
@@ -1142,9 +1210,17 @@ async fn delete_model(name: String) -> Result<(), String> {
 
 #[command]
 fn check_if_model_installed(name: String) -> bool {
-    let output = Command::new("ollama")
-        .arg("list")
-        .output();
+    let mut cmd = Command::new("ollama");
+    cmd.arg("list");
+    
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    
+    let output = cmd.output();
 
     match output {
         Ok(output) => {
@@ -1257,12 +1333,20 @@ async fn install_gguf_model(
     }
     
     // Tentar usar ollama create com Modelfile
-    let create_output = Command::new("ollama")
-        .arg("create")
+    let mut cmd = Command::new("ollama");
+    cmd.arg("create")
         .arg(&final_model_name)
         .arg("-f")
-        .arg(&modelfile_path)
-        .output();
+        .arg(&modelfile_path);
+    
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    
+    let create_output = cmd.output();
     
     match create_output {
         Ok(output) => {
@@ -1280,8 +1364,17 @@ async fn install_gguf_model(
                     log::warn!("Primeira tentativa falhou: {}. Tentando método alternativo...", stderr);
                     
                     // Método alternativo: criar modelo usando FROM diretamente
-                    let alt_output = Command::new("ollama")
-                        .arg("create")
+                    let mut alt_cmd = Command::new("ollama");
+                    alt_cmd.arg("create");
+                    
+                    #[cfg(target_os = "windows")]
+                    {
+                        use std::os::windows::process::CommandExt;
+                        const CREATE_NO_WINDOW: u32 = 0x08000000;
+                        alt_cmd.creation_flags(CREATE_NO_WINDOW);
+                    }
+                    
+                    let alt_output = alt_cmd
                         .arg(&final_model_name)
                         .arg("--file")
                         .arg(&dest_file)
@@ -1564,7 +1657,17 @@ fn format_speed(bytes_per_sec: f64) -> String {
 
 #[command]
 fn check_ollama_installed() -> bool {
-    match Command::new("ollama").arg("--version").output() {
+    let mut cmd = Command::new("ollama");
+    cmd.arg("--version");
+    
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    
+    match cmd.output() {
         Ok(output) => output.status.success(),
         Err(_) => false,
     }
@@ -1586,9 +1689,38 @@ struct OllamaCheckResult {
     status: String, // "not_installed" | "installed_stopped" | "running"
 }
 
+/// Faz polling do serviço Ollama até estar disponível
+/// Retorna Ok(()) quando o serviço responder 200 OK, ou erro após timeout
+async fn poll_ollama_ready(timeout_secs: u64) -> Result<(), String> {
+    let start = Instant::now();
+    let timeout = Duration::from_secs(timeout_secs);
+    
+    loop {
+        match reqwest::get("http://localhost:11434").await {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    log::info!("Ollama está pronto e respondendo");
+                    return Ok(());
+                }
+            }
+            Err(_) => {
+                // Serviço ainda não está disponível, continuar polling
+            }
+        }
+        
+        // Verificar timeout
+        if start.elapsed() >= timeout {
+            return Err(format!("Timeout: Ollama não ficou pronto em {} segundos", timeout_secs));
+        }
+        
+        // Aguardar 2 segundos antes da próxima tentativa
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+}
+
 /// Inicia o Ollama automaticamente se estiver instalado mas não estiver rodando
 #[command]
-async fn auto_start_ollama() -> Result<bool, String> {
+async fn auto_start_ollama(ollama_process: State<'_, OllamaProcessState>) -> Result<bool, String> {
     // Verificar se está instalado
     let installed = check_ollama_installed();
     if !installed {
@@ -1605,7 +1737,7 @@ async fn auto_start_ollama() -> Result<bool, String> {
     
     // Tentar iniciar
     log::info!("Iniciando Ollama automaticamente...");
-    match start_ollama_server() {
+    match start_ollama_server(ollama_process) {
         Ok(_) => {
             // Aguardar um pouco para o servidor iniciar
             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
@@ -1657,7 +1789,16 @@ async fn check_ollama_full() -> Result<OllamaCheckResult, String> {
 }
 
 #[command]
-fn start_ollama_server() -> Result<(), String> {
+fn start_ollama_server(ollama_process: State<'_, OllamaProcessState>) -> Result<(), String> {
+    // Verificar se já há processo rastreado
+    {
+        let process_state = ollama_process.lock()
+            .map_err(|e| format!("Failed to lock Ollama process state: {}", e))?;
+        if process_state.is_some() {
+            return Err("Ollama já está rodando (processo rastreado)".to_string());
+        }
+    }
+    
     let mut cmd = Command::new("ollama");
     cmd.arg("serve");
 
@@ -1668,9 +1809,16 @@ fn start_ollama_server() -> Result<(), String> {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    // Spawn detached
-    cmd.spawn()
+    // Spawn e armazenar handle
+    let child = cmd.spawn()
         .map_err(|e| format!("Failed to start ollama: {}", e))?;
+    
+    // Armazenar Child handle no state
+    {
+        let mut process_state = ollama_process.lock()
+            .map_err(|e| format!("Failed to lock Ollama process state: {}", e))?;
+        *process_state = Some(child);
+    }
         
     Ok(())
 }
@@ -2244,8 +2392,27 @@ fn check_mcp_server_available(
 
 // ========== Web Scraper Commands ==========
 
+/// Verifica se pode criar browser baseado no estado do sistema
+fn can_create_browser(monitor_state: &State<'_, Arc<Mutex<SystemMonitorState>>>) -> Result<bool, String> {
+    let monitor = monitor_state.lock()
+        .map_err(|e| format!("Failed to lock monitor state: {}", e))?;
+    let health = monitor.get_health();
+    
+    match health.status {
+        HealthStatus::Critical => {
+            log::warn!("Sistema em estado crítico (RAM: {:.1}%, CPU: {:.1}%), bloqueando criação de browser", health.ram_percent, health.cpu_percent);
+            Ok(false)
+        }
+        _ => Ok(true),
+    }
+}
+
 /// Obtém ou cria uma instância do Browser (singleton)
-pub fn get_or_create_browser(state: State<BrowserState>) -> Result<Arc<Browser>, String> {
+/// Verifica estado do sistema antes de criar novo browser
+pub fn get_or_create_browser(
+    state: State<BrowserState>,
+    monitor_state: Option<State<'_, Arc<Mutex<SystemMonitorState>>>>,
+) -> Result<Arc<Browser>, String> {
     let mut browser_opt = state.lock().map_err(|e| format!("Erro ao acessar estado do browser: {}", e))?;
     
     if let Some(ref browser) = *browser_opt {
@@ -2254,6 +2421,13 @@ pub fn get_or_create_browser(state: State<BrowserState>) -> Result<Arc<Browser>,
             return Ok(browser.clone());
         } else {
             *browser_opt = None;
+        }
+    }
+    
+    // Verificar estado do sistema antes de criar novo browser
+    if let Some(monitor) = monitor_state {
+        if !can_create_browser(&monitor)? {
+            return Err("Sistema sobrecarregado: não é possível criar browser no momento. Use reqwest como alternativa.".to_string());
         }
     }
     
@@ -2275,26 +2449,50 @@ async fn search_and_extract_content(
     excluded_domains: Option<Vec<String>>,
     search_config: Option<SearchConfig>,
     state: State<'_, BrowserState>,
+    monitor_state: State<'_, Arc<Mutex<SystemMonitorState>>>,
 ) -> Result<Vec<ScrapedContent>, String> {
     if query.trim().is_empty() {
         return Err("Query não pode estar vazia".to_string());
     }
     
-    let browser = get_or_create_browser(state)?;
+    // Verificar estado do sistema e ajustar configuração
+    let health = {
+        let mut monitor = monitor_state.lock()
+            .map_err(|e| format!("Failed to lock monitor state: {}", e))?;
+        monitor.get_health()
+    };
     
-    // Se SearchConfig foi fornecido, usar a nova função
-    if let Some(config) = search_config {
-        search_and_scrape_with_config(&query, &config, browser)
-            .await
-            .map_err(|e| format!("Erro ao buscar e extrair conteúdo: {}", e))
-    } else {
-        // Backward compatibility: usar configuração padrão
-        let limit = limit.unwrap_or(3);
-        let excluded_domains = excluded_domains.unwrap_or_default();
-        search_and_scrape(&query, limit, browser, excluded_domains)
-            .await
-            .map_err(|e| format!("Erro ao buscar e extrair conteúdo: {}", e))
+    // Ajustar configuração baseado no estado do sistema
+    let mut config = search_config.unwrap_or_else(|| SearchConfig {
+        max_concurrent_tabs: 5,
+        total_sources_limit: limit.unwrap_or(3),
+        categories: Vec::new(),
+        user_custom_sites: Vec::new(),
+        excluded_domains: excluded_domains.unwrap_or_default(),
+    });
+    
+    // Aplicar throttling baseado no estado do sistema
+    match health.status {
+        HealthStatus::Critical => {
+            // Bloquear browser completamente, usar apenas reqwest
+            return Err("Sistema sobrecarregado: recursos limitados. Tente novamente em alguns instantes.".to_string());
+        }
+        HealthStatus::Warning => {
+            // Limitar concorrência drasticamente
+            config.max_concurrent_tabs = 1;
+            log::info!("Sistema em warning, limitando concorrência do scraper para {}", config.max_concurrent_tabs);
+        }
+        HealthStatus::Healthy => {
+            // Configuração normal
+        }
     }
+    
+    let browser = get_or_create_browser(state, Some(monitor_state))?;
+    
+    // Usar a função com configuração ajustada
+    search_and_scrape_with_config(&query, &config, browser)
+        .await
+        .map_err(|e| format!("Erro ao buscar e extrair conteúdo: {}", e))
 }
 
 /// Extrai conteúdo de uma URL específica
@@ -2302,6 +2500,7 @@ async fn search_and_extract_content(
 async fn extract_url_content(
     url: String,
     state: State<'_, BrowserState>,
+    monitor_state: State<'_, Arc<Mutex<SystemMonitorState>>>,
 ) -> Result<ScrapedContent, String> {
     if url.trim().is_empty() {
         return Err("URL não pode estar vazia".to_string());
@@ -2312,7 +2511,18 @@ async fn extract_url_content(
         return Err("URL deve começar com http:// ou https://".to_string());
     }
     
-    let browser = get_or_create_browser(state)?;
+    // Verificar estado do sistema
+    let health = {
+        let mut monitor = monitor_state.lock()
+            .map_err(|e| format!("Failed to lock monitor state: {}", e))?;
+        monitor.get_health()
+    };
+    
+    if health.status == HealthStatus::Critical {
+        return Err("Sistema sobrecarregado: recursos limitados. Tente novamente em alguns instantes.".to_string());
+    }
+    
+    let browser = get_or_create_browser(state, Some(monitor_state))?;
     
     scrape_url(&url, browser)
         .await
@@ -2403,7 +2613,7 @@ async fn scrape_urls(
         return Ok(Vec::new());
     }
 
-    let browser = get_or_create_browser(state)?;
+    let browser = get_or_create_browser(state, None)?;
 
     scrape_urls_bulk(urls, browser)
         .await
@@ -2417,6 +2627,61 @@ fn reset_browser(state: State<'_, BrowserState>) -> Result<(), String> {
     // Limpar referência - o browser será dropado automaticamente
     *browser_opt = None;
     log::info!("Browser resetado - processo será encerrado quando não houver mais referências");
+    Ok(())
+}
+
+/// Limpa todos os processos filhos (MCP, Chrome headless, Ollama)
+/// Chamado durante o shutdown do app para evitar processos zumbis
+fn cleanup_all_child_processes(
+    app_handle: &AppHandle,
+) -> Result<(), String> {
+    log::info!("Iniciando cleanup de processos filhos...");
+    
+    // 1. Limpar processos MCP
+    if let Some(mcp_processes) = app_handle.try_state::<McpProcessMap>() {
+        let mut processes_map = mcp_processes.lock()
+            .map_err(|e| format!("Failed to lock MCP processes map: {}", e))?;
+        let mut killed_count = 0;
+        for (_name, mut handle) in processes_map.drain() {
+            if let Err(e) = handle.child.kill() {
+                log::warn!("Erro ao matar processo MCP: {}", e);
+            } else {
+                let _ = handle.child.wait();
+                killed_count += 1;
+            }
+        }
+        if killed_count > 0 {
+            log::info!("{} processos MCP encerrados", killed_count);
+        }
+    }
+    
+    // 2. Limpar processo Ollama
+    if let Some(ollama_state) = app_handle.try_state::<OllamaProcessState>() {
+        let mut process_state = ollama_state.lock()
+            .map_err(|e| format!("Failed to lock Ollama process state: {}", e))?;
+        if let Some(mut child) = process_state.take() {
+            if let Err(e) = child.kill() {
+                log::warn!("Erro ao matar processo Ollama: {}", e);
+            } else {
+                let _ = child.wait();
+                log::info!("Processo Ollama encerrado");
+            }
+        }
+    }
+    
+    // 3. Limpar processos Chrome headless
+    match force_kill_browser() {
+        Ok(count) => {
+            if count > 0 {
+                log::info!("{} processos Chrome headless encerrados", count);
+            }
+        }
+        Err(e) => {
+            log::warn!("Erro ao encerrar processos Chrome headless: {}", e);
+        }
+    }
+    
+    log::info!("Cleanup de processos filhos concluído");
     Ok(())
 }
 
@@ -2892,9 +3157,9 @@ async fn download_installer(
     Ok(dest_path.to_string_lossy().to_string())
 }
 
-/// Executa o instalador baixado
+/// Executa o instalador baixado e faz polling até Ollama estar pronto
 #[command]
-fn run_installer(file_path: String) -> Result<(), String> {
+async fn run_installer(app_handle: AppHandle, file_path: String) -> Result<(), String> {
     let path = PathBuf::from(&file_path);
     
     if !path.exists() {
@@ -2903,15 +3168,20 @@ fn run_installer(file_path: String) -> Result<(), String> {
     
     #[cfg(target_os = "windows")]
     {
-        // No Windows, executar o .exe diretamente
-        Command::new(&path)
-            .spawn()
+        // No Windows, executar o .exe diretamente com flags silenciosas
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let mut cmd = Command::new(&path);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        // Adicionar flag /S para instalação silenciosa (se suportado pelo instalador)
+        cmd.arg("/S");
+        cmd.spawn()
             .map_err(|e| format!("Failed to run installer: {}", e))?;
     }
     
     #[cfg(target_os = "linux")]
     {
-        // No Linux, dar permissão de execução e executar
+        // No Linux, dar permissão de execução e executar com flags silenciosas
         use std::os::unix::fs::PermissionsExt;
         let mut perms = fs::metadata(&path)
             .map_err(|e| format!("Failed to get file metadata: {}", e))?
@@ -2920,22 +3190,68 @@ fn run_installer(file_path: String) -> Result<(), String> {
         fs::set_permissions(&path, perms)
             .map_err(|e| format!("Failed to set executable permissions: {}", e))?;
         
-        Command::new(&path)
-            .spawn()
-            .map_err(|e| format!("Failed to run installer: {}", e))?;
+        // Tentar executar com --quiet se for um script .sh
+        let path_str = path.to_string_lossy();
+        if path_str.ends_with(".sh") {
+            Command::new("sh")
+                .arg(&path)
+                .arg("--quiet")
+                .spawn()
+                .map_err(|e| format!("Failed to run installer: {}", e))?;
+        } else {
+            // Para outros formatos, executar diretamente
+            Command::new(&path)
+                .spawn()
+                .map_err(|e| format!("Failed to run installer: {}", e))?;
+        }
     }
     
     #[cfg(target_os = "macos")]
     {
-        // No macOS, executar o .zip (precisa ser extraído primeiro)
-        // Por enquanto, apenas abrir o arquivo
-        Command::new("open")
-            .arg(&path)
-            .spawn()
-            .map_err(|e| format!("Failed to open installer: {}", e))?;
+        // No macOS, usar installer com flags silenciosas
+        // Se for .pkg, usar installer com --quiet
+        let path_str = path.to_string_lossy();
+        if path_str.ends_with(".pkg") {
+            Command::new("installer")
+                .arg("-pkg")
+                .arg(&path)
+                .arg("-target")
+                .arg("/")
+                .arg("-verboseR")
+                .spawn()
+                .map_err(|e| format!("Failed to run installer: {}", e))?;
+        } else {
+            // Para outros formatos, abrir normalmente
+            Command::new("open")
+                .arg(&path)
+                .spawn()
+                .map_err(|e| format!("Failed to open installer: {}", e))?;
+        }
     }
     
     log::info!("Instalador executado: {:?}", path);
+    
+    // Iniciar polling em background para detectar quando Ollama estiver pronto
+    let window = app_handle.get_webview_window("main");
+    tauri::async_runtime::spawn(async move {
+        // Aguardar um pouco para a instalação começar
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        
+        // Fazer polling por até 60 segundos
+        match poll_ollama_ready(60).await {
+            Ok(_) => {
+                log::info!("Ollama está pronto após instalação");
+                // Emitir evento para o frontend
+                if let Some(w) = window {
+                    let _ = w.emit("ollama-ready", ());
+                }
+            }
+            Err(e) => {
+                log::warn!("Polling timeout: {}", e);
+            }
+        }
+    });
+    
     Ok(())
 }
 
@@ -3233,11 +3549,23 @@ async fn chat_stream(
     model: String,
     system_prompt: Option<String>,
     enable_rag: Option<bool>,
+    monitor_state: State<'_, Arc<Mutex<SystemMonitorState>>>,
 ) -> Result<String, String> {
     use uuid::Uuid;
     use ollama_client::OllamaClient;
     use futures_util::StreamExt;
     use db::{Database, ChatSession, ChatMessage};
+    
+    // Verificar estado do sistema antes de processar
+    let health = {
+        let mut monitor = monitor_state.lock()
+            .map_err(|e| format!("Failed to lock monitor state: {}", e))?;
+        monitor.get_health()
+    };
+    
+    if health.status == HealthStatus::Critical {
+        return Err("Sistema sobrecarregado: aguarde alguns instantes antes de fazer novas requisições.".to_string());
+    }
     
     // Gerar ou usar session_id existente
     let session_id = session_id.unwrap_or_else(|| Uuid::new_v4().to_string());
@@ -3617,6 +3945,52 @@ fn prune_context(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+  // Verificação de instância única usando lock file
+  let lock_file_path = dirs::data_local_dir()
+    .map(|mut path| {
+      path.push("OllaHub");
+      std::fs::create_dir_all(&path).ok();
+      path.push("ollahub.lock");
+      path
+    });
+  
+  if let Some(lock_path) = lock_file_path {
+    // Tentar criar lock file exclusivo
+    // No Windows, isso falhará se o arquivo já existir e estiver em uso
+    // No Unix, podemos usar flock ou similar
+    #[cfg(unix)]
+    {
+      use std::fs::OpenOptions;
+      use std::os::unix::fs::OpenOptionsExt;
+      if let Ok(file) = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&lock_path)
+      {
+        // Lock file criado com sucesso - manter aberto durante a execução
+        std::mem::forget(file); // Manter arquivo aberto
+      } else {
+        eprintln!("OllaHub já está em execução. Encerrando...");
+        std::process::exit(1);
+      }
+    }
+    
+    #[cfg(windows)]
+    {
+      use std::fs::OpenOptions;
+      if let Ok(_file) = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&lock_path)
+      {
+        // Lock file criado com sucesso
+      } else {
+        eprintln!("OllaHub já está em execução. Encerrando...");
+        std::process::exit(1);
+      }
+    }
+  }
+  
   tauri::Builder::default()
     .setup(|app| {
       if cfg!(debug_assertions) {
@@ -3636,8 +4010,13 @@ pub fn run() {
       // Modificar comportamento de fechar janela (ocultar ao invés de fechar)
       if let Some(window) = app.get_webview_window("main") {
         let window_clone = window.clone();
+        let app_handle_cleanup = app.handle().clone();
         window.on_window_event(move |event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Limpar processos filhos antes de esconder
+                if let Err(e) = cleanup_all_child_processes(&app_handle_cleanup) {
+                    log::warn!("Erro durante cleanup de processos: {}", e);
+                }
                 // Ocultar ao invés de fechar
                 let _ = window_clone.hide();
                 api.prevent_close();
@@ -3661,14 +4040,23 @@ pub fn run() {
       let app_handle = app.handle().clone();
       let scheduler_clone = scheduler_state.clone();
       
+      // Inicializar Ollama Process State
+      let ollama_process_state: OllamaProcessState = Arc::new(Mutex::new(None));
+      app.manage(ollama_process_state.clone());
+      
       // Inicializar Ollama automaticamente se estiver instalado
+      let app_handle_ollama = app.handle().clone();
       tauri::async_runtime::spawn(async move {
           // Aguardar um pouco para o app inicializar completamente
           tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
           
           // Tentar iniciar Ollama automaticamente
-          if let Err(e) = auto_start_ollama().await {
-              log::warn!("Falha ao iniciar Ollama automaticamente: {}", e);
+          if let Some(ollama_state) = app_handle_ollama.try_state::<OllamaProcessState>() {
+              if let Err(e) = auto_start_ollama(ollama_state).await {
+                  log::warn!("Falha ao iniciar Ollama automaticamente: {}", e);
+              }
+          } else {
+              log::warn!("OllamaProcessState não encontrado no app state");
           }
       });
       
@@ -3690,7 +4078,12 @@ pub fn run() {
       
       // Inicializar System Monitor State
       let monitor_state: Arc<Mutex<SystemMonitorState>> = Arc::new(Mutex::new(SystemMonitorState::new()));
-      app.manage(monitor_state);
+      app.manage(monitor_state.clone());
+      
+      // Iniciar monitoramento de saúde do sistema
+      if let Err(e) = start_health_monitor(app.handle().clone()) {
+          log::warn!("Falha ao iniciar monitor de saúde: {}", e);
+      }
       
       Ok(())
     })
@@ -3709,6 +4102,7 @@ pub fn run() {
         open_gguf_file_dialog,
         start_ollama_server,
         start_system_monitor,
+        start_health_monitor,
         get_gpu_stats,
         list_local_models,
         delete_model,
