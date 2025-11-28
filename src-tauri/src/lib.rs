@@ -398,6 +398,57 @@ fn save_chat_session(
     fs::rename(&temp_path, &file_path)
         .map_err(|e| format!("Failed to rename temp file to session file: {}", e))?;
     
+    // Também salvar no SQLite (sistema novo) para melhor performance e paginação
+    // Se falhar, apenas logar erro mas não falhar a operação (compatibilidade)
+    use db::Database;
+    match Database::new(&app_handle) {
+        Ok(db) => {
+            // Criar/atualizar sessão no SQLite
+            let db_session = db::ChatSession {
+                id: session.id.clone(),
+                title: session.title.clone(),
+                emoji: "💬".to_string(), // Emoji padrão
+                created_at: session.created_at,
+                updated_at: session.updated_at,
+            };
+            
+            if let Err(e) = db.save_session(&db_session) {
+                log::warn!("Failed to save session to SQLite (continuing with JSON only): {}", e);
+            } else {
+                // Converter Message para ChatMessage e salvar no SQLite
+                // Preservar ordem usando timestamps incrementais baseados no índice
+                let chat_messages: Vec<db::ChatMessage> = session.messages.iter().enumerate().map(|(idx, msg)| {
+                    let metadata_str = msg.metadata.as_ref()
+                        .and_then(|m| serde_json::to_string(m).ok());
+                    
+                    // Criar timestamp incremental para preservar ordem das mensagens
+                    // Usar created_at da sessão como base e adicionar segundos baseados no índice
+                    // Isso garante que a ordem seja mantida quando ordenado por created_at ASC
+                    let base_time = session.created_at;
+                    let msg_created_at = base_time + chrono::Duration::seconds(idx as i64);
+                    
+                    db::ChatMessage {
+                        id: None,
+                        session_id: session.id.clone(),
+                        role: msg.role.clone(),
+                        content: msg.content.clone(),
+                        metadata: metadata_str,
+                        created_at: msg_created_at,
+                    }
+                }).collect();
+                
+                if let Err(e) = db.save_messages_batch(&session.id, &chat_messages) {
+                    log::warn!("Failed to save messages to SQLite (continuing with JSON only): {}", e);
+                } else {
+                    log::debug!("Successfully saved {} messages to SQLite for session {}", chat_messages.len(), session.id);
+                }
+            }
+        }
+        Err(e) => {
+            log::debug!("Failed to open database for saving (JSON saved successfully): {}", e);
+        }
+    }
+    
     // Lock é liberado automaticamente quando _guard sai de escopo
     Ok(())
 }
@@ -605,6 +656,299 @@ fn load_chat_history(app_handle: AppHandle, id: String) -> Result<Vec<Message>, 
     
     log::info!("Loaded {} messages from JSON for session {}", session.messages.len(), id);
     Ok(session.messages)
+}
+
+/// Resultado de carregamento paginado de histórico
+#[derive(serde::Serialize)]
+struct PaginatedHistory {
+    messages: Vec<Message>,
+    total_count: usize,
+    has_more: bool,
+}
+
+/// Carrega histórico de chat com paginação (lazy loading)
+/// 
+/// Parâmetros:
+/// - id: ID da sessão
+/// - limit: número máximo de mensagens a retornar (default: 20)
+/// - offset: número de mensagens a pular do final (default: 0)
+#[command]
+fn load_chat_history_paginated(
+    app_handle: AppHandle,
+    id: String,
+    limit: Option<usize>,
+    offset: Option<usize>,
+) -> Result<PaginatedHistory, String> {
+    use db::Database;
+    
+    let limit = limit.unwrap_or(20);
+    let offset = offset.unwrap_or(0);
+    
+    match Database::new(&app_handle) {
+        Ok(db) => {
+            match db.get_messages_paginated(&id, limit, offset) {
+                Ok((messages, total_count, has_more)) => {
+                    // Se SQLite retornou 0 mensagens, tentar fallback para JSON (sistema legado)
+                    if total_count == 0 {
+                        log::debug!("No messages in SQLite for session {}, trying JSON fallback", id);
+                        
+                        // Tentar carregar do JSON
+                        let chats_dir = match get_chats_dir(&app_handle) {
+                            Ok(dir) => dir,
+                            Err(e) => {
+                                log::debug!("Failed to get chats dir for JSON fallback: {}", e);
+                                // Retornar vazio se não conseguir acessar diretório
+                                return Ok(PaginatedHistory {
+                                    messages: Vec::new(),
+                                    total_count: 0,
+                                    has_more: false,
+                                });
+                            }
+                        };
+                        
+                        let file_path = chats_dir.join(format!("{}.json", id));
+                        if file_path.exists() {
+                            match fs::read_to_string(&file_path) {
+                                Ok(content) => {
+                                    match serde_json::from_str::<ChatSession>(&content) {
+                                        Ok(session) => {
+                                            let all_messages = session.messages;
+                                            let total = all_messages.len();
+                                            
+                                            if total == 0 {
+                                                return Ok(PaginatedHistory {
+                                                    messages: Vec::new(),
+                                                    total_count: 0,
+                                                    has_more: false,
+                                                });
+                                            }
+                                            
+                                            // Aplicar paginação em memória (simular comportamento do SQLite)
+                                            // offset=0 significa últimas N mensagens
+                                            // offset>0 significa mensagens antes das últimas N
+                                            let start_idx = if offset + limit <= total {
+                                                total - offset - limit
+                                            } else {
+                                                0
+                                            };
+                                            
+                                            let end_idx = std::cmp::min(start_idx + limit, total);
+                                            let paginated_messages: Vec<Message> = all_messages
+                                                .into_iter()
+                                                .skip(start_idx)
+                                                .take(end_idx - start_idx)
+                                                .collect();
+                                            
+                                            let has_more = offset + paginated_messages.len() < total;
+                                            
+                                            log::info!(
+                                                "Loaded {} messages (offset: {}, total: {}, has_more: {}) from JSON fallback for session {}",
+                                                paginated_messages.len(), offset, total, has_more, id
+                                            );
+                                            
+                                            return Ok(PaginatedHistory {
+                                                messages: paginated_messages,
+                                                total_count: total,
+                                                has_more,
+                                            });
+                                        }
+                                        Err(e) => {
+                                            log::debug!("Failed to parse JSON session: {}", e);
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    log::debug!("Failed to read JSON file: {}", e);
+                                }
+                            }
+                        }
+                        
+                        // Se chegou aqui, não encontrou mensagens nem no SQLite nem no JSON
+                        return Ok(PaginatedHistory {
+                            messages: Vec::new(),
+                            total_count: 0,
+                            has_more: false,
+                        });
+                    }
+                    
+                    // Converter ChatMessage para Message
+                    let result: Vec<Message> = messages.into_iter().map(|msg| {
+                        let role = if msg.role == "user" {
+                            "user"
+                        } else if msg.role == "assistant" {
+                            "assistant"
+                        } else {
+                            "system"
+                        };
+                        
+                        let metadata = msg.metadata.and_then(|m| {
+                            serde_json::from_str::<serde_json::Value>(&m).ok()
+                        });
+                        
+                        let metadata_value = metadata
+                            .and_then(|m| {
+                                if m.is_object() && !m.as_object().unwrap().is_empty() {
+                                    Some(m)
+                                } else {
+                                    None
+                                }
+                            });
+                        
+                        Message {
+                            role: role.to_string(),
+                            content: msg.content,
+                            metadata: metadata_value,
+                        }
+                    }).collect();
+                    
+                    log::info!(
+                        "Loaded {} messages (offset: {}, total: {}, has_more: {}) from SQLite for session {}",
+                        result.len(), offset, total_count, has_more, id
+                    );
+                    
+                    Ok(PaginatedHistory {
+                        messages: result,
+                        total_count,
+                        has_more,
+                    })
+                }
+                Err(e) => {
+                    log::debug!("SQLite query failed for session {}: {}, trying JSON fallback", id, e);
+                    
+                    // Fallback para JSON em caso de erro também
+                    let chats_dir = match get_chats_dir(&app_handle) {
+                        Ok(dir) => dir,
+                        Err(_) => {
+                            return Err(format!("Failed to load paginated history: {}", e));
+                        }
+                    };
+                    
+                    let file_path = chats_dir.join(format!("{}.json", id));
+                    if file_path.exists() {
+                        match fs::read_to_string(&file_path) {
+                            Ok(content) => {
+                                match serde_json::from_str::<ChatSession>(&content) {
+                                    Ok(session) => {
+                                        let all_messages = session.messages;
+                                        let total = all_messages.len();
+                                        
+                                        if total == 0 {
+                                            return Ok(PaginatedHistory {
+                                                messages: Vec::new(),
+                                                total_count: 0,
+                                                has_more: false,
+                                            });
+                                        }
+                                        
+                                        let start_idx = if offset + limit <= total {
+                                            total - offset - limit
+                                        } else {
+                                            0
+                                        };
+                                        
+                                        let end_idx = std::cmp::min(start_idx + limit, total);
+                                        let paginated_messages: Vec<Message> = all_messages
+                                            .into_iter()
+                                            .skip(start_idx)
+                                            .take(end_idx - start_idx)
+                                            .collect();
+                                        
+                                        let has_more = offset + paginated_messages.len() < total;
+                                        
+                                        log::info!(
+                                            "Loaded {} messages (offset: {}, total: {}, has_more: {}) from JSON fallback (error case) for session {}",
+                                            paginated_messages.len(), offset, total, has_more, id
+                                        );
+                                        
+                                        return Ok(PaginatedHistory {
+                                            messages: paginated_messages,
+                                            total_count: total,
+                                            has_more,
+                                        });
+                                    }
+                                    Err(e2) => {
+                                        return Err(format!("Failed to load paginated history: {} (JSON parse error: {})", e, e2));
+                                    }
+                                }
+                            }
+                            Err(e2) => {
+                                return Err(format!("Failed to load paginated history: {} (JSON read error: {})", e, e2));
+                            }
+                        }
+                    }
+                    
+                    Err(format!("Failed to load paginated history: {}", e))
+                }
+            }
+        }
+        Err(e) => {
+            log::debug!("Failed to open database: {}, trying JSON fallback", e);
+            
+            // Fallback para JSON se não conseguir abrir banco
+            let chats_dir = match get_chats_dir(&app_handle) {
+                Ok(dir) => dir,
+                Err(e2) => {
+                    return Err(format!("Failed to open database: {} (chats dir error: {})", e, e2));
+                }
+            };
+            
+            let file_path = chats_dir.join(format!("{}.json", id));
+            if file_path.exists() {
+                match fs::read_to_string(&file_path) {
+                    Ok(content) => {
+                        match serde_json::from_str::<ChatSession>(&content) {
+                            Ok(session) => {
+                                let all_messages = session.messages;
+                                let total = all_messages.len();
+                                
+                                if total == 0 {
+                                    return Ok(PaginatedHistory {
+                                        messages: Vec::new(),
+                                        total_count: 0,
+                                        has_more: false,
+                                    });
+                                }
+                                
+                                let start_idx = if offset + limit <= total {
+                                    total - offset - limit
+                                } else {
+                                    0
+                                };
+                                
+                                let end_idx = std::cmp::min(start_idx + limit, total);
+                                let paginated_messages: Vec<Message> = all_messages
+                                    .into_iter()
+                                    .skip(start_idx)
+                                    .take(end_idx - start_idx)
+                                    .collect();
+                                
+                                let has_more = offset + paginated_messages.len() < total;
+                                
+                                log::info!(
+                                    "Loaded {} messages (offset: {}, total: {}, has_more: {}) from JSON fallback (db open error) for session {}",
+                                    paginated_messages.len(), offset, total, has_more, id
+                                );
+                                
+                                return Ok(PaginatedHistory {
+                                    messages: paginated_messages,
+                                    total_count: total,
+                                    has_more,
+                                });
+                            }
+                            Err(e2) => {
+                                return Err(format!("Failed to open database: {} (JSON parse error: {})", e, e2));
+                            }
+                        }
+                    }
+                    Err(e2) => {
+                        return Err(format!("Failed to open database: {} (JSON read error: {})", e, e2));
+                    }
+                }
+            }
+            
+            Err(format!("Failed to open database: {}", e))
+        }
+    }
 }
 
 #[command]
@@ -3352,6 +3696,7 @@ pub fn run() {
         load_chat_sessions,
         search_chat_sessions,
         load_chat_history,
+        load_chat_history_paginated,
         delete_chat_session,
         cleanup_orphan_sessions,
         load_mcp_config,

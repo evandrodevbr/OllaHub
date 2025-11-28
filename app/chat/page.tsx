@@ -48,6 +48,8 @@ export default function ChatPage() {
     currentSessionId, 
     setCurrentSessionId, 
     loadSessionHistory,
+    loadMoreMessages,
+    paginationState,
     saveSession, 
     deleteSession,
     isGeneratingTitle,
@@ -122,6 +124,7 @@ export default function ChatPage() {
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedMessagesRef = useRef<number>(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showContextDebug, setShowContextDebug] = useState(false);
   const [showProcessDebug, setShowProcessDebug] = useState(false);
   const [lastWebContext, setLastWebContext] = useState('');
@@ -886,6 +889,38 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
     }
   };
   
+  // Handler para scroll infinito reverso (carregar mensagens mais antigas)
+  const handleScroll = useCallback(async () => {
+    const container = scrollContainerRef.current;
+    if (!container || !currentSessionId || paginationState.isLoadingMore) return;
+    
+    // Verificar se o usuário está próximo do topo (threshold de 100px)
+    const isNearTop = container.scrollTop < 100;
+    
+    if (isNearTop && paginationState.hasMore) {
+      // Salvar posição atual do scroll e altura do conteúdo
+      const scrollHeightBefore = container.scrollHeight;
+      
+      // Carregar mais mensagens
+      const olderMessages = await loadMoreMessages(currentSessionId);
+      
+      if (olderMessages.length > 0) {
+        // Prepend as mensagens antigas
+        setMessages(prev => [...olderMessages, ...prev]);
+        
+        // Restaurar posição do scroll para manter o contexto visual
+        // (compensar o novo conteúdo adicionado no topo)
+        requestAnimationFrame(() => {
+          if (container) {
+            const scrollHeightAfter = container.scrollHeight;
+            const heightDiff = scrollHeightAfter - scrollHeightBefore;
+            container.scrollTop = container.scrollTop + heightDiff;
+          }
+        });
+      }
+    }
+  }, [currentSessionId, paginationState.hasMore, paginationState.isLoadingMore, loadMoreMessages, setMessages]);
+  
   // Função para navegar entre matches
   const handleNavigateMatch = useCallback((sessionId: string, direction: 'prev' | 'next') => {
     if (sessionId !== currentSessionId || !searchQuery || searchQuery.trim().length < 2) {
@@ -1181,8 +1216,29 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
             {/* Messages Area with Floating Input Layout */}
             <div className="flex-1 relative h-full overflow-hidden flex flex-col">
               {/* Scrollable Content Area */}
-              <div className="flex-1 overflow-y-auto scroll-smooth w-full min-h-0">
+              <div 
+                ref={scrollContainerRef}
+                className="flex-1 overflow-y-auto scroll-smooth w-full min-h-0"
+                onScroll={handleScroll}
+              >
                 <div className="max-w-3xl mx-auto w-full px-3 sm:px-4 md:px-6 pt-4 sm:pt-6 pb-4 transition-all duration-300" style={{ paddingLeft: 'clamp(12px, 4vw, 24px)', paddingRight: 'clamp(12px, 4vw, 24px)' }}>
+                  {/* Indicador de carregamento de mensagens antigas */}
+                  {paginationState.isLoadingMore && (
+                    <div className="flex items-center justify-center py-4 mb-4">
+                      <Loader2 className="w-5 h-5 animate-spin text-muted-foreground mr-2" />
+                      <span className="text-sm text-muted-foreground">Carregando mensagens anteriores...</span>
+                    </div>
+                  )}
+                  
+                  {/* Indicador de que há mais mensagens para carregar */}
+                  {paginationState.hasMore && !paginationState.isLoadingMore && messages.length > 0 && (
+                    <div className="flex items-center justify-center py-2 mb-4">
+                      <span className="text-xs text-muted-foreground/60">
+                        Role para cima para ver mensagens anteriores ({paginationState.totalCount - messages.length} restantes)
+                      </span>
+                    </div>
+                  )}
+                  
                   {messages.length === 0 ? (
                     <div className="min-h-[50vh] flex flex-col items-center justify-center text-muted-foreground space-y-6">
                       <div className="p-6 rounded-2xl bg-muted/30 ring-1 ring-border/50 shadow-sm">

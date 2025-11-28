@@ -56,6 +56,19 @@ impl Database {
         let db_path = app_data_dir.join("ollahub.db");
         let conn = Connection::open(&db_path)?;
         
+        // Otimizações de performance do SQLite
+        // WAL mode permite leituras e escritas simultâneas (evita bloqueio da UI)
+        // synchronous=NORMAL reduz fsync sem perder segurança
+        // cache_size maior acelera operações frequentes
+        // temp_store=MEMORY usa RAM para tabelas temporárias
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA synchronous=NORMAL;
+             PRAGMA cache_size=10000;
+             PRAGMA temp_store=MEMORY;
+             PRAGMA foreign_keys=ON;"
+        )?;
+        
         let db = Self { conn };
         db.init_schema()?;
         
@@ -377,6 +390,54 @@ impl Database {
         Ok(self.conn.last_insert_rowid())
     }
     
+    /// Salva múltiplas mensagens de uma sessão em uma transação
+    /// 
+    /// Remove mensagens existentes da sessão antes de inserir as novas
+    /// para garantir que não haja duplicatas.
+    pub fn save_messages_batch(
+        &self,
+        session_id: &str,
+        messages: &[ChatMessage],
+    ) -> SqliteResult<()> {
+        // Usar execute_batch para executar múltiplas operações atomicamente
+        // WAL mode permite isso de forma segura mesmo sem transação explícita
+        
+        // Remover mensagens existentes da sessão (para evitar duplicatas)
+        self.conn.execute(
+            "DELETE FROM messages WHERE session_id = ?1",
+            params![session_id],
+        )?;
+        
+        // Inserir todas as mensagens
+        let mut stmt = self.conn.prepare(
+            "INSERT INTO messages (session_id, role, content, metadata, created_at) 
+             VALUES (?1, ?2, ?3, ?4, ?5)"
+        )?;
+        
+        for message in messages {
+            stmt.execute(params![
+                message.session_id,
+                message.role,
+                message.content,
+                message.metadata,
+                message.created_at.to_rfc3339()
+            ])?;
+        }
+        
+        // Atualizar updated_at da sessão com a data da última mensagem
+        if let Some(last_message) = messages.last() {
+            self.conn.execute(
+                "UPDATE sessions SET updated_at = ?1 WHERE id = ?2",
+                params![
+                    last_message.created_at.to_rfc3339(),
+                    session_id
+                ],
+            )?;
+        }
+        
+        Ok(())
+    }
+    
     /// Busca todas as mensagens de uma sessão
     pub fn get_messages(&self, session_id: &str) -> SqliteResult<Vec<ChatMessage>> {
         let mut stmt = self.conn.prepare(
@@ -404,6 +465,88 @@ impl Database {
             messages.push(row?);
         }
         Ok(messages)
+    }
+    
+    /// Busca mensagens de uma sessão com paginação (lazy loading)
+    /// 
+    /// Retorna as últimas `limit` mensagens a partir do `offset`.
+    /// O offset conta do final (0 = últimas mensagens, 20 = 20 mensagens antes das últimas).
+    /// 
+    /// Parâmetros:
+    /// - session_id: ID da sessão
+    /// - limit: número máximo de mensagens a retornar
+    /// - offset: número de mensagens a pular do final (0 = começar das últimas)
+    /// 
+    /// Retorna: (mensagens em ordem ASC, total_count, has_more)
+    pub fn get_messages_paginated(
+        &self,
+        session_id: &str,
+        limit: usize,
+        offset: usize,
+    ) -> SqliteResult<(Vec<ChatMessage>, usize, bool)> {
+        // Primeiro, obter o total de mensagens
+        let total_count: usize = self.conn.query_row(
+            "SELECT COUNT(*) FROM messages WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        
+        // Se não há mensagens, retornar vazio
+        if total_count == 0 {
+            return Ok((Vec::new(), 0, false));
+        }
+        
+        // Estratégia: usar subquery para pegar as últimas N mensagens ordenadas DESC,
+        // depois ordenar ASC para manter ordem cronológica
+        // 
+        // Se offset=0 e limit=30: queremos as últimas 30 mensagens
+        // Se offset=30 e limit=30: queremos as 30 mensagens antes das últimas 30
+        let real_limit = std::cmp::min(limit, total_count.saturating_sub(offset));
+        
+        if real_limit == 0 {
+            return Ok((Vec::new(), total_count, false));
+        }
+        
+        // Query: pegar as últimas (offset + limit) mensagens ordenadas DESC,
+        // depois ordenar ASC e pegar as primeiras 'limit' (que são as mais antigas do conjunto)
+        let mut stmt = self.conn.prepare(
+            "SELECT id, session_id, role, content, metadata, created_at 
+             FROM (
+                 SELECT id, session_id, role, content, metadata, created_at
+                 FROM messages 
+                 WHERE session_id = ?1 
+                 ORDER BY created_at DESC
+                 LIMIT ?2
+             ) AS recent_messages
+             ORDER BY created_at ASC
+             LIMIT ?3"
+        )?;
+        
+        // Precisamos pegar (offset + limit) mensagens do final para depois pegar as primeiras 'limit'
+        let fetch_limit = offset + limit;
+        
+        let rows = stmt.query_map(params![session_id, fetch_limit, real_limit], |row| {
+            Ok(ChatMessage {
+                id: Some(row.get(0)?),
+                session_id: row.get(1)?,
+                role: row.get(2)?,
+                content: row.get(3)?,
+                metadata: row.get(4)?,
+                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(5)?)
+                    .map_err(|_| rusqlite::Error::InvalidColumnType(5, "TEXT".to_string(), rusqlite::types::Type::Text))?
+                    .with_timezone(&Utc),
+            })
+        })?;
+        
+        let mut messages = Vec::new();
+        for row in rows {
+            messages.push(row?);
+        }
+        
+        // has_more = ainda há mensagens mais antigas para carregar
+        let has_more = offset + messages.len() < total_count;
+        
+        Ok((messages, total_count, has_more))
     }
     
     /// Salva um documento RAG

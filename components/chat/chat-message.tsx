@@ -1,6 +1,6 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { cn } from "@/lib/utils";
 import { Message } from "@/hooks/use-chat";
 import { Bot, User } from "lucide-react";
@@ -18,7 +18,14 @@ interface ChatMessageProps {
   messageIndex?: number;
 }
 
-export function ChatMessage({ message, isStreaming = false, highlightTerm, highlightIndex = 0, messageIndex }: ChatMessageProps) {
+/**
+ * Componente de mensagem do chat otimizado com React.memo
+ * 
+ * Durante streaming, usa renderização simplificada (texto puro) para evitar
+ * recálculo custoso da árvore DOM e syntax highlight a cada token.
+ * Markdown completo é aplicado apenas quando a mensagem está finalizada.
+ */
+function ChatMessageComponent({ message, isStreaming = false, highlightTerm, highlightIndex = 0, messageIndex }: ChatMessageProps) {
   // Verificar se é mensagem de processo de pensamento
   const isThinkingMessage = message.metadata && 
     typeof message.metadata === 'object' && 
@@ -56,7 +63,11 @@ export function ChatMessage({ message, isStreaming = false, highlightTerm, highl
   }, [message.content]);
   
   // Processar highlight separadamente (após limpeza de conteúdo)
+  // Desabilitar durante streaming para performance
   const highlightedContent = useMemo(() => {
+    // Não processar highlight durante streaming
+    if (isStreaming) return null;
+    
     if (!highlightTerm || highlightTerm.trim().length < 2 || (message.role !== 'user' && message.role !== 'assistant')) {
       return null; // Não há highlight
     }
@@ -100,7 +111,7 @@ export function ChatMessage({ message, isStreaming = false, highlightTerm, highl
     // Adicionar texto restante
     highlighted += content.substring(lastIndex);
     return highlighted;
-  }, [processedContent, highlightTerm, highlightIndex, message.role]);
+  }, [processedContent, highlightTerm, highlightIndex, message.role, isStreaming]);
 
   return (
     <MessageBackground
@@ -141,14 +152,27 @@ export function ChatMessage({ message, isStreaming = false, highlightTerm, highl
                 <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
                 <span className="text-sm font-medium">Gerando resposta...</span>
               </div>
+            ) : isStreaming ? (
+              // Renderização LEVE durante streaming: texto simples com formatação básica
+              // Evita recálculo de ReactMarkdown e syntax highlight a cada token
+              <div className={cn(
+                "prose prose-neutral dark:prose-invert max-w-none break-words leading-7 text-base text-foreground/90",
+                "prose-headings:font-semibold prose-headings:tracking-tight",
+                "relative"
+              )}>
+                <div className="whitespace-pre-wrap font-sans">
+                  {processedContent}
+                </div>
+                <span className="inline-block w-2 h-4 bg-primary ml-1 animate-pulse rounded-full align-middle" />
+              </div>
             ) : (
+              // Renderização COMPLETA quando mensagem finalizada: ReactMarkdown com syntax highlight
               <div className={cn(
                 "prose prose-neutral dark:prose-invert max-w-none break-words leading-7 text-base text-foreground/90",
                 "prose-headings:font-semibold prose-headings:tracking-tight prose-h1:text-2xl prose-h2:text-xl prose-h3:text-lg",
                 "prose-p:leading-7 prose-li:leading-7",
                 "prose-pre:bg-muted/50 prose-pre:border prose-pre:border-border/50 prose-pre:rounded-xl",
-                "prose-mark:bg-yellow-200/50 prose-mark:dark:bg-yellow-800/50 prose-mark:px-0.5 prose-mark:rounded",
-                isStreaming && "relative"
+                "prose-mark:bg-yellow-200/50 prose-mark:dark:bg-yellow-800/50 prose-mark:px-0.5 prose-mark:rounded"
               )}>
                 {highlightedContent ? (
                   <div dangerouslySetInnerHTML={{ __html: highlightedContent }} />
@@ -159,9 +183,6 @@ export function ChatMessage({ message, isStreaming = false, highlightTerm, highl
                   >
                     {processedContent}
                   </ReactMarkdown>
-                )}
-                {isStreaming && !isEmpty && (
-                  <span className="inline-block w-2 h-4 bg-primary ml-1 animate-pulse rounded-full align-middle" />
                 )}
               </div>
             )
@@ -181,5 +202,34 @@ export function ChatMessage({ message, isStreaming = false, highlightTerm, highl
   );
 }
 
+/**
+ * ChatMessage com React.memo para evitar re-renders desnecessários
+ * 
+ * Comparação customizada:
+ * - Compara conteúdo da mensagem
+ * - Compara estado de streaming
+ * - Compara termo de highlight e índice
+ */
+export const ChatMessage = React.memo(ChatMessageComponent, (prevProps, nextProps) => {
+  // Se streaming mudou, sempre re-renderizar
+  if (prevProps.isStreaming !== nextProps.isStreaming) {
+    return false;
+  }
+  
+  // Durante streaming, só re-renderizar se conteúdo mudou
+  if (nextProps.isStreaming) {
+    return prevProps.message.content === nextProps.message.content;
+  }
+  
+  // Quando não está em streaming, comparar todas as props relevantes
+  return (
+    prevProps.message.content === nextProps.message.content &&
+    prevProps.message.role === nextProps.message.role &&
+    prevProps.highlightTerm === nextProps.highlightTerm &&
+    prevProps.highlightIndex === nextProps.highlightIndex &&
+    prevProps.messageIndex === nextProps.messageIndex
+  );
+});
 
-
+// Adicionar displayName para debugging
+ChatMessage.displayName = 'ChatMessage';
