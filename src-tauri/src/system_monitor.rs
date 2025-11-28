@@ -576,7 +576,7 @@ fn detect_gpus_macos() -> Vec<GpuInfo> {
                     }
                 } else if line.starts_with("VRAM (Total):") {
                     if let Some(gpu) = &mut current_gpu {
-                        let vram_str = line.replace("VRAM (Total):", "").trim();
+                        let vram_str = line.replace("VRAM (Total):", "").trim().to_string();
                         if let Some(mb) = parse_memory_string(&vram_str) {
                             gpu.memory_mb = Some(mb);
                             log::info!("VRAM detectada: {} MB", mb);
@@ -714,7 +714,7 @@ fn get_nvidia_gpu_stats(gpu: &GpuInfo) -> Option<GpuStats> {
     };
     
     let compute_usage_percent = parts[3].parse::<f32>().ok();
-    let memory_usage_percent = parts[4].parse::<f32>().ok();
+    let _memory_usage_percent = parts[4].parse::<f32>().ok();
     let overall_usage_percent = compute_usage_percent;
     
     let temperature_celsius = parts[5].parse::<f32>().ok();

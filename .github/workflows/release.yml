@@ -57,6 +57,14 @@ jobs:
           toolchain: stable
           targets: ${{ matrix.target }}
 
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2.9" --locked
+
       - name: Install dependencies (Ubuntu only)
         if: matrix.platform == 'ubuntu-latest'
         run: |
