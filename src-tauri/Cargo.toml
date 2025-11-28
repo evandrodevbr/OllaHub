@@ -47,3 +47,10 @@ tauri-plugin-autostart = "2"
 dirs = "5.0"
 rfd = "0.14"
 rusqlite = { version = "0.31", features = ["bundled"] }
+
+# ONNX Runtime para embeddings locais (ranking de relevância)
+# Usando load-dynamic para evitar conflito de RuntimeLibrary (MD vs MT) no Windows
+# entre ort (dynamic) e tokenizers/esaxx-rs (static)
+ort = { version = "2.0.0-rc.10", features = ["load-dynamic"] }
+ndarray = "0.16"
+tokenizers = "0.21"

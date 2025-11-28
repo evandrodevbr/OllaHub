@@ -21,6 +21,7 @@ mod sources_config;
 mod system_monitor;
 mod intent_classifier;
 mod db;
+mod embeddings;
 
 use web_scraper::{
     ScrapedContent,
@@ -114,6 +115,8 @@ struct SessionSummary {
     updated_at: DateTime<Utc>,
     preview: String,
     platform: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    match_count: Option<usize>,
 }
 
 #[derive(serde::Serialize)]
@@ -395,6 +398,57 @@ fn save_chat_session(
     fs::rename(&temp_path, &file_path)
         .map_err(|e| format!("Failed to rename temp file to session file: {}", e))?;
     
+    // Também salvar no SQLite (sistema novo) para melhor performance e paginação
+    // Se falhar, apenas logar erro mas não falhar a operação (compatibilidade)
+    use db::Database;
+    match Database::new(&app_handle) {
+        Ok(db) => {
+            // Criar/atualizar sessão no SQLite
+            let db_session = db::ChatSession {
+                id: session.id.clone(),
+                title: session.title.clone(),
+                emoji: "💬".to_string(), // Emoji padrão
+                created_at: session.created_at,
+                updated_at: session.updated_at,
+            };
+            
+            if let Err(e) = db.save_session(&db_session) {
+                log::warn!("Failed to save session to SQLite (continuing with JSON only): {}", e);
+            } else {
+                // Converter Message para ChatMessage e salvar no SQLite
+                // Preservar ordem usando timestamps incrementais baseados no índice
+                let chat_messages: Vec<db::ChatMessage> = session.messages.iter().enumerate().map(|(idx, msg)| {
+                    let metadata_str = msg.metadata.as_ref()
+                        .and_then(|m| serde_json::to_string(m).ok());
+                    
+                    // Criar timestamp incremental para preservar ordem das mensagens
+                    // Usar created_at da sessão como base e adicionar segundos baseados no índice
+                    // Isso garante que a ordem seja mantida quando ordenado por created_at ASC
+                    let base_time = session.created_at;
+                    let msg_created_at = base_time + chrono::Duration::seconds(idx as i64);
+                    
+                    db::ChatMessage {
+                        id: None,
+                        session_id: session.id.clone(),
+                        role: msg.role.clone(),
+                        content: msg.content.clone(),
+                        metadata: metadata_str,
+                        created_at: msg_created_at,
+                    }
+                }).collect();
+                
+                if let Err(e) = db.save_messages_batch(&session.id, &chat_messages) {
+                    log::warn!("Failed to save messages to SQLite (continuing with JSON only): {}", e);
+                } else {
+                    log::debug!("Successfully saved {} messages to SQLite for session {}", chat_messages.len(), session.id);
+                }
+            }
+        }
+        Err(e) => {
+            log::debug!("Failed to open database for saving (JSON saved successfully): {}", e);
+        }
+    }
+    
     // Lock é liberado automaticamente quando _guard sai de escopo
     Ok(())
 }
@@ -407,7 +461,7 @@ fn search_chat_sessions(app_handle: AppHandle, query: String, limit: Option<usiz
         .map_err(|e| format!("Failed to open database: {}", e))?;
     
     let search_limit = limit.unwrap_or(50);
-    let sessions = db.search_sessions(&query, search_limit)
+    let search_results = db.search_sessions(&query, search_limit)
         .map_err(|e| format!("Search failed: {}", e))?;
     
     // Validar existência de cada sessão antes de retornar
@@ -415,7 +469,9 @@ fn search_chat_sessions(app_handle: AppHandle, query: String, limit: Option<usiz
     let mut summaries = Vec::new();
     let mut orphan_count = 0;
     
-    for session in sessions {
+    for search_result in search_results {
+        let session = search_result.session;
+        let match_count = search_result.match_count;
         // Verificar se sessão existe no SQLite (já temos)
         let exists_in_sqlite = db.get_session(&session.id)
             .ok()
@@ -465,6 +521,7 @@ fn search_chat_sessions(app_handle: AppHandle, query: String, limit: Option<usiz
             updated_at: session.updated_at, // Já é DateTime<Utc>
             preview,
             platform: String::new(), // Platform não está no SQLite ainda
+            match_count: Some(match_count as usize),
         });
     }
     
@@ -514,6 +571,7 @@ fn load_chat_sessions(app_handle: AppHandle) -> Result<Vec<SessionSummary>, Stri
                             updated_at: session.updated_at,
                             preview: last_msg,
                             platform: session.platform,
+                            match_count: None,
                         });
                     }
                 }
@@ -598,6 +656,299 @@ fn load_chat_history(app_handle: AppHandle, id: String) -> Result<Vec<Message>, 
     
     log::info!("Loaded {} messages from JSON for session {}", session.messages.len(), id);
     Ok(session.messages)
+}
+
+/// Resultado de carregamento paginado de histórico
+#[derive(serde::Serialize)]
+struct PaginatedHistory {
+    messages: Vec<Message>,
+    total_count: usize,
+    has_more: bool,
+}
+
+/// Carrega histórico de chat com paginação (lazy loading)
+/// 
+/// Parâmetros:
+/// - id: ID da sessão
+/// - limit: número máximo de mensagens a retornar (default: 20)
+/// - offset: número de mensagens a pular do final (default: 0)
+#[command]
+fn load_chat_history_paginated(
+    app_handle: AppHandle,
+    id: String,
+    limit: Option<usize>,
+    offset: Option<usize>,
+) -> Result<PaginatedHistory, String> {
+    use db::Database;
+    
+    let limit = limit.unwrap_or(20);
+    let offset = offset.unwrap_or(0);
+    
+    match Database::new(&app_handle) {
+        Ok(db) => {
+            match db.get_messages_paginated(&id, limit, offset) {
+                Ok((messages, total_count, has_more)) => {
+                    // Se SQLite retornou 0 mensagens, tentar fallback para JSON (sistema legado)
+                    if total_count == 0 {
+                        log::debug!("No messages in SQLite for session {}, trying JSON fallback", id);
+                        
+                        // Tentar carregar do JSON
+                        let chats_dir = match get_chats_dir(&app_handle) {
+                            Ok(dir) => dir,
+                            Err(e) => {
+                                log::debug!("Failed to get chats dir for JSON fallback: {}", e);
+                                // Retornar vazio se não conseguir acessar diretório
+                                return Ok(PaginatedHistory {
+                                    messages: Vec::new(),
+                                    total_count: 0,
+                                    has_more: false,
+                                });
+                            }
+                        };
+                        
+                        let file_path = chats_dir.join(format!("{}.json", id));
+                        if file_path.exists() {
+                            match fs::read_to_string(&file_path) {
+                                Ok(content) => {
+                                    match serde_json::from_str::<ChatSession>(&content) {
+                                        Ok(session) => {
+                                            let all_messages = session.messages;
+                                            let total = all_messages.len();
+                                            
+                                            if total == 0 {
+                                                return Ok(PaginatedHistory {
+                                                    messages: Vec::new(),
+                                                    total_count: 0,
+                                                    has_more: false,
+                                                });
+                                            }
+                                            
+                                            // Aplicar paginação em memória (simular comportamento do SQLite)
+                                            // offset=0 significa últimas N mensagens
+                                            // offset>0 significa mensagens antes das últimas N
+                                            let start_idx = if offset + limit <= total {
+                                                total - offset - limit
+                                            } else {
+                                                0
+                                            };
+                                            
+                                            let end_idx = std::cmp::min(start_idx + limit, total);
+                                            let paginated_messages: Vec<Message> = all_messages
+                                                .into_iter()
+                                                .skip(start_idx)
+                                                .take(end_idx - start_idx)
+                                                .collect();
+                                            
+                                            let has_more = offset + paginated_messages.len() < total;
+                                            
+                                            log::info!(
+                                                "Loaded {} messages (offset: {}, total: {}, has_more: {}) from JSON fallback for session {}",
+                                                paginated_messages.len(), offset, total, has_more, id
+                                            );
+                                            
+                                            return Ok(PaginatedHistory {
+                                                messages: paginated_messages,
+                                                total_count: total,
+                                                has_more,
+                                            });
+                                        }
+                                        Err(e) => {
+                                            log::debug!("Failed to parse JSON session: {}", e);
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    log::debug!("Failed to read JSON file: {}", e);
+                                }
+                            }
+                        }
+                        
+                        // Se chegou aqui, não encontrou mensagens nem no SQLite nem no JSON
+                        return Ok(PaginatedHistory {
+                            messages: Vec::new(),
+                            total_count: 0,
+                            has_more: false,
+                        });
+                    }
+                    
+                    // Converter ChatMessage para Message
+                    let result: Vec<Message> = messages.into_iter().map(|msg| {
+                        let role = if msg.role == "user" {
+                            "user"
+                        } else if msg.role == "assistant" {
+                            "assistant"
+                        } else {
+                            "system"
+                        };
+                        
+                        let metadata = msg.metadata.and_then(|m| {
+                            serde_json::from_str::<serde_json::Value>(&m).ok()
+                        });
+                        
+                        let metadata_value = metadata
+                            .and_then(|m| {
+                                if m.is_object() && !m.as_object().unwrap().is_empty() {
+                                    Some(m)
+                                } else {
+                                    None
+                                }
+                            });
+                        
+                        Message {
+                            role: role.to_string(),
+                            content: msg.content,
+                            metadata: metadata_value,
+                        }
+                    }).collect();
+                    
+                    log::info!(
+                        "Loaded {} messages (offset: {}, total: {}, has_more: {}) from SQLite for session {}",
+                        result.len(), offset, total_count, has_more, id
+                    );
+                    
+                    Ok(PaginatedHistory {
+                        messages: result,
+                        total_count,
+                        has_more,
+                    })
+                }
+                Err(e) => {
+                    log::debug!("SQLite query failed for session {}: {}, trying JSON fallback", id, e);
+                    
+                    // Fallback para JSON em caso de erro também
+                    let chats_dir = match get_chats_dir(&app_handle) {
+                        Ok(dir) => dir,
+                        Err(_) => {
+                            return Err(format!("Failed to load paginated history: {}", e));
+                        }
+                    };
+                    
+                    let file_path = chats_dir.join(format!("{}.json", id));
+                    if file_path.exists() {
+                        match fs::read_to_string(&file_path) {
+                            Ok(content) => {
+                                match serde_json::from_str::<ChatSession>(&content) {
+                                    Ok(session) => {
+                                        let all_messages = session.messages;
+                                        let total = all_messages.len();
+                                        
+                                        if total == 0 {
+                                            return Ok(PaginatedHistory {
+                                                messages: Vec::new(),
+                                                total_count: 0,
+                                                has_more: false,
+                                            });
+                                        }
+                                        
+                                        let start_idx = if offset + limit <= total {
+                                            total - offset - limit
+                                        } else {
+                                            0
+                                        };
+                                        
+                                        let end_idx = std::cmp::min(start_idx + limit, total);
+                                        let paginated_messages: Vec<Message> = all_messages
+                                            .into_iter()
+                                            .skip(start_idx)
+                                            .take(end_idx - start_idx)
+                                            .collect();
+                                        
+                                        let has_more = offset + paginated_messages.len() < total;
+                                        
+                                        log::info!(
+                                            "Loaded {} messages (offset: {}, total: {}, has_more: {}) from JSON fallback (error case) for session {}",
+                                            paginated_messages.len(), offset, total, has_more, id
+                                        );
+                                        
+                                        return Ok(PaginatedHistory {
+                                            messages: paginated_messages,
+                                            total_count: total,
+                                            has_more,
+                                        });
+                                    }
+                                    Err(e2) => {
+                                        return Err(format!("Failed to load paginated history: {} (JSON parse error: {})", e, e2));
+                                    }
+                                }
+                            }
+                            Err(e2) => {
+                                return Err(format!("Failed to load paginated history: {} (JSON read error: {})", e, e2));
+                            }
+                        }
+                    }
+                    
+                    Err(format!("Failed to load paginated history: {}", e))
+                }
+            }
+        }
+        Err(e) => {
+            log::debug!("Failed to open database: {}, trying JSON fallback", e);
+            
+            // Fallback para JSON se não conseguir abrir banco
+            let chats_dir = match get_chats_dir(&app_handle) {
+                Ok(dir) => dir,
+                Err(e2) => {
+                    return Err(format!("Failed to open database: {} (chats dir error: {})", e, e2));
+                }
+            };
+            
+            let file_path = chats_dir.join(format!("{}.json", id));
+            if file_path.exists() {
+                match fs::read_to_string(&file_path) {
+                    Ok(content) => {
+                        match serde_json::from_str::<ChatSession>(&content) {
+                            Ok(session) => {
+                                let all_messages = session.messages;
+                                let total = all_messages.len();
+                                
+                                if total == 0 {
+                                    return Ok(PaginatedHistory {
+                                        messages: Vec::new(),
+                                        total_count: 0,
+                                        has_more: false,
+                                    });
+                                }
+                                
+                                let start_idx = if offset + limit <= total {
+                                    total - offset - limit
+                                } else {
+                                    0
+                                };
+                                
+                                let end_idx = std::cmp::min(start_idx + limit, total);
+                                let paginated_messages: Vec<Message> = all_messages
+                                    .into_iter()
+                                    .skip(start_idx)
+                                    .take(end_idx - start_idx)
+                                    .collect();
+                                
+                                let has_more = offset + paginated_messages.len() < total;
+                                
+                                log::info!(
+                                    "Loaded {} messages (offset: {}, total: {}, has_more: {}) from JSON fallback (db open error) for session {}",
+                                    paginated_messages.len(), offset, total, has_more, id
+                                );
+                                
+                                return Ok(PaginatedHistory {
+                                    messages: paginated_messages,
+                                    total_count: total,
+                                    has_more,
+                                });
+                            }
+                            Err(e2) => {
+                                return Err(format!("Failed to open database: {} (JSON parse error: {})", e, e2));
+                            }
+                        }
+                    }
+                    Err(e2) => {
+                        return Err(format!("Failed to open database: {} (JSON read error: {})", e, e2));
+                    }
+                }
+            }
+            
+            Err(format!("Failed to open database: {}", e))
+        }
+    }
 }
 
 #[command]
@@ -2978,11 +3329,17 @@ async fn chat_stream(
         return Err(error_msg);
     }
     
-    // 5. Processar stream e emitir tokens
-    // IMPORTANTE: O Ollama envia tokens INCREMENTAIS (cada chunk contém apenas o novo conteúdo)
+    // 5. Processar stream e emitir tokens COM BUFFERING
+    // OTIMIZAÇÃO: Acumular tokens e emitir em batches para reduzir overhead da bridge
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
     let mut full_content = String::new();
+    
+    // Buffer de tokens para reduzir eventos na bridge
+    let mut token_buffer = String::new();
+    let mut last_emit = std::time::Instant::now();
+    const EMIT_INTERVAL_MS: u64 = 16; // ~60fps para sincronizar com RAF do frontend
+    const MAX_BUFFER_CHARS: usize = 50; // Emitir quando buffer tiver ~50 chars
     
     while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result.map_err(|e| format!("Stream error: {}", e))?;
@@ -3007,20 +3364,23 @@ async fn chat_stream(
                     // Extrair conteúdo do chunk (Ollama envia tokens incrementais)
                     if let Some(message) = json.get("message") {
                         if let Some(content) = message.get("content").and_then(|c| c.as_str()) {
-                            // O Ollama envia apenas o NOVO conteúdo em cada chunk, não o acumulado
-                            // Então podemos emitir diretamente
                             if !content.is_empty() {
                                 full_content.push_str(content);
+                                token_buffer.push_str(content);
                                 
-                                // Emitir token para frontend
-                                let token_event = ChatTokenEvent {
-                                    session_id: session_id.clone(),
-                                    content: content.to_string(),
-                                    done: false,
-                                };
-                                
-                                if let Err(e) = window.emit("chat-token", &token_event) {
-                                    log::warn!("Erro ao emitir token: {}", e);
+                                // Emitir buffer quando: tempo >= 16ms OU buffer >= 50 chars
+                                let elapsed = last_emit.elapsed().as_millis() as u64;
+                                if elapsed >= EMIT_INTERVAL_MS || token_buffer.len() >= MAX_BUFFER_CHARS {
+                                    let token_event = ChatTokenEvent {
+                                        session_id: session_id.clone(),
+                                        content: std::mem::take(&mut token_buffer),
+                                        done: false,
+                                    };
+                                    
+                                    if let Err(e) = window.emit("chat-token", &token_event) {
+                                        log::warn!("Erro ao emitir token: {}", e);
+                                    }
+                                    last_emit = std::time::Instant::now();
                                 }
                             }
                         }
@@ -3028,6 +3388,16 @@ async fn chat_stream(
                     
                     // Verificar se stream terminou
                     if is_done {
+                        // Flush do buffer residual antes de finalizar
+                        if !token_buffer.is_empty() {
+                            let flush_event = ChatTokenEvent {
+                                session_id: session_id.clone(),
+                                content: std::mem::take(&mut token_buffer),
+                                done: false,
+                            };
+                            let _ = window.emit("chat-token", &flush_event);
+                        }
+                        
                         // Emitir evento final
                         let final_event = ChatTokenEvent {
                             session_id: session_id.clone(),
@@ -3119,6 +3489,113 @@ async fn chat_stream(
     }
     
     Ok(session_id)
+}
+
+// ============== COMANDOS DE EMBEDDINGS ==============
+
+/// Baixa o modelo de embeddings se não existir
+#[command]
+async fn download_embedding_model(app_handle: AppHandle) -> Result<bool, String> {
+    let app_data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    
+    match embeddings::ensure_model_files(&app_data_dir).await {
+        Ok(_) => {
+            log::info!("[Embeddings] Model files ready");
+            Ok(true)
+        }
+        Err(e) => {
+            log::error!("[Embeddings] Failed to ensure model files: {}", e);
+            Err(format!("Failed to download model: {}", e))
+        }
+    }
+}
+
+/// Verifica se o modelo de embeddings está disponível
+#[command]
+fn is_embedding_model_available(app_handle: AppHandle) -> Result<bool, String> {
+    let app_data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    
+    Ok(embeddings::is_model_available(&app_data_dir))
+}
+
+/// Calcula scores de relevância para textos em relação a uma query
+#[command]
+fn calculate_relevance_scores(
+    app_handle: AppHandle,
+    query: String,
+    texts: Vec<String>,
+) -> Result<Vec<(usize, f32)>, String> {
+    let app_data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    
+    let model_arc = embeddings::get_or_init_model(&app_data_dir)
+        .map_err(|e| format!("Failed to load model: {}", e))?;
+    
+    let mut model = model_arc.lock()
+        .map_err(|e| format!("Failed to lock model: {}", e))?;
+    
+    let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+    
+    embeddings::rank_by_relevance(&mut model, &query, &text_refs)
+        .map_err(|e| format!("Failed to calculate relevance: {}", e))
+}
+
+/// Gera embedding para um texto
+#[command]
+fn generate_embedding(
+    app_handle: AppHandle,
+    text: String,
+) -> Result<Vec<f32>, String> {
+    let app_data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    
+    let model_arc = embeddings::get_or_init_model(&app_data_dir)
+        .map_err(|e| format!("Failed to load model: {}", e))?;
+    
+    let mut model = model_arc.lock()
+        .map_err(|e| format!("Failed to lock model: {}", e))?;
+    
+    model.embed(&text)
+        .map_err(|e| format!("Failed to generate embedding: {}", e))
+}
+
+/// Poda o contexto mantendo apenas os parágrafos mais relevantes
+#[command]
+fn prune_context(
+    app_handle: AppHandle,
+    query: String,
+    context: String,
+    max_tokens: Option<usize>,
+    min_score: Option<f32>,
+) -> Result<String, String> {
+    let max_tokens = max_tokens.unwrap_or(2000);
+    let min_score = min_score.unwrap_or(0.3);
+    
+    let app_data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    
+    // Tentar usar embeddings se modelo disponível
+    if embeddings::is_model_available(&app_data_dir) {
+        let model_arc = embeddings::get_or_init_model(&app_data_dir)
+            .map_err(|e| format!("Failed to load model: {}", e))?;
+        
+        let mut model = model_arc.lock()
+            .map_err(|e| format!("Failed to lock model: {}", e))?;
+        
+        embeddings::prune_context(&mut model, &query, &context, max_tokens, min_score)
+            .map_err(|e| format!("Failed to prune context: {}", e))
+    } else {
+        // Fallback para BM25-like
+        log::info!("[PruneContext] Using BM25 fallback (embedding model not available)");
+        Ok(embeddings::prune_context_bm25(&query, &context, max_tokens))
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -3219,6 +3696,7 @@ pub fn run() {
         load_chat_sessions,
         search_chat_sessions,
         load_chat_history,
+        load_chat_history_paginated,
         delete_chat_session,
         cleanup_orphan_sessions,
         load_mcp_config,
@@ -3261,7 +3739,13 @@ pub fn run() {
         get_downloaded_installer_path,
         check_ollama_full,
         auto_start_ollama,
-        classify_intent
+        classify_intent,
+        // Embeddings commands
+        download_embedding_model,
+        is_embedding_model_available,
+        calculate_relevance_scores,
+        generate_embedding,
+        prune_context
     ])
     .manage(Arc::new(Mutex::new(HashMap::<String, McpProcessHandle>::new())) as McpProcessMap)
     .run(tauri::generate_context!())

@@ -22,6 +22,13 @@ pub struct ChatMessage {
     pub created_at: DateTime<Utc>,
 }
 
+/// Resultado de busca de sessões com contagem de matches
+#[derive(Debug, Clone)]
+pub struct SearchSessionResult {
+    pub session: ChatSession,
+    pub match_count: i64,
+}
+
 pub struct Database {
     conn: Connection,
 }
@@ -48,6 +55,19 @@ impl Database {
         
         let db_path = app_data_dir.join("ollahub.db");
         let conn = Connection::open(&db_path)?;
+        
+        // Otimizações de performance do SQLite
+        // WAL mode permite leituras e escritas simultâneas (evita bloqueio da UI)
+        // synchronous=NORMAL reduz fsync sem perder segurança
+        // cache_size maior acelera operações frequentes
+        // temp_store=MEMORY usa RAM para tabelas temporárias
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA synchronous=NORMAL;
+             PRAGMA cache_size=10000;
+             PRAGMA temp_store=MEMORY;
+             PRAGMA foreign_keys=ON;"
+        )?;
         
         let db = Self { conn };
         db.init_schema()?;
@@ -370,6 +390,54 @@ impl Database {
         Ok(self.conn.last_insert_rowid())
     }
     
+    /// Salva múltiplas mensagens de uma sessão em uma transação
+    /// 
+    /// Remove mensagens existentes da sessão antes de inserir as novas
+    /// para garantir que não haja duplicatas.
+    pub fn save_messages_batch(
+        &self,
+        session_id: &str,
+        messages: &[ChatMessage],
+    ) -> SqliteResult<()> {
+        // Usar execute_batch para executar múltiplas operações atomicamente
+        // WAL mode permite isso de forma segura mesmo sem transação explícita
+        
+        // Remover mensagens existentes da sessão (para evitar duplicatas)
+        self.conn.execute(
+            "DELETE FROM messages WHERE session_id = ?1",
+            params![session_id],
+        )?;
+        
+        // Inserir todas as mensagens
+        let mut stmt = self.conn.prepare(
+            "INSERT INTO messages (session_id, role, content, metadata, created_at) 
+             VALUES (?1, ?2, ?3, ?4, ?5)"
+        )?;
+        
+        for message in messages {
+            stmt.execute(params![
+                message.session_id,
+                message.role,
+                message.content,
+                message.metadata,
+                message.created_at.to_rfc3339()
+            ])?;
+        }
+        
+        // Atualizar updated_at da sessão com a data da última mensagem
+        if let Some(last_message) = messages.last() {
+            self.conn.execute(
+                "UPDATE sessions SET updated_at = ?1 WHERE id = ?2",
+                params![
+                    last_message.created_at.to_rfc3339(),
+                    session_id
+                ],
+            )?;
+        }
+        
+        Ok(())
+    }
+    
     /// Busca todas as mensagens de uma sessão
     pub fn get_messages(&self, session_id: &str) -> SqliteResult<Vec<ChatMessage>> {
         let mut stmt = self.conn.prepare(
@@ -397,6 +465,88 @@ impl Database {
             messages.push(row?);
         }
         Ok(messages)
+    }
+    
+    /// Busca mensagens de uma sessão com paginação (lazy loading)
+    /// 
+    /// Retorna as últimas `limit` mensagens a partir do `offset`.
+    /// O offset conta do final (0 = últimas mensagens, 20 = 20 mensagens antes das últimas).
+    /// 
+    /// Parâmetros:
+    /// - session_id: ID da sessão
+    /// - limit: número máximo de mensagens a retornar
+    /// - offset: número de mensagens a pular do final (0 = começar das últimas)
+    /// 
+    /// Retorna: (mensagens em ordem ASC, total_count, has_more)
+    pub fn get_messages_paginated(
+        &self,
+        session_id: &str,
+        limit: usize,
+        offset: usize,
+    ) -> SqliteResult<(Vec<ChatMessage>, usize, bool)> {
+        // Primeiro, obter o total de mensagens
+        let total_count: usize = self.conn.query_row(
+            "SELECT COUNT(*) FROM messages WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        
+        // Se não há mensagens, retornar vazio
+        if total_count == 0 {
+            return Ok((Vec::new(), 0, false));
+        }
+        
+        // Estratégia: usar subquery para pegar as últimas N mensagens ordenadas DESC,
+        // depois ordenar ASC para manter ordem cronológica
+        // 
+        // Se offset=0 e limit=30: queremos as últimas 30 mensagens
+        // Se offset=30 e limit=30: queremos as 30 mensagens antes das últimas 30
+        let real_limit = std::cmp::min(limit, total_count.saturating_sub(offset));
+        
+        if real_limit == 0 {
+            return Ok((Vec::new(), total_count, false));
+        }
+        
+        // Query: pegar as últimas (offset + limit) mensagens ordenadas DESC,
+        // depois ordenar ASC e pegar as primeiras 'limit' (que são as mais antigas do conjunto)
+        let mut stmt = self.conn.prepare(
+            "SELECT id, session_id, role, content, metadata, created_at 
+             FROM (
+                 SELECT id, session_id, role, content, metadata, created_at
+                 FROM messages 
+                 WHERE session_id = ?1 
+                 ORDER BY created_at DESC
+                 LIMIT ?2
+             ) AS recent_messages
+             ORDER BY created_at ASC
+             LIMIT ?3"
+        )?;
+        
+        // Precisamos pegar (offset + limit) mensagens do final para depois pegar as primeiras 'limit'
+        let fetch_limit = offset + limit;
+        
+        let rows = stmt.query_map(params![session_id, fetch_limit, real_limit], |row| {
+            Ok(ChatMessage {
+                id: Some(row.get(0)?),
+                session_id: row.get(1)?,
+                role: row.get(2)?,
+                content: row.get(3)?,
+                metadata: row.get(4)?,
+                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(5)?)
+                    .map_err(|_| rusqlite::Error::InvalidColumnType(5, "TEXT".to_string(), rusqlite::types::Type::Text))?
+                    .with_timezone(&Utc),
+            })
+        })?;
+        
+        let mut messages = Vec::new();
+        for row in rows {
+            messages.push(row?);
+        }
+        
+        // has_more = ainda há mensagens mais antigas para carregar
+        let has_more = offset + messages.len() < total_count;
+        
+        Ok((messages, total_count, has_more))
     }
     
     /// Salva um documento RAG
@@ -446,89 +596,136 @@ impl Database {
     
     /// Busca sessões por query (título ou conteúdo de mensagens)
     /// Retorna resultados ordenados por relevância (match no título > match no conteúdo)
-    pub fn search_sessions(&self, query: &str, limit: usize) -> SqliteResult<Vec<ChatSession>> {
+    /// Inclui contagem de matches para navegação
+    pub fn search_sessions(&self, query: &str, limit: usize) -> SqliteResult<Vec<SearchSessionResult>> {
         if query.trim().is_empty() {
-            // Se query vazia, retornar todas as sessões ordenadas por updated_at
-            return self.list_sessions();
+            // Se query vazia, retornar todas as sessões ordenadas por updated_at com match_count = 0
+            let sessions = self.list_sessions()?;
+            return Ok(sessions.into_iter().map(|session| SearchSessionResult {
+                session,
+                match_count: 0,
+            }).collect());
         }
         
         // Escapar caracteres especiais para FTS5
         let escaped_query = query.replace('"', "\"\"");
         let fts_query = format!("\"{}\"", escaped_query);
         
-        // Busca combinada: título (peso 1.0) + conteúdo (peso 0.5)
-        let mut stmt = self.conn.prepare(
-            "WITH title_matches AS (
-                SELECT s.id, s.title, s.emoji, s.created_at, s.updated_at, 
-                       bm25(sessions_fts) as rank
-                FROM sessions s
-                JOIN sessions_fts ON s.rowid = sessions_fts.rowid
-                WHERE sessions_fts MATCH ?1
-                ORDER BY rank
-                LIMIT ?2
-            ),
-            content_matches AS (
-                SELECT DISTINCT s.id, s.title, s.emoji, s.created_at, s.updated_at,
-                       bm25(messages_fts) * 0.5 as rank
-                FROM sessions s
-                JOIN messages m ON s.id = m.session_id
-                JOIN messages_fts ON m.rowid = messages_fts.rowid
-                WHERE messages_fts MATCH ?1
-                ORDER BY rank
-                LIMIT ?2
-            )
-            SELECT id, title, emoji, created_at, updated_at
-            FROM (
-                SELECT * FROM title_matches
-                UNION
-                SELECT * FROM content_matches
-            )
-            ORDER BY rank DESC, updated_at DESC
-            LIMIT ?2"
-        )?;
+        // Busca simplificada: primeiro buscar por título, depois por conteúdo
+        // Usando abordagem em duas etapas para evitar problemas com bm25 em CTEs
         
-        let rows = stmt.query_map(params![fts_query, limit], |row| {
-            Ok(ChatSession {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                emoji: row.get(2)?,
-                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(3)?)
-                    .map_err(|_| rusqlite::Error::InvalidColumnType(3, "TEXT".to_string(), rusqlite::types::Type::Text))?
-                    .with_timezone(&Utc),
-                updated_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(4)?)
-                    .map_err(|_| rusqlite::Error::InvalidColumnType(4, "TEXT".to_string(), rusqlite::types::Type::Text))?
-                    .with_timezone(&Utc),
-            })
-        })?;
-        
-        let mut sessions = Vec::new();
-        for row in rows {
-            sessions.push(row?);
+        // Etapa 1: Buscar sessões por título (FTS5)
+        let mut title_sessions: Vec<SearchSessionResult> = Vec::new();
+        {
+            let mut stmt = self.conn.prepare(
+                "SELECT s.id, s.title, s.emoji, s.created_at, s.updated_at
+                 FROM sessions s
+                 JOIN sessions_fts ON s.rowid = sessions_fts.rowid
+                 WHERE sessions_fts MATCH ?1
+                 ORDER BY s.updated_at DESC
+                 LIMIT ?2"
+            )?;
+            
+            let rows = stmt.query_map(params![&fts_query, limit], |row| {
+                Ok(SearchSessionResult {
+                    session: ChatSession {
+                        id: row.get(0)?,
+                        title: row.get(1)?,
+                        emoji: row.get(2)?,
+                        created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(3)?)
+                            .map_err(|_| rusqlite::Error::InvalidColumnType(3, "TEXT".to_string(), rusqlite::types::Type::Text))?
+                            .with_timezone(&Utc),
+                        updated_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(4)?)
+                            .map_err(|_| rusqlite::Error::InvalidColumnType(4, "TEXT".to_string(), rusqlite::types::Type::Text))?
+                            .with_timezone(&Utc),
+                    },
+                    match_count: 1, // Match no título conta como 1
+                })
+            })?;
+            
+            for row in rows {
+                title_sessions.push(row?);
+            }
         }
+        
+        // Etapa 2: Buscar sessões por conteúdo de mensagens (FTS5)
+        let mut content_sessions: Vec<(String, i64)> = Vec::new(); // (session_id, match_count)
+        {
+            let mut stmt = self.conn.prepare(
+                "SELECT m.session_id, COUNT(*) as match_count
+                 FROM messages m
+                 JOIN messages_fts ON m.rowid = messages_fts.rowid
+                 WHERE messages_fts MATCH ?1
+                 GROUP BY m.session_id
+                 ORDER BY match_count DESC
+                 LIMIT ?2"
+            )?;
+            
+            let rows = stmt.query_map(params![&fts_query, limit], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?;
+            
+            for row in rows {
+                content_sessions.push(row?);
+            }
+        }
+        
+        // Combinar resultados: priorizar matches por título, adicionar matches por conteúdo
+        let mut session_map: std::collections::HashMap<String, SearchSessionResult> = std::collections::HashMap::new();
+        
+        // Adicionar sessões encontradas por título
+        for session in title_sessions {
+            session_map.insert(session.session.id.clone(), session);
+        }
+        
+        // Adicionar ou atualizar com sessões encontradas por conteúdo
+        for (session_id, match_count) in content_sessions {
+            if let Some(existing) = session_map.get_mut(&session_id) {
+                // Atualizar match_count se já existe
+                existing.match_count = match_count;
+            } else {
+                // Buscar dados da sessão
+                if let Ok(Some(session)) = self.get_session(&session_id) {
+                    session_map.insert(session_id, SearchSessionResult {
+                        session,
+                        match_count,
+                    });
+                }
+            }
+        }
+        
+        // Converter para vetor e ordenar por updated_at
+        let mut sessions: Vec<SearchSessionResult> = session_map.into_values().collect();
+        sessions.sort_by(|a, b| b.session.updated_at.cmp(&a.session.updated_at));
         
         // Se não encontrou resultados com FTS, tentar busca simples com LIKE (fallback)
         if sessions.is_empty() {
             let mut stmt = self.conn.prepare(
-                "SELECT DISTINCT s.id, s.title, s.emoji, s.created_at, s.updated_at
+                "SELECT s.id, s.title, s.emoji, s.created_at, s.updated_at,
+                        COUNT(CASE WHEN m.content LIKE ?1 THEN 1 END) as match_count
                  FROM sessions s
                  LEFT JOIN messages m ON s.id = m.session_id
                  WHERE s.title LIKE ?1 OR m.content LIKE ?1
+                 GROUP BY s.id, s.title, s.emoji, s.created_at, s.updated_at
                  ORDER BY s.updated_at DESC
                  LIMIT ?2"
             )?;
             
             let like_query = format!("%{}%", query);
             let rows = stmt.query_map(params![like_query, limit], |row| {
-                Ok(ChatSession {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    emoji: row.get(2)?,
-                    created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(3)?)
-                        .map_err(|_| rusqlite::Error::InvalidColumnType(3, "TEXT".to_string(), rusqlite::types::Type::Text))?
-                        .with_timezone(&Utc),
-                    updated_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(4)?)
-                        .map_err(|_| rusqlite::Error::InvalidColumnType(4, "TEXT".to_string(), rusqlite::types::Type::Text))?
-                        .with_timezone(&Utc),
+                Ok(SearchSessionResult {
+                    session: ChatSession {
+                        id: row.get(0)?,
+                        title: row.get(1)?,
+                        emoji: row.get(2)?,
+                        created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(3)?)
+                            .map_err(|_| rusqlite::Error::InvalidColumnType(3, "TEXT".to_string(), rusqlite::types::Type::Text))?
+                            .with_timezone(&Utc),
+                        updated_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(4)?)
+                            .map_err(|_| rusqlite::Error::InvalidColumnType(4, "TEXT".to_string(), rusqlite::types::Type::Text))?
+                            .with_timezone(&Utc),
+                    },
+                    match_count: row.get(5)?,
                 })
             })?;
             

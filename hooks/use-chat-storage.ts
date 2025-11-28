@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Message } from './use-chat';
 import { removeMetadataNoise } from '@/lib/metadata';
@@ -10,7 +10,30 @@ export interface SessionSummary {
   updated_at: string;
   preview: string;
   platform: string;
+  match_count?: number;
 }
+
+/** Resultado de carregamento paginado do backend */
+interface PaginatedHistoryResult {
+  messages: Array<{
+    role: string;
+    content: string;
+    metadata?: unknown;
+  }>;
+  total_count: number;
+  has_more: boolean;
+}
+
+/** Estado de paginação para uma sessão */
+export interface PaginationState {
+  totalCount: number;
+  hasMore: boolean;
+  offset: number;
+  isLoadingMore: boolean;
+}
+
+/** Número de mensagens a carregar por página */
+const MESSAGES_PER_PAGE = 30;
 
 const TITLE_MODEL = "qwen2.5:0.5b";
 
@@ -40,6 +63,17 @@ export function useChatStorage() {
   const [isGeneratingTitle, setIsGeneratingTitle] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isSearching, setIsSearching] = useState(false);
+  
+  // Estado de paginação por sessão
+  const [paginationState, setPaginationState] = useState<PaginationState>({
+    totalCount: 0,
+    hasMore: false,
+    offset: 0,
+    isLoadingMore: false,
+  });
+  
+  // Ref para evitar múltiplos loads simultâneos
+  const loadingMoreRef = useRef(false);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -73,22 +107,137 @@ export function useChatStorage() {
     }
   }, [loadSessions]);
 
-  const loadSessionHistory = useCallback(async (id: string): Promise<Message[]> => {
+  /**
+   * Carrega histórico de uma sessão com paginação (lazy loading)
+   * 
+   * Por padrão, carrega as últimas MESSAGES_PER_PAGE mensagens.
+   * Retorna as mensagens e atualiza o estado de paginação.
+   */
+  const loadSessionHistory = useCallback(async (
+    id: string,
+    options?: { loadAll?: boolean }
+  ): Promise<Message[]> => {
     try {
-      const rawMessages = await invoke<any[]>('load_chat_history', { id });
-      // Convert role from String to type-safe union and ensure proper types
-      return rawMessages.map(msg => ({
+      // Reset pagination state
+      setPaginationState({
+        totalCount: 0,
+        hasMore: false,
+        offset: 0,
+        isLoadingMore: false,
+      });
+      
+      // Se loadAll = true, usa o comando antigo que carrega tudo
+      if (options?.loadAll) {
+        const rawMessages = await invoke<Array<{
+          role: string;
+          content: string;
+          metadata?: unknown;
+        }>>('load_chat_history', { id });
+        
+        return rawMessages.map(msg => ({
+          role: (msg.role === 'user' || msg.role === 'assistant' || msg.role === 'system') 
+            ? msg.role as 'user' | 'assistant' | 'system'
+            : 'user' as const,
+          content: msg.content || '',
+          metadata: msg.metadata || undefined
+        }));
+      }
+      
+      // Usar paginação: carregar últimas N mensagens
+      const result = await invoke<PaginatedHistoryResult>('load_chat_history_paginated', {
+        id,
+        limit: MESSAGES_PER_PAGE,
+        offset: 0
+      });
+      
+      // Atualizar estado de paginação
+      setPaginationState({
+        totalCount: result.total_count,
+        hasMore: result.has_more,
+        offset: result.messages.length,
+        isLoadingMore: false,
+      });
+      
+      // Converter para tipo Message
+      return result.messages.map(msg => ({
         role: (msg.role === 'user' || msg.role === 'assistant' || msg.role === 'system') 
           ? msg.role as 'user' | 'assistant' | 'system'
-          : 'user' as const, // fallback
+          : 'user' as const,
         content: msg.content || '',
         metadata: msg.metadata || undefined
       }));
     } catch (error) {
       console.error("Failed to load history:", error);
-      return [];
+      
+      // Fallback: tentar carregar tudo com o comando antigo
+      try {
+        const rawMessages = await invoke<Array<{
+          role: string;
+          content: string;
+          metadata?: unknown;
+        }>>('load_chat_history', { id });
+        
+        return rawMessages.map(msg => ({
+          role: (msg.role === 'user' || msg.role === 'assistant' || msg.role === 'system') 
+            ? msg.role as 'user' | 'assistant' | 'system'
+            : 'user' as const,
+          content: msg.content || '',
+          metadata: msg.metadata || undefined
+        }));
+      } catch {
+        return [];
+      }
     }
   }, []);
+
+  /**
+   * Carrega mais mensagens antigas (scroll infinito reverso)
+   * 
+   * Chamado quando o usuário faz scroll para o topo do chat.
+   * Retorna as mensagens anteriores que devem ser prepend ao estado.
+   */
+  const loadMoreMessages = useCallback(async (
+    sessionId: string
+  ): Promise<Message[]> => {
+    // Evitar múltiplos loads simultâneos
+    if (loadingMoreRef.current || !paginationState.hasMore) {
+      return [];
+    }
+    
+    loadingMoreRef.current = true;
+    setPaginationState(prev => ({ ...prev, isLoadingMore: true }));
+    
+    try {
+      const result = await invoke<PaginatedHistoryResult>('load_chat_history_paginated', {
+        id: sessionId,
+        limit: MESSAGES_PER_PAGE,
+        offset: paginationState.offset
+      });
+      
+      // Atualizar estado de paginação
+      setPaginationState(prev => ({
+        ...prev,
+        hasMore: result.has_more,
+        offset: prev.offset + result.messages.length,
+        isLoadingMore: false,
+      }));
+      
+      // Converter para tipo Message
+      return result.messages.map(msg => ({
+        role: (msg.role === 'user' || msg.role === 'assistant' || msg.role === 'system') 
+          ? msg.role as 'user' | 'assistant' | 'system'
+          : 'user' as const,
+        content: msg.content || '',
+        metadata: msg.metadata || undefined
+      }));
+    } catch (error) {
+      console.error("Failed to load more messages:", error);
+      setPaginationState(prev => ({ ...prev, isLoadingMore: false }));
+      return [];
+    } finally {
+      loadingMoreRef.current = false;
+    }
+  }, [paginationState.hasMore, paginationState.offset]);
 
   const deleteSession = useCallback(async (id: string) => {
     try {
@@ -396,6 +545,8 @@ export function useChatStorage() {
     setCurrentSessionId,
     loadSessions,
     loadSessionHistory,
+    loadMoreMessages,
+    paginationState,
     saveSession,
     deleteSession,
     isGeneratingTitle,
@@ -407,4 +558,3 @@ export function useChatStorage() {
     isSearching
   };
 }
-

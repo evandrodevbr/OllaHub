@@ -1,6 +1,6 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { cn } from "@/lib/utils";
 import { Message } from "@/hooks/use-chat";
 import { Bot, User } from "lucide-react";
@@ -13,9 +13,19 @@ import type { ThinkingMessageMetadata } from "@/hooks/use-chat";
 interface ChatMessageProps {
   message: Message;
   isStreaming?: boolean;
+  highlightTerm?: string;
+  highlightIndex?: number;
+  messageIndex?: number;
 }
 
-export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) {
+/**
+ * Componente de mensagem do chat otimizado com React.memo
+ * 
+ * Durante streaming, usa renderização simplificada (texto puro) para evitar
+ * recálculo custoso da árvore DOM e syntax highlight a cada token.
+ * Markdown completo é aplicado apenas quando a mensagem está finalizada.
+ */
+function ChatMessageComponent({ message, isStreaming = false, highlightTerm, highlightIndex = 0, messageIndex }: ChatMessageProps) {
   // Verificar se é mensagem de processo de pensamento
   const isThinkingMessage = message.metadata && 
     typeof message.metadata === 'object' && 
@@ -51,6 +61,57 @@ export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) 
     
     return content || message.content;
   }, [message.content]);
+  
+  // Processar highlight separadamente (após limpeza de conteúdo)
+  // Desabilitar durante streaming para performance
+  const highlightedContent = useMemo(() => {
+    // Não processar highlight durante streaming
+    if (isStreaming) return null;
+    
+    if (!highlightTerm || highlightTerm.trim().length < 2 || (message.role !== 'user' && message.role !== 'assistant')) {
+      return null; // Não há highlight
+    }
+    
+    const term = highlightTerm.trim();
+    const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${escapedTerm})`, 'gi');
+    const content = processedContent;
+    
+    // Encontrar todos os matches
+    const matches: Array<{ start: number; end: number; text: string }> = [];
+    let match;
+    while ((match = regex.exec(content)) !== null) {
+      matches.push({
+        start: match.index,
+        end: match.index + match[0].length,
+        text: match[0]
+      });
+    }
+    
+    if (matches.length === 0) return null;
+    
+    // Construir conteúdo com highlights
+    let highlighted = '';
+    let lastIndex = 0;
+    
+    matches.forEach((match, idx) => {
+      // Adicionar texto antes do match
+      highlighted += content.substring(lastIndex, match.start);
+      
+      // Adicionar match com highlight (laranja para atual, amarelo para outros)
+      const isCurrent = highlightIndex !== undefined && idx === highlightIndex;
+      const className = isCurrent 
+        ? 'bg-orange-400/60 dark:bg-orange-500/60 px-0.5 rounded' 
+        : 'bg-yellow-200/50 dark:bg-yellow-800/50 px-0.5 rounded';
+      
+      highlighted += `<mark class="${className}">${match.text}</mark>`;
+      lastIndex = match.end;
+    });
+    
+    // Adicionar texto restante
+    highlighted += content.substring(lastIndex);
+    return highlighted;
+  }, [processedContent, highlightTerm, highlightIndex, message.role, isStreaming]);
 
   return (
     <MessageBackground
@@ -75,11 +136,14 @@ export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) 
         </div>
       </div>
       
-      <div className="flex-1 overflow-hidden min-w-0 pt-1">
+      <div className="flex-1 overflow-hidden min-w-0 pt-1" data-message-index={messageIndex}>
         {isUser ? (
              // Estilo específico para mensagem do usuário (mais destaque, fonte maior)
-             <div className="text-lg sm:text-xl font-medium tracking-tight text-foreground/90 leading-relaxed break-words whitespace-pre-wrap">
-                {processedContent}
+             <div 
+               className="text-lg sm:text-xl font-medium tracking-tight text-foreground/90 leading-relaxed break-words whitespace-pre-wrap"
+               dangerouslySetInnerHTML={highlightedContent ? { __html: highlightedContent } : undefined}
+             >
+                {!highlightedContent && processedContent}
              </div>
         ) : (
             // Estilo Assistant
@@ -88,22 +152,37 @@ export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) 
                 <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
                 <span className="text-sm font-medium">Gerando resposta...</span>
               </div>
+            ) : isStreaming ? (
+              // Renderização LEVE durante streaming: texto simples com formatação básica
+              // Evita recálculo de ReactMarkdown e syntax highlight a cada token
+              <div className={cn(
+                "prose prose-neutral dark:prose-invert max-w-none break-words leading-7 text-base text-foreground/90",
+                "prose-headings:font-semibold prose-headings:tracking-tight",
+                "relative"
+              )}>
+                <div className="whitespace-pre-wrap font-sans">
+                  {processedContent}
+                </div>
+                <span className="inline-block w-2 h-4 bg-primary ml-1 animate-pulse rounded-full align-middle" />
+              </div>
             ) : (
+              // Renderização COMPLETA quando mensagem finalizada: ReactMarkdown com syntax highlight
               <div className={cn(
                 "prose prose-neutral dark:prose-invert max-w-none break-words leading-7 text-base text-foreground/90",
                 "prose-headings:font-semibold prose-headings:tracking-tight prose-h1:text-2xl prose-h2:text-xl prose-h3:text-lg",
                 "prose-p:leading-7 prose-li:leading-7",
                 "prose-pre:bg-muted/50 prose-pre:border prose-pre:border-border/50 prose-pre:rounded-xl",
-                isStreaming && "relative"
+                "prose-mark:bg-yellow-200/50 prose-mark:dark:bg-yellow-800/50 prose-mark:px-0.5 prose-mark:rounded"
               )}>
-                <ReactMarkdown 
-                  remarkPlugins={[remarkGfm]}
-                  components={markdownRenderers}
-                >
-                  {processedContent}
-                </ReactMarkdown>
-                {isStreaming && !isEmpty && (
-                  <span className="inline-block w-2 h-4 bg-primary ml-1 animate-pulse rounded-full align-middle" />
+                {highlightedContent ? (
+                  <div dangerouslySetInnerHTML={{ __html: highlightedContent }} />
+                ) : (
+                  <ReactMarkdown 
+                    remarkPlugins={[remarkGfm]}
+                    components={markdownRenderers}
+                  >
+                    {processedContent}
+                  </ReactMarkdown>
                 )}
               </div>
             )
@@ -123,5 +202,34 @@ export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) 
   );
 }
 
+/**
+ * ChatMessage com React.memo para evitar re-renders desnecessários
+ * 
+ * Comparação customizada:
+ * - Compara conteúdo da mensagem
+ * - Compara estado de streaming
+ * - Compara termo de highlight e índice
+ */
+export const ChatMessage = React.memo(ChatMessageComponent, (prevProps, nextProps) => {
+  // Se streaming mudou, sempre re-renderizar
+  if (prevProps.isStreaming !== nextProps.isStreaming) {
+    return false;
+  }
+  
+  // Durante streaming, só re-renderizar se conteúdo mudou
+  if (nextProps.isStreaming) {
+    return prevProps.message.content === nextProps.message.content;
+  }
+  
+  // Quando não está em streaming, comparar todas as props relevantes
+  return (
+    prevProps.message.content === nextProps.message.content &&
+    prevProps.message.role === nextProps.message.role &&
+    prevProps.highlightTerm === nextProps.highlightTerm &&
+    prevProps.highlightIndex === nextProps.highlightIndex &&
+    prevProps.messageIndex === nextProps.messageIndex
+  );
+});
 
-
+// Adicionar displayName para debugging
+ChatMessage.displayName = 'ChatMessage';

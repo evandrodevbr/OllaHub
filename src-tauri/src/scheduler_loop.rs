@@ -85,14 +85,13 @@ pub async fn reload_scheduled_tasks(
                         return;
                     }
                     
-                    // Obter browser - precisa acessar via app_handle
+                    // Obter browser - usando lazy initialization global
                     let browser_arc = {
-                        // Criar browser diretamente se necessário
-                        use crate::web_scraper::create_browser;
-                        match create_browser() {
-                            Ok(b) => Arc::new(b),
+                        use crate::web_scraper::get_or_create_browser;
+                        match get_or_create_browser() {
+                            Ok(b) => b,
                             Err(e) => {
-                                log::error!("Erro ao criar browser para task {}: {}", task_id, e);
+                                log::error!("Erro ao obter browser para task {}: {}", task_id, e);
                                 return;
                             }
                         }

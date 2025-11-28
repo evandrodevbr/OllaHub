@@ -48,11 +48,14 @@ export default function ChatPage() {
     currentSessionId, 
     setCurrentSessionId, 
     loadSessionHistory,
+    loadMoreMessages,
+    paginationState,
     saveSession, 
     deleteSession,
     isGeneratingTitle,
     searchSessions,
-    isSearching
+    isSearching,
+    searchQuery
   } = useChatStorage();
 
   const { isDownloading, progress } = useAutoLabelingModel();
@@ -121,6 +124,7 @@ export default function ChatPage() {
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedMessagesRef = useRef<number>(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showContextDebug, setShowContextDebug] = useState(false);
   const [showProcessDebug, setShowProcessDebug] = useState(false);
   const [lastWebContext, setLastWebContext] = useState('');
@@ -128,6 +132,14 @@ export default function ChatPage() {
   const [showDownloadDialog, setShowDownloadDialog] = useState(false);
   const [logsCopied, setLogsCopied] = useState(false);
   const [lastUserQuery, setLastUserQuery] = useState('');
+  const [searchMatchIndex, setSearchMatchIndex] = useState(0);
+  
+  // Resetar índice quando busca é limpa ou sessão muda
+  useEffect(() => {
+    if (!searchQuery || searchQuery.trim().length < 2) {
+      setSearchMatchIndex(0);
+    }
+  }, [searchQuery, currentSessionId]);
 
   // Auto-select first model
   useEffect(() => {
@@ -246,6 +258,34 @@ export default function ChatPage() {
     }
   }, [settings.queryPreprocessing, webSearch.isEnabled, preprocess]);
 
+  // ========== EXECUÇÃO ESPECULATIVA DE BUSCA ==========
+  // Heurística rápida para detectar se a query provavelmente precisa de busca web
+  const mightNeedWebSearch = useCallback((text: string): boolean => {
+    if (!webSearch.isEnabled) return false;
+    
+    const lowerText = text.toLowerCase();
+    
+    // Padrões que indicam alta probabilidade de precisar de busca
+    const questionPatterns = /\b(o que|como|quando|onde|quem|porque|por que|qual|quais|quanto|quantos|me explique|me diga|existe|há)\b/i;
+    const recentPatterns = /\b(hoje|ontem|esta semana|este mês|este ano|atualmente|recentemente|últimas notícias|novo|novos|última|últimas|2024|2025)\b/i;
+    const searchPatterns = /\?$|buscar|pesquisar|encontrar|procurar|descobrir/i;
+    
+    // Se contém padrões de pergunta ou busca, provavelmente precisa de pesquisa
+    if (questionPatterns.test(lowerText) || recentPatterns.test(lowerText) || searchPatterns.test(lowerText)) {
+      chatLog.debug('[SpeculativeSearch] Query might need web search (pattern match)');
+      return true;
+    }
+    
+    // Se tem mais de 5 palavras e termina com ?, provavelmente é uma pergunta
+    const wordCount = text.trim().split(/\s+/).length;
+    if (wordCount > 5 && text.trim().endsWith('?')) {
+      chatLog.debug('[SpeculativeSearch] Query might need web search (question detected)');
+      return true;
+    }
+    
+    return false;
+  }, [webSearch.isEnabled]);
+
   const handleSend = async (content: string) => {
     if (!selectedModel) return;
     
@@ -261,6 +301,22 @@ export default function ChatPage() {
     
     // Limpar erros anteriores
     setError(null);
+    
+    // ========== EXECUÇÃO ESPECULATIVA ==========
+    // Iniciar busca web especulativamente se a query parecer precisar
+    // Isso reduz latência sobrepondo busca com pré-processamento
+    let speculativeSearchPromise: Promise<ScrapedContent[]> | null = null;
+    const shouldSpeculate = mightNeedWebSearch(content);
+    
+    if (shouldSpeculate) {
+      chatLog.info('[SpeculativeSearch] Starting speculative web search in parallel with preprocessing');
+      // Iniciar busca sem await - será usada depois se confirmada
+      speculativeSearchPromise = webSearch.smartSearchRag(content, settings.webSearch?.maxResults || 5)
+        .catch(err => {
+          chatLog.debug(`[SpeculativeSearch] Speculative search failed (will use normal flow): ${err}`);
+          return [] as ScrapedContent[];
+        });
+    }
     
     // ========== PRÉ-PROCESSAMENTO ==========
     let preprocessed: PreprocessedQuery;
@@ -330,7 +386,8 @@ export default function ChatPage() {
     // Função auxiliar para executar pesquisa web
     const executeWebResearch = async (
       content: string,
-      preprocessed: PreprocessedQuery
+      preprocessed: PreprocessedQuery,
+      speculativeResults?: ScrapedContent[] | null
     ): Promise<{
       knowledgeBaseContext: string;
       scrapedSources: ScrapedContent[];
@@ -343,6 +400,12 @@ export default function ChatPage() {
       // Roteamento inteligente: só buscar se shouldSearch for true
       if (webSearch.isEnabled && preprocessed.shouldSearch) {
       chatLog.info('\n--- STARTING DEEP RESEARCH PIPELINE ---');
+      
+      // Se temos resultados especulativos, usá-los como seed inicial
+      if (speculativeResults && speculativeResults.length > 0) {
+        chatLog.info(`[SpeculativeSearch] Using ${speculativeResults.length} speculative results as seed`);
+        deepResearch.addToKnowledgeBase('speculative_seed', speculativeResults);
+      }
       
       // Adicionar mensagem de processo: Pesquisa Web
       addThinkingMessage('web-research', 'Pesquisando na Web...', 'running');
@@ -605,10 +668,25 @@ export default function ChatPage() {
     // ========== LÓGICA DE DEEP RESEARCH (Knowledge Base Aggregation) ==========
     // Removido: setThinkingStep e setProcessSteps - agora usando mensagens thinking agrupadas
     
-    // Executar pesquisa web
+    // Aguardar resultado da busca especulativa se ela foi iniciada e shouldSearch é true
+    let speculativeResults: ScrapedContent[] | null = null;
+    if (speculativeSearchPromise && preprocessed.shouldSearch) {
+      chatLog.info('[SpeculativeSearch] Waiting for speculative search results...');
+      try {
+        speculativeResults = await speculativeSearchPromise;
+        chatLog.info(`[SpeculativeSearch] Got ${speculativeResults.length} speculative results`);
+      } catch (err) {
+        chatLog.debug(`[SpeculativeSearch] Failed to get speculative results: ${err}`);
+      }
+    } else if (speculativeSearchPromise && !preprocessed.shouldSearch) {
+      chatLog.info('[SpeculativeSearch] Discarding speculative search (preprocessing determined search not needed)');
+    }
+    
+    // Executar pesquisa web (usando resultados especulativos como seed se disponíveis)
     const { knowledgeBaseContext, scrapedSources, validationReport } = await executeWebResearch(
       content,
-      preprocessed
+      preprocessed,
+      speculativeResults
     );
     
     // Passo 5: Formular resposta
@@ -803,7 +881,93 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
     setMessages(history);
     setCurrentSessionId(id);
     lastSavedMessagesRef.current = history.length;
+    
+    // Se há busca ativa, encontrar matches e resetar índice
+    if (searchQuery && searchQuery.trim().length >= 2) {
+      setSearchMatchIndex(0);
+      // Os matches serão encontrados quando as mensagens renderizarem
+    }
   };
+  
+  // Handler para scroll infinito reverso (carregar mensagens mais antigas)
+  const handleScroll = useCallback(async () => {
+    const container = scrollContainerRef.current;
+    if (!container || !currentSessionId || paginationState.isLoadingMore) return;
+    
+    // Verificar se o usuário está próximo do topo (threshold de 100px)
+    const isNearTop = container.scrollTop < 100;
+    
+    if (isNearTop && paginationState.hasMore) {
+      // Salvar posição atual do scroll e altura do conteúdo
+      const scrollHeightBefore = container.scrollHeight;
+      
+      // Carregar mais mensagens
+      const olderMessages = await loadMoreMessages(currentSessionId);
+      
+      if (olderMessages.length > 0) {
+        // Prepend as mensagens antigas
+        setMessages(prev => [...olderMessages, ...prev]);
+        
+        // Restaurar posição do scroll para manter o contexto visual
+        // (compensar o novo conteúdo adicionado no topo)
+        requestAnimationFrame(() => {
+          if (container) {
+            const scrollHeightAfter = container.scrollHeight;
+            const heightDiff = scrollHeightAfter - scrollHeightBefore;
+            container.scrollTop = container.scrollTop + heightDiff;
+          }
+        });
+      }
+    }
+  }, [currentSessionId, paginationState.hasMore, paginationState.isLoadingMore, loadMoreMessages, setMessages]);
+  
+  // Função para navegar entre matches
+  const handleNavigateMatch = useCallback((sessionId: string, direction: 'prev' | 'next') => {
+    if (sessionId !== currentSessionId || !searchQuery || searchQuery.trim().length < 2) {
+      return;
+    }
+    
+    // Encontrar todos os matches nas mensagens
+    const query = searchQuery.trim();
+    const matches: Array<{ messageIndex: number; matchIndex: number }> = [];
+    
+    messages.forEach((msg, msgIdx) => {
+      if (msg.role === 'user' || msg.role === 'assistant') {
+        const content = msg.content;
+        const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+        let match;
+        let matchIdx = 0;
+        while ((match = regex.exec(content)) !== null) {
+          matches.push({ messageIndex: msgIdx, matchIndex: matchIdx });
+          matchIdx++;
+        }
+      }
+    });
+    
+    if (matches.length === 0) return;
+    
+    // Navegar
+    setSearchMatchIndex(prev => {
+      const newIndex = direction === 'next' 
+        ? (prev + 1) % matches.length
+        : (prev - 1 + matches.length) % matches.length;
+      
+      // Scroll para o match após renderização
+      setTimeout(() => {
+        const messageElement = document.querySelector(`[data-message-index="${matches[newIndex].messageIndex}"]`);
+        if (messageElement) {
+          messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Destacar o match atual visualmente
+          const marks = messageElement.querySelectorAll('mark');
+          if (marks.length > matches[newIndex].matchIndex) {
+            marks[matches[newIndex].matchIndex]?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+          }
+        }
+      }, 150);
+      
+      return newIndex;
+    });
+  }, [currentSessionId, searchQuery, messages]);
 
   const handleNewChat = () => {
     stop();
@@ -947,6 +1111,8 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
             onNewChat={handleNewChat}
             onSearch={searchSessions}
             isSearching={isSearching}
+            searchQuery={searchQuery}
+            onNavigateMatch={handleNavigateMatch}
           />
         </ResizablePanel>
 
@@ -1050,8 +1216,29 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
             {/* Messages Area with Floating Input Layout */}
             <div className="flex-1 relative h-full overflow-hidden flex flex-col">
               {/* Scrollable Content Area */}
-              <div className="flex-1 overflow-y-auto scroll-smooth w-full min-h-0">
+              <div 
+                ref={scrollContainerRef}
+                className="flex-1 overflow-y-auto scroll-smooth w-full min-h-0"
+                onScroll={handleScroll}
+              >
                 <div className="max-w-3xl mx-auto w-full px-3 sm:px-4 md:px-6 pt-4 sm:pt-6 pb-4 transition-all duration-300" style={{ paddingLeft: 'clamp(12px, 4vw, 24px)', paddingRight: 'clamp(12px, 4vw, 24px)' }}>
+                  {/* Indicador de carregamento de mensagens antigas */}
+                  {paginationState.isLoadingMore && (
+                    <div className="flex items-center justify-center py-4 mb-4">
+                      <Loader2 className="w-5 h-5 animate-spin text-muted-foreground mr-2" />
+                      <span className="text-sm text-muted-foreground">Carregando mensagens anteriores...</span>
+                    </div>
+                  )}
+                  
+                  {/* Indicador de que há mais mensagens para carregar */}
+                  {paginationState.hasMore && !paginationState.isLoadingMore && messages.length > 0 && (
+                    <div className="flex items-center justify-center py-2 mb-4">
+                      <span className="text-xs text-muted-foreground/60">
+                        Role para cima para ver mensagens anteriores ({paginationState.totalCount - messages.length} restantes)
+                      </span>
+                    </div>
+                  )}
+                  
                   {messages.length === 0 ? (
                     <div className="min-h-[50vh] flex flex-col items-center justify-center text-muted-foreground space-y-6">
                       <div className="p-6 rounded-2xl bg-muted/30 ring-1 ring-border/50 shadow-sm">
@@ -1085,6 +1272,13 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                             typeof msg.metadata === 'object' && 
                             'type' in msg.metadata && 
                             msg.metadata.type === 'thinking';
+                          
+                          // Pular mensagens de sistema que não são thinking (system prompt)
+                          // Essas mensagens nunca devem aparecer no chat
+                          const isSystemPrompt = msg.role === 'system' && !isThinkingMessage;
+                          if (isSystemPrompt) {
+                            continue;
+                          }
                           
                           if (isThinkingMessage) {
                             const thinkingMeta = msg.metadata as ThinkingMessageMetadata;
@@ -1132,6 +1326,25 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                           });
                         }
                         
+                        // Calcular posições de todos os matches uma vez
+                        const allMatches: Array<{ messageIndex: number; matchIndex: number }> = [];
+                        if (searchQuery && searchQuery.trim().length >= 2) {
+                          const query = searchQuery.trim();
+                          const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+                          
+                          messages.forEach((msg, msgIdx) => {
+                            if (msg.role === 'user' || msg.role === 'assistant') {
+                              const content = msg.content;
+                              let match;
+                              let matchIdx = 0;
+                              while ((match = regex.exec(content)) !== null) {
+                                allMatches.push({ messageIndex: msgIdx, matchIndex: matchIdx });
+                                matchIdx++;
+                              }
+                            }
+                          });
+                        }
+                        
                         return groupedMessages.map((group, idx) => {
                           if (group.type === 'thinking-group' && group.thinkingSteps) {
                             return (
@@ -1143,11 +1356,30 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
                               </div>
                             );
                           } else if (group.type === 'regular' && group.message) {
+                            // Encontrar índice do match atual para esta mensagem
+                            let messageMatchIndex: number | undefined = undefined;
+                            
+                            if (searchQuery && searchQuery.trim().length >= 2 && allMatches.length > 0 && group.index !== undefined) {
+                              // Encontrar matches desta mensagem
+                              const messageMatches = allMatches.filter(m => m.messageIndex === group.index);
+                              
+                              if (messageMatches.length > 0) {
+                                // Verificar se o match atual está nesta mensagem
+                                const currentMatch = allMatches[searchMatchIndex];
+                                if (currentMatch && currentMatch.messageIndex === group.index) {
+                                  messageMatchIndex = currentMatch.matchIndex;
+                                }
+                              }
+                            }
+                            
                             return (
                               <div key={group.index || idx} className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                                 <ChatMessage 
                                   message={group.message} 
-                                  isStreaming={group.isStreaming} 
+                                  isStreaming={group.isStreaming}
+                                  highlightTerm={searchQuery && searchQuery.trim().length >= 2 ? searchQuery.trim() : undefined}
+                                  highlightIndex={messageMatchIndex}
+                                  messageIndex={group.index}
                                 />
                               </div>
                             );
