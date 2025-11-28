@@ -24,11 +24,13 @@ import { useSettingsStore } from '@/store/settings-store';
 import { DomainTagsInput } from '@/components/settings/domain-tags-input';
 import { HardwareDashboard } from '@/components/settings/HardwareDashboard';
 import { invoke } from '@tauri-apps/api/core';
-import { CheckCircle2, XCircle, Loader2, Download, Trash2, Copy, ExternalLink, Plus, X, BookOpen, GraduationCap, Newspaper, Code, DollarSign, Edit, RotateCcw, Terminal, Power, ArrowLeft } from 'lucide-react';
+import { CheckCircle2, XCircle, Loader2, Download, Trash2, Copy, ExternalLink, Plus, X, BookOpen, GraduationCap, Newspaper, Code, DollarSign, Edit, RotateCcw, Terminal, Power, ArrowLeft, Sparkles, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { SourcesConfig, SourceCategory } from '@/lib/types';
 import { TitleBar } from '@/components/titlebar';
+import { useAppUpdater } from '@/hooks/use-app-updater';
+import { getVersion } from '@tauri-apps/api/app';
 
 interface Model {
   name: string;
@@ -52,12 +54,20 @@ export default function SettingsPage() {
   const [isSavingSources, setIsSavingSources] = useState(false);
   const [recentLogs, setRecentLogs] = useState<string[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [appVersion, setAppVersion] = useState<string>('');
+  
+  const updater = useAppUpdater();
 
   // Load models, storage path, and sources config on mount
   useEffect(() => {
     loadModels();
     loadStoragePath();
     settings.fetchSources();
+    
+    // Load app version
+    getVersion()
+      .then(setAppVersion)
+      .catch(() => setAppVersion('0.1.0'));
   }, [settings.ollamaUrl]);
 
   // Load logs periodically
@@ -1093,6 +1103,85 @@ export default function SettingsPage() {
                   Encerrar Processos Chrome
                 </Button>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Atualizações</CardTitle>
+              <CardDescription>
+                Configure verificação automática de atualizações
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="auto-check-updates">Verificar Atualizações Automaticamente</Label>
+                  <p className="text-xs text-muted-foreground">
+                    O app verificará novas versões periodicamente
+                  </p>
+                </div>
+                <Switch
+                  id="auto-check-updates"
+                  checked={settings.autoCheckUpdates}
+                  onCheckedChange={settings.setAutoCheckUpdates}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Versão Atual</span>
+                  <span className="font-mono font-medium">
+                    {appVersion || 'Carregando...'}
+                  </span>
+                </div>
+                {updater.updateAvailable && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Nova Versão Disponível</span>
+                    <span className="font-mono font-medium text-primary">
+                      {updater.updateInfo?.version}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <Button
+                onClick={async () => {
+                  await updater.checkUpdate();
+                  if (updater.updateAvailable) {
+                    toast({
+                      title: 'Atualização disponível',
+                      description: `Versão ${updater.updateInfo?.version} está disponível para download.`,
+                    });
+                  } else {
+                    toast({
+                      title: 'Você está atualizado',
+                      description: 'Não há novas atualizações disponíveis.',
+                    });
+                  }
+                }}
+                variant="outline"
+                className="w-full"
+                disabled={updater.isChecking}
+              >
+                {updater.isChecking ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Verificando...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Verificar Atualizações
+                  </>
+                )}
+              </Button>
+
+              {updater.error && (
+                <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+                  <p className="text-sm text-destructive">{updater.error}</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
