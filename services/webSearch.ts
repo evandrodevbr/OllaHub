@@ -4,11 +4,9 @@ import {
   retryWithBackoff, 
   withTimeout, 
   isRetryableError, 
-  type RetryConfig,
   calculateEngineTimeout,
   TIMEOUT_CONFIG
 } from '@/lib/retry-utils';
-import { EngineCircuitBreaker } from './engine-circuit-breaker';
 import { FailureCache } from './failure-cache';
 
 export interface ScrapedContent {
@@ -16,7 +14,7 @@ export interface ScrapedContent {
   url: string;
   content: string;
   markdown: string;
-  cached?: boolean;
+  cached: boolean;
 }
 
 export interface SearchConfig {
@@ -58,7 +56,6 @@ class WebSearchService {
   private lastSearchTime = 0;
   private pendingRequest: PendingRequest | null = null;
   private rateLimitQueue: PendingRequest[] = [];
-  private circuitBreaker: EngineCircuitBreaker = new EngineCircuitBreaker();
   private failureCache: FailureCache = new FailureCache();
 
   constructor() {
@@ -200,8 +197,9 @@ class WebSearchService {
   ): Promise<ScrapedContent[]> {
     try {
       // Se SearchConfig foi fornecido, converter para formato Rust
-      let rustConfig: any = undefined;
+      let rustConfig: Record<string, unknown> | undefined = undefined;
       if (searchConfig) {
+        const settings = useSettingsStore.getState();
         rustConfig = {
           max_concurrent_tabs: searchConfig.maxConcurrentTabs,
           total_sources_limit: searchConfig.totalSourcesLimit,
@@ -213,6 +211,10 @@ class WebSearchService {
           })),
           user_custom_sites: searchConfig.userCustomSites,
           excluded_domains: searchConfig.excludedDomains,
+          searxng: {
+            enabled: settings.webSearch.searxng.enabled,
+            url: settings.webSearch.searxng.url,
+          },
         };
       }
 
@@ -222,7 +224,7 @@ class WebSearchService {
         excluded_domains: searchConfig ? undefined : (excludedDomains.length > 0 ? excludedDomains : undefined),
         search_config: rustConfig,
       });
-      
+      console.log('Raw scraped results from backend:', results?.length ?? 0);
       return results || [];
     } catch (error) {
       console.error('Erro ao buscar conteúdo:', error);
@@ -255,51 +257,44 @@ class WebSearchService {
       // Se não há resultados parciais, retornar vazio imediatamente (sem retry)
       return [];
     }
-    // Obter configurações de motores do store
-    const settings = useSettingsStore.getState();
-    const defaultEngines = ['google', 'bing', 'yahoo', 'duckduckgo', 'startpage'];
-    let engineOrder = settings.webSearch.engineOrder || defaultEngines;
     
-    // Priorizar motores usando circuit breaker
-    engineOrder = this.circuitBreaker.prioritizeEngines(engineOrder);
-    
-    // Filtrar motores não disponíveis (circuit breaker aberto)
-    const availableEngines = this.circuitBreaker.getAvailableEngines(engineOrder);
-    
-    if (availableEngines.length === 0) {
-      console.warn(`[WebSearch] Todos os motores estão com circuit breaker aberto, tentando todos mesmo assim`);
-      // Se todos estão abertos, tentar mesmo assim (pode ser temporário)
-      engineOrder = engineOrder;
-    } else {
-      engineOrder = availableEngines;
-      if (availableEngines.length < engineOrder.length) {
-        console.log(`[WebSearch] ${engineOrder.length - availableEngines.length} motor(es) com circuit breaker aberto, usando ${availableEngines.length} disponível(is)`);
+    let rustConfig: Record<string, unknown> | undefined = undefined;
+      if (searchConfig) {
+        const settings = useSettingsStore.getState();
+        rustConfig = {
+          max_concurrent_tabs: searchConfig.maxConcurrentTabs,
+          total_sources_limit: searchConfig.totalSourcesLimit,
+          categories: searchConfig.categories.map(cat => ({
+            id: cat.id,
+            name: cat.name,
+            base_sites: cat.baseSites,
+            enabled: cat.enabled,
+          })),
+          user_custom_sites: searchConfig.userCustomSites,
+          excluded_domains: searchConfig.excludedDomains,
+          searxng: {
+            enabled: settings.webSearch.searxng.enabled,
+            url: settings.webSearch.searxng.url,
+          },
+        };
       }
-    }
-    
-    let rustConfig: any = undefined;
-    if (searchConfig) {
-      rustConfig = {
-        max_concurrent_tabs: searchConfig.maxConcurrentTabs,
-        total_sources_limit: searchConfig.totalSourcesLimit,
-        categories: searchConfig.categories.map(cat => ({
-          id: cat.id,
-          name: cat.name,
-          base_sites: cat.baseSites,
-          enabled: cat.enabled,
-        })),
-        user_custom_sites: searchConfig.userCustomSites,
-        excluded_domains: searchConfig.excludedDomains,
-      };
-    }
 
     // Calcular timeout adaptativo baseado na tentativa
     const adaptiveTimeout = calculateEngineTimeout(attempt, timeoutMs);
     
-    // Log da tentativa
-    console.log(`[WebSearch] Executando busca multi-engine para: "${query}"`);
-    console.log(`[WebSearch] Engine order: ${engineOrder.join(' → ')}`);
-    console.log(`[WebSearch] Limit: ${limit}, Timeout: ${adaptiveTimeout}ms (tentativa ${attempt})`);
+    // Log detalhado da tentativa
+    const searchStartTime = Date.now();
+    console.log(`\n[WebSearch] ========== METADATA SEARCH START ==========`);
+    console.log(`[WebSearch] Query: "${query}"`);
+    console.log(`[WebSearch] Limit: ${limit}`);
+    console.log(`[WebSearch] Timeout: ${adaptiveTimeout}ms`);
+    console.log(`[WebSearch] Attempt: ${attempt}`);
+    console.log(`[WebSearch] Config:`, searchConfig ? {
+      maxConcurrentTabs: searchConfig.maxConcurrentTabs,
+      totalSourcesLimit: searchConfig.totalSourcesLimit,
+      categories: searchConfig.categories.map(c => c.name),
+      excludedDomains: searchConfig.excludedDomains.length,
+    } : 'default');
 
     // Executar com retry e timeout adaptativo
     let retryAttempt = 0;
@@ -315,7 +310,7 @@ class WebSearchService {
             query: query.trim(),
             limit,
             search_config: rustConfig,
-            engineOrder: engineOrder, // Passar ordem de motores
+            engine_order: undefined, // Não usado mais, mantido para compatibilidade
           });
           
           const result = await withTimeout(
@@ -323,28 +318,31 @@ class WebSearchService {
             retryTimeout,
             `Timeout ao buscar metadados para "${query}" (tentativa ${retryAttempt})`
           );
-          
           const duration = Date.now() - startTime;
-          console.log(`[WebSearch] Busca concluída em ${duration}ms: ${result.length} resultados`);
           
-          // Registrar sucesso no circuit breaker para cada motor usado
-          // (assumindo que o primeiro motor disponível foi usado)
-          if (engineOrder.length > 0) {
-            const usedEngine = engineOrder[0]; // Simplificado: primeiro motor da ordem
-            this.circuitBreaker.recordAttempt(usedEngine, true, duration);
+          // Log detalhado dos resultados
+          console.log(`\n[WebSearch] ========== METADATA SEARCH RESULTS ==========`);
+          console.log(`[WebSearch] Duration: ${duration}ms`);
+          console.log(`[WebSearch] Results count: ${result?.length ?? 0}`);
+          
+          if (result && result.length > 0) {
+            console.log(`[WebSearch] Top ${Math.min(5, result.length)} results:`);
+            result.slice(0, 5).forEach((meta, idx) => {
+              console.log(`  [${idx + 1}] ${meta.title}`);
+              console.log(`      URL: ${meta.url}`);
+              console.log(`      Snippet: ${meta.snippet?.substring(0, 100) || 'N/A'}...`);
+              console.log(`      Engine: ${meta.engine || 'unknown'}`);
+            });
+          } else {
+            console.warn(`[WebSearch] ⚠️ No metadata results returned`);
           }
+          console.log(`[WebSearch] ============================================\n`);
           
           return result;
         } catch (error) {
           const duration = Date.now() - startTime;
           const errorMsg = error instanceof Error ? error.message : String(error);
           console.error(`[WebSearch] Erro após ${duration}ms (tentativa ${retryAttempt}):`, errorMsg);
-          
-          // Registrar falha no circuit breaker para cada motor tentado
-          // (assumindo que tentou todos os motores na ordem)
-          for (const engine of engineOrder) {
-            this.circuitBreaker.recordAttempt(engine, false, duration);
-          }
           
           throw error;
         }
@@ -360,7 +358,7 @@ class WebSearchService {
       const results = retryResult.result || [];
       if (results.length === 0) {
         console.warn(`[WebSearch] Nenhum resultado encontrado para: "${query}"`);
-        console.warn(`[WebSearch] Tentativas: ${retryResult.attempts}, Motores testados: ${engineOrder.join(', ')}`);
+        console.warn(`[WebSearch] Tentativas: ${retryResult.attempts}`);
       }
       return results;
     }
@@ -384,9 +382,8 @@ class WebSearchService {
           errorMsg
         );
         console.warn(`[WebSearch] Query: "${query}", Limit: ${limit}, Timeout: ${adaptiveTimeout}ms`);
-        console.warn(`[WebSearch] Motores tentados: ${engineOrder.join(', ')}`);
         console.warn(`[WebSearch] Retornando resultados parciais (se houver) ou array vazio`);
-        // Retornar vazio mas não quebrar o fluxo - o caller pode continuar com outros motores
+        // Retornar vazio mas não quebrar o fluxo
         return [];
       } else {
         // Para erros não recuperáveis, logar detalhadamente mas retornar vazio
@@ -395,7 +392,6 @@ class WebSearchService {
           errorMsg
         );
         console.error(`[WebSearch] Query: "${query}", Limit: ${limit}, Timeout: ${adaptiveTimeout}ms`);
-        console.error(`[WebSearch] Motores tentados: ${engineOrder.join(', ')}`);
         return [];
       }
     }
@@ -501,6 +497,13 @@ class WebSearchService {
     const { calculateAdaptiveTimeout } = await import('@/lib/retry-utils');
     const roundTimeout = calculateAdaptiveTimeout(round, timeoutMs);
     
+    const smartSearchStart = Date.now();
+    console.log(`\n[WebSearch] ========== SMART SEARCH RAG START ==========`);
+    console.log(`[WebSearch] Query: "${query}"`);
+    console.log(`[WebSearch] Limit: ${limit}`);
+    console.log(`[WebSearch] Round: ${round}`);
+    console.log(`[WebSearch] Timeout: ${roundTimeout}ms`);
+    
     // Buscar metadados com retry e timeout adaptativo
     const metas = await this.executeMetadataSearch(
       query, 
@@ -513,7 +516,14 @@ class WebSearchService {
     // Continuar mesmo se metadados estiverem vazios (pode ter falhado parcialmente)
     const topUrls = metas.map(m => m.url).slice(0, limit);
     
+    console.log(`[WebSearch] Selected ${topUrls.length} URLs for scraping:`);
+    topUrls.forEach((url, idx) => {
+      console.log(`  [${idx + 1}] ${url}`);
+    });
+    
     if (topUrls.length === 0) {
+      console.warn(`[WebSearch] ⚠️ No URLs to scrape, returning metadata only`);
+      console.log(`[WebSearch] ============================================\n`);
       // Retornar resultados parciais (metadados vazios mas sem erro)
       return { metadata: metas, contents: [] };
     }
@@ -521,6 +531,8 @@ class WebSearchService {
     // Tentar fazer scraping mesmo se metadados foram parciais
     // Usar timeout reduzido para scraping (50% do timeout de busca)
     const scrapingTimeout = Math.max(roundTimeout * 0.5, 5000);
+    console.log(`[WebSearch] Starting scraping with timeout: ${scrapingTimeout}ms`);
+    const scrapingStart = Date.now();
     
     try {
       const contents = await withTimeout(
@@ -528,6 +540,34 @@ class WebSearchService {
         scrapingTimeout,
         `Timeout ao fazer scraping para "${query}"`
       );
+      
+      const scrapingDuration = Date.now() - scrapingStart;
+      const totalDuration = Date.now() - smartSearchStart;
+      
+      // Log detalhado do scraping
+      console.log(`\n[WebSearch] ========== SCRAPING RESULTS ==========`);
+      console.log(`[WebSearch] Scraping duration: ${scrapingDuration}ms`);
+      console.log(`[WebSearch] Total duration: ${totalDuration}ms`);
+      console.log(`[WebSearch] Contents extracted: ${contents?.length ?? 0}`);
+      
+      if (contents && contents.length > 0) {
+        contents.forEach((content, idx) => {
+          console.log(`\n  [${idx + 1}] ${content.title}`);
+          console.log(`      URL: ${content.url}`);
+          const contentLength = content.markdown?.length || 0;
+          const snippetLength = content.snippet?.length || 0;
+          console.log(`      Markdown length: ${contentLength} chars`);
+          console.log(`      Snippet length: ${snippetLength} chars`);
+          if (content.markdown) {
+            const preview = content.markdown.substring(0, 200);
+            console.log(`      Preview: ${preview}${contentLength > 200 ? '...' : ''}`);
+          }
+        });
+      } else {
+        console.warn(`[WebSearch] ⚠️ No content extracted from URLs`);
+      }
+      console.log(`[WebSearch] ============================================\n`);
+      
       return { metadata: metas, contents: contents || [] };
     } catch (error) {
       // Logar erro mas retornar metadados disponíveis (resultado parcial)

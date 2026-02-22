@@ -96,6 +96,62 @@ jobs:
           fi
           echo "Frontend build successful - 'out' directory exists"
 
+<<<<<<< HEAD
+      - name: Prepare bundle resources (Windows only)
+        if: matrix.platform == 'windows-latest'
+        shell: powershell
+        run: |
+          # Criar diretórios
+          New-Item -ItemType Directory -Force -Path "src-tauri/bundle/ollama" | Out-Null
+          New-Item -ItemType Directory -Force -Path "src-tauri/bundle/models/embeddings" | Out-Null
+          
+          # Baixar instalador do Ollama (se não existir)
+          $ollamaPath = "src-tauri/bundle/ollama/OllamaSetup.exe"
+          if (!(Test-Path $ollamaPath)) {
+            Write-Host "Downloading Ollama installer..."
+            Invoke-WebRequest -Uri "https://ollama.com/download/OllamaSetup.exe" -OutFile $ollamaPath -UseBasicParsing
+          }
+          
+          # Baixar modelos de embeddings (se não existirem)
+          $modelPath = "src-tauri/bundle/models/embeddings/all-MiniLM-L6-v2.onnx"
+          if (!(Test-Path $modelPath)) {
+            Write-Host "Downloading ONNX embedding model (~90MB, this may take a while)..."
+            Invoke-WebRequest -Uri "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx" -OutFile $modelPath -UseBasicParsing
+          }
+          
+          $tokenizerPath = "src-tauri/bundle/models/embeddings/tokenizer.json"
+          if (!(Test-Path $tokenizerPath)) {
+            Write-Host "Downloading tokenizer..."
+            Invoke-WebRequest -Uri "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json" -OutFile $tokenizerPath -UseBasicParsing
+          }
+          
+          # Baixar e extrair ONNX Runtime DLL
+          $ortDllPath = "src-tauri/bundle/models/embeddings/onnxruntime.dll"
+          if (!(Test-Path $ortDllPath)) {
+            $ortZipPath = "src-tauri/bundle/models/embeddings/onnxruntime.zip"
+            if (!(Test-Path $ortZipPath)) {
+              Write-Host "Downloading ONNX Runtime library (~50MB)..."
+              Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-win-x64-1.20.1.zip" -OutFile $ortZipPath -UseBasicParsing
+            }
+            
+            Write-Host "Extracting ONNX Runtime DLL..."
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $zip = [System.IO.Compression.ZipFile]::OpenRead($ortZipPath)
+            foreach ($entry in $zip.Entries) {
+              if ($entry.Name -eq "onnxruntime.dll") {
+                [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $ortDllPath, $true)
+                Write-Host "Extracted onnxruntime.dll"
+                break
+              }
+            }
+            $zip.Dispose()
+            Remove-Item $ortZipPath -ErrorAction SilentlyContinue
+          }
+          
+          Write-Host "Bundle resources prepared successfully"
+
+=======
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
       - name: Build Tauri app
         run: |
           cd src-tauri

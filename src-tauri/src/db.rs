@@ -22,6 +22,25 @@ pub struct ChatMessage {
     pub created_at: DateTime<Utc>,
 }
 
+<<<<<<< HEAD
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SearchLog {
+    pub id: String,
+    pub chat_id: Option<String>,
+    pub user_id: Option<String>,
+    pub timestamp: DateTime<Utc>,
+    pub searxng_instance: Option<String>,
+    pub query: String,
+    pub engines: Option<Vec<String>>,
+    pub filters: Option<String>, // JSON string
+    pub response_time_ms: Option<i64>,
+    pub total_results: Option<i64>,
+    pub results_per_engine: Option<String>, // JSON string
+    pub error: Option<String>,
+}
+
+=======
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
 /// Resultado de busca de sessões com contagem de matches
 #[derive(Debug, Clone)]
 pub struct SearchSessionResult {
@@ -116,6 +135,45 @@ impl Database {
             )",
             [],
         )?;
+
+        // Tabela de logs de busca (SearXNG)
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS search_logs (
+                id TEXT PRIMARY KEY,
+                chat_id TEXT,
+                user_id TEXT,
+                timestamp TEXT NOT NULL,
+                searxng_instance TEXT,
+                query TEXT NOT NULL,
+                engines TEXT,
+                filters TEXT,
+                response_time_ms INTEGER,
+                total_results INTEGER,
+                results_per_engine TEXT,
+                error TEXT
+            )",
+            [],
+        )?;
+
+        // Tabela de instâncias SearXNG
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS searxng_instances (
+                url TEXT PRIMARY KEY,
+                network TEXT,
+                country_code TEXT,
+                response_time REAL,
+                status TEXT,
+                version TEXT,
+                engines TEXT,
+                formats TEXT,
+                validated BOOLEAN DEFAULT 0,
+                last_validated INTEGER,
+                failure_count INTEGER DEFAULT 0,
+                created_at INTEGER,
+                updated_at INTEGER
+            )",
+            [],
+        )?;
         
         // Índices para performance
         self.conn.execute(
@@ -125,6 +183,27 @@ impl Database {
         
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_rag_session_id ON rag_documents(session_id)",
+            [],
+        )?;
+
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_search_logs_chat_id ON search_logs(chat_id)",
+            [],
+        )?;
+
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_search_logs_timestamp ON search_logs(timestamp DESC)",
+            [],
+        )?;
+
+        // Índices para instâncias SearXNG
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_status_validated ON searxng_instances(status, validated)",
+            [],
+        )?;
+
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_response_time ON searxng_instances(response_time)",
             [],
         )?;
         
@@ -208,15 +287,6 @@ impl Database {
             [],
         )?;
         
-        // Trigger para atualizar messages_fts quando mensagem é atualizada
-        self.conn.execute(
-            "CREATE TRIGGER IF NOT EXISTS messages_fts_update AFTER UPDATE ON messages BEGIN
-                INSERT INTO messages_fts(messages_fts, rowid, session_id, content) VALUES ('delete', old.rowid, old.session_id, old.content);
-                INSERT INTO messages_fts(rowid, session_id, content) VALUES (new.rowid, new.session_id, new.content);
-            END",
-            [],
-        )?;
-        
         // Trigger para deletar de messages_fts quando mensagem é deletada
         self.conn.execute(
             "CREATE TRIGGER IF NOT EXISTS messages_fts_delete AFTER DELETE ON messages BEGIN
@@ -228,52 +298,39 @@ impl Database {
         Ok(())
     }
     
-    /// Popula tabelas FTS com dados existentes
+    /// Popula tabelas FTS se estiverem vazias e existirem dados nas tabelas principais
     fn populate_fts_tables(&self) -> SqliteResult<()> {
-        // Verificar se sessions_fts já tem dados
-        let count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM sessions_fts",
-            [],
-            |row| row.get(0),
-        ).unwrap_or(0);
-        
-        // Se vazio, popular com dados existentes
-        if count == 0 {
-            self.conn.execute(
-                "INSERT INTO sessions_fts(rowid, id, title)
-                 SELECT rowid, id, title FROM sessions",
-                [],
-            )?;
+        // Verificar se sessions_fts está vazia
+        let fts_count: i64 = self.conn.query_row("SELECT COUNT(*) FROM sessions_fts", [], |row| row.get(0))?;
+        if fts_count == 0 {
+            let main_count: i64 = self.conn.query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))?;
+            if main_count > 0 {
+                self.conn.execute(
+                    "INSERT INTO sessions_fts(rowid, id, title) SELECT rowid, id, title FROM sessions",
+                    [],
+                )?;
+            }
         }
         
-        // Verificar se messages_fts já tem dados
-        let count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM messages_fts",
-            [],
-            |row| row.get(0),
-        ).unwrap_or(0);
-        
-        // Se vazio, popular com dados existentes
-        if count == 0 {
-            self.conn.execute(
-                "INSERT INTO messages_fts(rowid, session_id, content)
-                 SELECT rowid, session_id, content FROM messages",
-                [],
-            )?;
+        // Verificar se messages_fts está vazia
+        let fts_msg_count: i64 = self.conn.query_row("SELECT COUNT(*) FROM messages_fts", [], |row| row.get(0))?;
+        if fts_msg_count == 0 {
+            let main_msg_count: i64 = self.conn.query_row("SELECT COUNT(*) FROM messages", [], |row| row.get(0))?;
+            if main_msg_count > 0 {
+                self.conn.execute(
+                    "INSERT INTO messages_fts(rowid, session_id, content) SELECT rowid, session_id, content FROM messages",
+                    [],
+                )?;
+            }
         }
         
         Ok(())
     }
-    
+
     /// Cria uma nova sessão de chat
     pub fn create_session(&self, session: &ChatSession) -> SqliteResult<()> {
         self.conn.execute(
-            "INSERT INTO sessions (id, title, emoji, created_at, updated_at) 
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(id) DO UPDATE SET 
-                title = ?2, 
-                emoji = ?3, 
-                updated_at = ?5",
+            "INSERT INTO sessions (id, title, emoji, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 session.id,
                 session.title,
@@ -326,12 +383,7 @@ impl Database {
         }
     }
     
-    /// Salva uma sessão (create ou update)
-    pub fn save_session(&self, session: &ChatSession) -> SqliteResult<()> {
-        self.create_session(session)
-    }
-    
-    /// Lista todas as sessões ordenadas por updated_at DESC
+    /// Lista todas as sessões ordenadas por atualização
     pub fn list_sessions(&self) -> SqliteResult<Vec<ChatSession>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, title, emoji, created_at, updated_at FROM sessions ORDER BY updated_at DESC"
@@ -358,14 +410,14 @@ impl Database {
         Ok(sessions)
     }
     
-    /// Deleta uma sessão e todas as suas mensagens
+    /// Deleta uma sessão e suas mensagens (cascade)
     pub fn delete_session(&self, session_id: &str) -> SqliteResult<()> {
         self.conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
         Ok(())
     }
     
-    /// Adiciona uma mensagem a uma sessão
-    pub fn add_message(&self, message: &ChatMessage) -> SqliteResult<i64> {
+    /// Salva uma mensagem
+    pub fn save_message(&self, message: &ChatMessage) -> SqliteResult<i64> {
         self.conn.execute(
             "INSERT INTO messages (session_id, role, content, metadata, created_at) 
              VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -375,15 +427,6 @@ impl Database {
                 message.content,
                 message.metadata,
                 message.created_at.to_rfc3339()
-            ],
-        )?;
-        
-        // Atualizar updated_at da sessão
-        self.conn.execute(
-            "UPDATE sessions SET updated_at = ?1 WHERE id = ?2",
-            params![
-                message.created_at.to_rfc3339(),
-                message.session_id
             ],
         )?;
         
@@ -467,6 +510,11 @@ impl Database {
         Ok(messages)
     }
     
+<<<<<<< HEAD
+    /// Conta o total de mensagens de uma sessão
+    pub fn count_messages(&self, session_id: &str) -> SqliteResult<usize> {
+        let count: usize = self.conn.query_row(
+=======
     /// Busca mensagens de uma sessão com paginação (lazy loading)
     /// 
     /// Retorna as últimas `limit` mensagens a partir do `offset`.
@@ -486,21 +534,44 @@ impl Database {
     ) -> SqliteResult<(Vec<ChatMessage>, usize, bool)> {
         // Primeiro, obter o total de mensagens
         let total_count: usize = self.conn.query_row(
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
             "SELECT COUNT(*) FROM messages WHERE session_id = ?1",
             params![session_id],
             |row| row.get(0),
         )?;
+<<<<<<< HEAD
+        Ok(count)
+    }
+    
+    /// Busca mensagens paginadas (do mais recente para o mais antigo, mas retornado em ordem cronológica)
+    /// 
+    /// limit: número máximo de mensagens a retornar
+    /// offset: quantas mensagens pular (a partir do final/mais recente)
+    /// 
+    /// Exemplo: Total 100 mensagens. limit=20, offset=0 -> retorna msgs 81-100
+    /// Exemplo: Total 100 mensagens. limit=20, offset=20 -> retorna msgs 61-80
+    pub fn get_messages_paginated(&self, session_id: &str, limit: usize, offset: usize) -> SqliteResult<(Vec<ChatMessage>, usize, bool)> {
+        // Primeiro obter contagem total
+        let total_count = self.count_messages(session_id)?;
+        
+        // Se não houver mensagens, retornar vazio
+=======
         
         // Se não há mensagens, retornar vazio
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
         if total_count == 0 {
             return Ok((Vec::new(), 0, false));
         }
         
+<<<<<<< HEAD
+        // Calcular o limite real baseado no que está disponível
+=======
         // Estratégia: usar subquery para pegar as últimas N mensagens ordenadas DESC,
         // depois ordenar ASC para manter ordem cronológica
         // 
         // Se offset=0 e limit=30: queremos as últimas 30 mensagens
         // Se offset=30 e limit=30: queremos as 30 mensagens antes das últimas 30
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
         let real_limit = std::cmp::min(limit, total_count.saturating_sub(offset));
         
         if real_limit == 0 {
@@ -712,7 +783,12 @@ impl Database {
             )?;
             
             let like_query = format!("%{}%", query);
+<<<<<<< HEAD
+            
+            let rows = stmt.query_map(params![&like_query, limit], |row| {
+=======
             let rows = stmt.query_map(params![like_query, limit], |row| {
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
                 Ok(SearchSessionResult {
                     session: ChatSession {
                         id: row.get(0)?,
@@ -736,5 +812,118 @@ impl Database {
         
         Ok(sessions)
     }
-}
 
+    /// Log a search request
+    pub fn log_search(&self, log: &SearchLog) -> SqliteResult<()> {
+        self.conn.execute(
+            "INSERT INTO search_logs (
+                id, chat_id, user_id, timestamp, searxng_instance, 
+                query, engines, filters, response_time_ms, 
+                total_results, results_per_engine, error
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                log.id,
+                log.chat_id,
+                log.user_id,
+                log.timestamp.to_rfc3339(),
+                log.searxng_instance,
+                log.query,
+                log.engines.as_ref().map(|e| serde_json::to_string(e).unwrap_or_default()),
+                log.filters,
+                log.response_time_ms,
+                log.total_results,
+                log.results_per_engine,
+                log.error
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn cleanup_search_logs(&self, days: i64) -> SqliteResult<usize> {
+        let cutoff = Utc::now() - chrono::Duration::days(days);
+        
+        self.conn.execute(
+            "DELETE FROM search_logs WHERE timestamp < ?1",
+            params![cutoff.to_rfc3339()],
+        )
+    }
+
+    /// Get search logs with filters
+    pub fn get_search_logs(
+        &self, 
+        chat_id: Option<&str>, 
+        limit: usize, 
+        offset: usize
+    ) -> SqliteResult<Vec<SearchLog>> {
+        let mut query = String::from("SELECT id, chat_id, user_id, timestamp, searxng_instance, query, engines, filters, response_time_ms, total_results, results_per_engine, error FROM search_logs");
+        let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        
+        if let Some(cid) = chat_id {
+            query.push_str(" WHERE chat_id = ?1");
+            params_vec.push(Box::new(cid.to_string()));
+        }
+        
+        query.push_str(" ORDER BY timestamp DESC LIMIT ?");
+        if chat_id.is_some() {
+            query.push_str(&format!("{}", params_vec.len() + 1));
+        } else {
+             query.push_str("1"); // ?1
+        }
+        params_vec.push(Box::new(limit));
+        
+        query.push_str(" OFFSET ?");
+        if chat_id.is_some() {
+            query.push_str(&format!("{}", params_vec.len() + 1));
+        } else {
+             query.push_str("2"); // ?2
+        }
+        params_vec.push(Box::new(offset));
+        
+        let mut stmt = self.conn.prepare(&query)?;
+        
+        // Usar uma função auxiliar para evitar problema de tipos de closures incompatíveis
+        // Criar uma referência ao self para usar na closure
+        let logs = if let Some(cid) = chat_id {
+            let rows = stmt.query_map(params![cid, limit, offset], |row| {
+                self.map_search_log_row(row)
+            })?;
+            let mut result = Vec::new();
+            for row in rows {
+                result.push(row?);
+            }
+            result
+        } else {
+            let rows = stmt.query_map(params![limit, offset], |row| {
+                self.map_search_log_row(row)
+            })?;
+            let mut result = Vec::new();
+            for row in rows {
+                result.push(row?);
+            }
+            result
+        };
+        
+        Ok(logs)
+    }
+
+    fn map_search_log_row(&self, row: &rusqlite::Row) -> SqliteResult<SearchLog> {
+        Ok(SearchLog {
+            id: row.get(0)?,
+            chat_id: row.get(1)?,
+            user_id: row.get(2)?,
+            timestamp: DateTime::parse_from_rfc3339(&row.get::<_, String>(3)?)
+                .map_err(|_| rusqlite::Error::InvalidColumnType(3, "TEXT".to_string(), rusqlite::types::Type::Text))?
+                .with_timezone(&Utc),
+            searxng_instance: row.get(4)?,
+            query: row.get(5)?,
+            engines: row.get::<_, Option<String>>(6)?
+                .map(|s| serde_json::from_str(&s).unwrap_or_default()),
+            filters: row.get(7)?,
+            response_time_ms: row.get(8)?,
+            total_results: row.get(9)?,
+            results_per_engine: row.get(10)?,
+            error: row.get(11)?,
+        })
+    }
+
+}

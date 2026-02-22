@@ -23,7 +23,7 @@ export interface DeepResearchLog {
   timestamp: number;
   input: string;
   rawOutput?: string;
-  parsedOutput?: any;
+  parsedOutput?: unknown;
   error?: string;
 }
 
@@ -47,7 +47,7 @@ function logStep(message: string) {
   log.info(message);
 }
 
-function logData(label: string, data: any) {
+function logData(label: string, data: unknown) {
   if (typeof data === 'string' && data.length > 500) {
     log.info(`${label}: ${data.substring(0, 500)}... [truncated, ${data.length} chars total]`);
   } else if (typeof data === 'object') {
@@ -57,7 +57,7 @@ function logData(label: string, data: any) {
   }
 }
 
-function logError(message: string, error?: any) {
+function logError(message: string, error?: unknown) {
   log.error(`❌ ERROR: ${message}${error ? ` - ${error}` : ''}`);
 }
 
@@ -75,17 +75,17 @@ function extractQueriesFromResponse(raw: string): string[] {
   logData('Raw response', raw);
   
   // 1. Strip markdown code blocks (```json ... ``` or ``` ... ```)
-  let cleaned = raw
+  const cleaned = raw
     .replace(/```json\s*/gi, '')
     .replace(/```\s*/g, '')
     .trim();
 
   // 2. Try to parse as JSON
-  let parsed: any;
+  let parsed: unknown;
   try {
     parsed = JSON.parse(cleaned);
     logStep('Direct JSON parse successful');
-  } catch (e) {
+  } catch {
     logStep('Direct JSON parse failed, trying to extract JSON from string...');
     // If JSON parse fails, try to find JSON-like content in the string
     const jsonMatch = cleaned.match(/\[[\s\S]*\]|\{[\s\S]*\}/);
@@ -93,7 +93,7 @@ function extractQueriesFromResponse(raw: string): string[] {
       try {
         parsed = JSON.parse(jsonMatch[0]);
         logStep('Extracted JSON from string successfully');
-      } catch (e2) {
+      } catch {
         logError('Could not extract JSON from response');
         throw new Error('Could not extract JSON from response');
       }
@@ -105,7 +105,7 @@ function extractQueriesFromResponse(raw: string): string[] {
 
   // 3. Handle different formats
   if (Array.isArray(parsed)) {
-    const result = parsed.filter(item => typeof item === 'string' && item.trim().length > 0);
+    const result = (parsed as unknown[]).filter(item => typeof item === 'string' && (item as string).trim().length > 0) as string[];
     logSuccess(`Parsed as plain array: ${result.length} queries`);
     return result;
   }
@@ -113,17 +113,19 @@ function extractQueriesFromResponse(raw: string): string[] {
   // 4. Check common object keys used by different models
   const commonKeys = ['queries', 'query', 'plan', 'searches', 'search_queries', 'questions'];
   for (const key of commonKeys) {
-    if (parsed[key] && Array.isArray(parsed[key])) {
-      const result = parsed[key].filter((item: any) => typeof item === 'string' && item.trim().length > 0);
+    const obj = parsed as Record<string, unknown>;
+    const val = obj[key];
+    if (Array.isArray(val)) {
+      const result = (val as unknown[]).filter((item: unknown) => typeof item === 'string' && (item as string).trim().length > 0) as string[];
       logSuccess(`Found queries under key "${key}": ${result.length} queries`);
       return result;
     }
   }
 
   // 5. Fallback: find first array value in the object
-  for (const val of Object.values(parsed)) {
-    if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'string') {
-      const result = (val as string[]).filter((item: any) => typeof item === 'string' && item.trim().length > 0);
+  for (const val of Object.values(parsed as Record<string, unknown>)) {
+    if (Array.isArray(val) && val.length > 0 && typeof (val as unknown[])[0] === 'string') {
+      const result = (val as unknown[]).filter((item: unknown) => typeof item === 'string' && (item as string).trim().length > 0) as string[];
       logSuccess(`Found queries in object value: ${result.length} queries`);
       return result;
     }
@@ -151,29 +153,19 @@ export function useDeepResearch() {
     logData('Prompt length', `${prompt.length} chars`);
     
     try {
-      const response = await fetch('http://localhost:11434/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          prompt,
-          stream: false,
+      const { invoke } = await import('@tauri-apps/api/core');
+      const response = await invoke<string>('generate_completion', {
+        model,
+        prompt,
+        options: {
+          temperature: 0.2,
+          num_predict: 2048,
           format: json ? 'json' : undefined,
-          options: {
-            temperature: 0.2,
-            num_predict: 2048,
-          },
-        }),
+        },
       });
-
-      if (!response.ok) {
-        logError(`LLM API returned status ${response.status}`);
-        throw new Error('Failed to call LLM');
-      }
       
-      const data = await response.json();
-      logSuccess(`LLM response received (${data.response?.length || 0} chars)`);
-      return data.response;
+      logSuccess(`LLM response received (${response?.length || 0} chars)`);
+      return response;
     } catch (e) {
       const errorMsg = e instanceof Error ? e.message : String(e);
       logError('LLM Call Error', errorMsg);
@@ -255,40 +247,41 @@ export function useDeepResearch() {
         plan = [query];
       }
 
-      // Safety Check
       logStep('--- Safety Check ---');
       const keywords = query.toLowerCase().split(/\s+/).filter(w => w.length > 3);
       logData('Keywords from query', keywords);
-      
-      const isRelevant = plan.some(q => 
-        keywords.some(k => q.toLowerCase().includes(k))
-      );
-      logData('Plan is relevant', isRelevant);
-
-      if (!isRelevant && keywords.length > 0) {
-        logError('Safety Check Failed: Plan is irrelevant to query');
-        logData('Generated plan', plan);
-        logStep('Falling back to original query');
-        addLog({
-          stage: 'decomposition',
-          timestamp: Date.now(),
-          input: prompt,
-          rawOutput: response,
-          parsedOutput: plan,
-          error: 'Safety Check Failed: Plan irrelevant to query'
-        });
-        plan = [query];
+      const isSmallModel = /(?:270m|0\.5b|1b|1\.7b|2b|mini|small|abliterated|uncensored|qwen3|llama2)/i.test(model);
+      if (isSmallModel) {
+        logStep('Safety Check bypassed for small/experimental model');
       } else {
-        logSuccess(`Decomposition complete: ${plan.length} search queries generated`);
-        addLog({
-          stage: 'decomposition',
-          timestamp: Date.now(),
-          input: prompt,
-          rawOutput: response,
-          parsedOutput: plan,
-          error: parseError
-        });
+        const isRelevant = plan.some(q => 
+          keywords.some(k => q.toLowerCase().includes(k))
+        );
+        logData('Plan is relevant', isRelevant);
+        if (!isRelevant && keywords.length > 0) {
+          logError('Safety Check Failed: Plan is irrelevant to query');
+          logData('Generated plan', plan);
+          logStep('Falling back to original query');
+          addLog({
+            stage: 'decomposition',
+            timestamp: Date.now(),
+            input: prompt,
+            rawOutput: response,
+            parsedOutput: plan,
+            error: 'Safety Check Failed: Plan irrelevant to query'
+          });
+          plan = [query];
+        }
       }
+      addLog({
+        stage: 'decomposition',
+        timestamp: Date.now(),
+        input: prompt,
+        rawOutput: response,
+        parsedOutput: plan,
+        error: parseError
+      });
+      logSuccess(`Decomposition complete: ${plan.length} search queries generated`);
 
       setState(s => ({ ...s, plan }));
       return plan;
@@ -303,31 +296,63 @@ export function useDeepResearch() {
 
   // --- ADD TO KNOWLEDGE BASE ---
   const addToKnowledgeBase = useCallback((query: string, sources: ScrapedContent[]) => {
-    logStep(`--- Adding to Knowledge Base ---`);
+    logSection('ADDING TO KNOWLEDGE BASE');
     logData('Query', query);
     logData('Sources count', sources.length);
+    logData('Timestamp', new Date().toISOString());
     
     const entries: ResearchEntry[] = sources.map((src, idx) => ({
       id: `${query.substring(0, 10)}-${idx}-${Date.now()}`,
       query,
       sourceUrl: src.url,
       title: src.title,
-      content: src.markdown,
+      content: src.markdown || src.content || '',
       timestamp: Date.now(),
     }));
 
+    // Log detalhado de cada fonte
     sources.forEach((src, idx) => {
-      logStep(`  → Source ${idx + 1}: ${src.title} (${src.url})`);
-      const contentLength = src.markdown?.length || 0;
-      logData(`    Content length`, `${contentLength} chars`);
+      logStep(`\n--- Source ${idx + 1}/${sources.length} ---`);
+      logData('Title', src.title);
+      logData('URL', src.url);
+      
+      const contentLength = src.markdown?.length || src.content?.length || 0;
+      const snippetLength = src.snippet?.length || 0;
+      
+      logData('Content length (markdown)', `${contentLength} chars`);
+      logData('Snippet length', `${snippetLength} chars`);
+      logData('Cached', src.cached ? 'Yes' : 'No');
       
       if (src.markdown && contentLength > 0) {
-        const preview = src.markdown.substring(0, 300);
-        logData(`    Preview`, preview + (contentLength > 300 ? '...' : ''));
+        // Log preview mais detalhado
+        const preview = src.markdown.substring(0, 500);
+        logData('Content preview', preview + (contentLength > 500 ? '...' : ''));
+        
+        // Estatísticas do conteúdo
+        const wordCount = src.markdown.split(/\s+/).length;
+        const paragraphCount = src.markdown.split(/\n\n/).length;
+        logData('Word count', wordCount);
+        logData('Paragraph count', paragraphCount);
+      } else if (src.content && src.content.length > 0) {
+        const preview = src.content.substring(0, 500);
+        logData('Content preview (raw)', preview + (src.content.length > 500 ? '...' : ''));
       } else {
-        logStep(`    ⚠️ No content extracted`);
+        logError('No content extracted from this source');
+      }
+      
+      // Log snippet se disponível
+      if (src.snippet) {
+        logData('Snippet', src.snippet.substring(0, 200) + (snippetLength > 200 ? '...' : ''));
       }
     });
+    
+    // Estatísticas agregadas
+    const totalContentLength = entries.reduce((sum, e) => sum + e.content.length, 0);
+    const avgContentLength = entries.length > 0 ? totalContentLength / entries.length : 0;
+    logStep('\n--- Aggregated Statistics ---');
+    logData('Total entries', entries.length);
+    logData('Total content length', `${totalContentLength} chars`);
+    logData('Average content length', `${Math.round(avgContentLength)} chars`);
 
     setState(s => ({
       ...s,

@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 
 /**
  * Hook para gerar query de busca otimizada usando a LLM
@@ -33,26 +34,14 @@ Pergunta do usuário: "${userInput}"
 
 Query de busca (ou NO_SEARCH):`;
 
-      const response = await fetch('http://localhost:11434/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          prompt,
-          stream: false,
-          options: {
-            temperature: 0.3, // Baixa temperatura para respostas mais determinísticas
-            num_predict: 50, // Limitar tokens para resposta rápida
-          },
-        }),
+      const generatedText = await invoke<string>('generate_completion', {
+        model,
+        prompt,
+        options: {
+          temperature: 0.3, // Baixa temperatura para respostas mais determinísticas
+          num_predict: 50, // Limitar tokens para resposta rápida
+        },
       });
-
-      if (!response.ok) {
-        throw new Error('Falha ao gerar query');
-      }
-
-      const data = await response.json();
-      const generatedText = (data.response || '').trim();
 
       // Limpar resposta (remover aspas, pontos finais, etc)
       let query = generatedText

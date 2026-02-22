@@ -1,14 +1,21 @@
 use anyhow::Result;
-use headless_chrome::{Browser, LaunchOptions, Tab};
 use reqwest::header::USER_AGENT;
+<<<<<<< HEAD
+use std::sync::Arc;
+=======
 use scraper::{Html, Selector};
 use std::sync::{Arc, Mutex, OnceLock};
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
 use std::time::Duration;
 use url::Url;
 use rand::Rng;
 use tokio::sync::Semaphore;
 use regex::Regex;
 use std::time::Instant;
+use crate::content_store::ContentStore;
+
+use crate::python_scraper::{get_or_create_python_scraper, PythonSearchResult};
+use crate::scraper_state::ScraperState;
 
 /// Lazy-initialized global browser instance
 /// Evita criar o browser no startup, economizando ~500MB de RAM até ser necessário
@@ -48,6 +55,7 @@ pub struct ScrapedContent {
     pub url: String,
     pub content: String,
     pub markdown: String,
+    pub cached: bool,
 }
 
 /// Metadados de resultado de busca (leve, sem abrir página)
@@ -67,6 +75,22 @@ pub struct SearchCategory {
     pub enabled: bool,
 }
 
+/// Configuração do SearXNG
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct SearxngConfig {
+    pub enabled: bool,
+    pub url: String,
+}
+
+impl Default for SearxngConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            url: "http://localhost:8080".to_string(),
+        }
+    }
+}
+
 /// Configuração completa de busca
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct SearchConfig {
@@ -79,6 +103,8 @@ pub struct SearchConfig {
     pub user_custom_sites: Vec<String>,
     #[serde(default)]
     pub excluded_domains: Vec<String>,
+    #[serde(default)]
+    pub searxng: SearxngConfig,
 }
 
 fn default_max_concurrent() -> usize {
@@ -89,177 +115,6 @@ fn default_total_sources() -> usize {
     100
 }
 
-/// Enum para identificar diferentes motores de busca
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SearchEngine {
-    Google,
-    Bing,
-    Yahoo,
-    DuckDuckGo,
-    Startpage,
-}
-
-impl SearchEngine {
-    /// Converte string para SearchEngine
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "google" => Some(SearchEngine::Google),
-            "bing" => Some(SearchEngine::Bing),
-            "yahoo" => Some(SearchEngine::Yahoo),
-            "duckduckgo" | "duck_duck_go" => Some(SearchEngine::DuckDuckGo),
-            "startpage" => Some(SearchEngine::Startpage),
-            _ => None,
-        }
-    }
-
-    /// Retorna nome do motor como string
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            SearchEngine::Google => "Google",
-            SearchEngine::Bing => "Bing",
-            SearchEngine::Yahoo => "Yahoo",
-            SearchEngine::DuckDuckGo => "DuckDuckGo",
-            SearchEngine::Startpage => "Startpage",
-        }
-    }
-
-    /// Retorna URL base de busca
-    fn base_url(&self) -> &'static str {
-        match self {
-            SearchEngine::Google => "https://www.google.com/search",
-            SearchEngine::Bing => "https://www.bing.com/search",
-            SearchEngine::Yahoo => "https://search.yahoo.com/search",
-            SearchEngine::DuckDuckGo => "https://html.duckduckgo.com/html",
-            SearchEngine::Startpage => "https://www.startpage.com/sp/search",
-        }
-    }
-
-    /// Retorna selectors CSS específicos para cada motor
-    fn selectors(&self) -> SearchSelectors {
-        match self {
-            SearchEngine::Google => SearchSelectors {
-                container: vec![
-                    "div.g",
-                    "div[data-ved]",
-                    ".tF2Cxc",
-                ],
-                title: vec![
-                    "h3",
-                    ".LC20lb",
-                    ".DKV0Md",
-                ],
-                url: vec![
-                    "a[href]",
-                    "cite",
-                ],
-                snippet: vec![
-                    ".VwiC3b",
-                    ".s",
-                    ".st",
-                ],
-            },
-            SearchEngine::Bing => SearchSelectors {
-                container: vec![
-                    ".b_algo",
-                    "li.b_algo",
-                ],
-                title: vec![
-                    "h2 a",
-                    ".b_title a",
-                ],
-                url: vec![
-                    "h2 a[href]",
-                    ".b_title a[href]",
-                ],
-                snippet: vec![
-                    ".b_caption p",
-                    ".b_caption",
-                ],
-            },
-            SearchEngine::Yahoo => SearchSelectors {
-                container: vec![
-                    ".dd.algo",
-                    ".Sr",
-                ],
-                title: vec![
-                    "h3 a",
-                    ".ac-algo h3 a",
-                ],
-                url: vec![
-                    "h3 a[href]",
-                    ".ac-algo h3 a[href]",
-                ],
-                snippet: vec![
-                    ".ac-algo .ac-text",
-                    ".compText",
-                ],
-            },
-            SearchEngine::DuckDuckGo => SearchSelectors {
-                container: vec![
-                    ".result",
-                    ".web-result",
-                    ".result__body",
-                ],
-                title: vec![
-                    ".result__a",
-                    ".web-result__link",
-                    "a.result__a",
-                ],
-                url: vec![
-                    ".result__a[href]",
-                    ".web-result__link[href]",
-                ],
-                snippet: vec![
-                    ".result__snippet",
-                    ".result__snippet.js-result-snippet",
-                    ".web-result__snippet",
-                ],
-            },
-            SearchEngine::Startpage => SearchSelectors {
-                container: vec![
-                    ".w-gl__result",
-                    ".result",
-                ],
-                title: vec![
-                    ".w-gl__result-title a",
-                    "h3 a",
-                ],
-                url: vec![
-                    ".w-gl__result-title a[href]",
-                    "h3 a[href]",
-                ],
-                snippet: vec![
-                    ".w-gl__result-snippet",
-                    ".snippet",
-                ],
-            },
-        }
-    }
-
-    /// Normaliza query para o motor específico
-    fn normalize_query(&self, query: &str) -> String {
-        // Todos os motores usam encoding padrão, mas alguns podem ter requisitos específicos
-        query.trim().to_string()
-    }
-}
-
-/// Estrutura para selectors CSS de cada motor
-struct SearchSelectors {
-    container: Vec<&'static str>,
-    title: Vec<&'static str>,
-    url: Vec<&'static str>,
-    snippet: Vec<&'static str>,
-}
-
-/// Log de tentativa de busca em um motor
-struct SearchAttemptLog {
-    engine: SearchEngine,
-    query: String,
-    success: bool,
-    results_count: usize,
-    duration_ms: u64,
-    error: Option<String>,
-}
 
 /// Pool de User-Agents para rotação (evita bloqueios 429)
 const USER_AGENTS: &[&str] = &[
@@ -273,706 +128,40 @@ const USER_AGENTS: &[&str] = &[
 ];
 
 /// Retorna um User-Agent aleatório do pool
-fn get_random_user_agent() -> &'static str {
+pub fn get_random_user_agent() -> &'static str {
     let mut rng = rand::thread_rng();
     let index = rng.gen_range(0..USER_AGENTS.len());
     USER_AGENTS[index]
 }
 
-/// Busca no DuckDuckGo e retorna URLs dos resultados
-pub async fn search_duckduckgo(query: &str, limit: usize) -> Result<Vec<String>> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()?;
-    let user_agent = get_random_user_agent();
-    let mut links = Vec::new();
-    let mut offset = 0usize;
-    let max_pages = 5usize;
-    let selectors = vec![
-        ".result__a",
-        ".web-result__link",
-        "a.result__a",
-    ];
-    for _ in 0..max_pages {
-        if links.len() >= limit { break; }
-        let url = format!(
-            "https://html.duckduckgo.com/html/?q={}&s={}",
-            urlencoding::encode(query),
-            offset
-        );
-        let res = client
-            .get(&url)
-            .header(USER_AGENT, user_agent)
-            .send()
-            .await?
-            .text()
-            .await?;
-        {
-            let document = Html::parse_document(&res);
-            for selector_str in &selectors {
-                if let Ok(selector) = Selector::parse(selector_str) {
-                    for element in document.select(&selector) {
-                        if let Some(href) = element.value().attr("href") {
-                            if let Some(real_url) = extract_real_url(href) {
-                                if !links.contains(&real_url) {
-                                    links.push(real_url);
-                                    if links.len() >= limit { break; }
-                                }
-                            }
-                        }
-                    }
-                    if links.len() >= limit { break; }
-                }
-            }
-        }
-        offset += 50;
-        if res.is_empty() { break; }
-    }
-    links.truncate(limit);
-    Ok(links)
-}
-
-/// Busca no Google retornando apenas metadados (título, URL, snippet)
-pub async fn search_google_metadata(query: &str, limit: usize) -> Result<Vec<SearchResultMetadata>> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()?;
-
-    let url = format!("{}?q={}&num={}",
-        SearchEngine::Google.base_url(),
-        urlencoding::encode(query),
-        limit.min(100)
-    );
-
-    let user_agent = get_random_user_agent();
-    let start_time = Instant::now();
-    
-    log::info!("[SearchEngine:Google] Query: '{}', Attempting...", query);
-    
-    let res = match client
-        .get(&url)
-        .header(USER_AGENT, user_agent)
-        .send()
-        .await
-    {
-        Ok(r) => r.text().await?,
-        Err(e) => {
-            let duration = start_time.elapsed().as_millis() as u64;
-            log::warn!("[SearchEngine:Google] Failed: {} ({}ms)", e, duration);
-            return Err(anyhow::anyhow!("Google search failed: {}", e));
-        }
-    };
-
-    let mut results: Vec<SearchResultMetadata> = Vec::new();
-    let selectors = SearchEngine::Google.selectors();
-    let document = Html::parse_document(&res);
-
-    for cont_sel in &selectors.container {
-        if results.len() >= limit { break; }
-        if let Ok(container) = Selector::parse(cont_sel) {
-            for node in document.select(&container) {
-                if results.len() >= limit { break; }
-                
-                let mut found_url: Option<String> = None;
-                let mut found_title: Option<String> = None;
-                
-                // Buscar título
-                for tsel in &selectors.title {
-                    if let Ok(ts) = Selector::parse(tsel) {
-                        if let Some(a) = node.select(&ts).next() {
-                            // Extrair URL
-                            if let Some(href) = a.value().attr("href") {
-                                let cleaned = clean_url(href);
-                                if cleaned.is_some() {
-                                    found_url = cleaned;
-                                }
-                            }
-                            // Extrair título
-                            let text = a.text().collect::<Vec<_>>().join(" ").trim().to_string();
-                            if !text.is_empty() { found_title = Some(text); }
-                        }
-                        if found_url.is_some() && found_title.is_some() { break; }
-                    }
-                }
-
-                if found_url.is_none() { continue; }
-
-                // Buscar snippet
-                let mut snippet_text = String::new();
-                for ssel in &selectors.snippet {
-                    if let Ok(ss) = Selector::parse(ssel) {
-                        if let Some(s) = node.select(&ss).next() {
-                            let t = s.text().collect::<Vec<_>>().join(" ");
-                            let norm = t.split_whitespace().collect::<Vec<_>>().join(" ");
-                            if !norm.is_empty() { snippet_text = norm; break; }
-                        }
-                    }
-                }
-
-                let url_final = found_url.unwrap();
-                if is_ad_or_tracker_url(&url_final) || url_final.is_empty() { continue; }
-
-                results.push(SearchResultMetadata {
-                    title: found_title.unwrap_or_else(|| url_final.clone()),
-                    url: url_final,
-                    snippet: snippet_text,
-                });
-            }
-        }
-    }
-
-    let duration = start_time.elapsed().as_millis() as u64;
-    if results.is_empty() {
-        log::warn!("[SearchEngine:Google] No results found ({}ms)", duration);
+fn get_proxies_from_env() -> Vec<String> {
+    if let Ok(val) = std::env::var("SCRAPER_HTTP_PROXIES") {
+        val.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
     } else {
-        log::info!("[SearchEngine:Google] Found {} results ({}ms)", results.len(), duration);
+        Vec::new()
     }
-
-    Ok(results)
 }
 
-/// Busca no Bing retornando apenas metadados (título, URL, snippet)
-pub async fn search_bing_metadata(query: &str, limit: usize) -> Result<Vec<SearchResultMetadata>> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()?;
-
-    let url = format!("{}?q={}&count={}",
-        SearchEngine::Bing.base_url(),
-        urlencoding::encode(query),
-        limit.min(50)
-    );
-
-    let user_agent = get_random_user_agent();
-    let start_time = Instant::now();
-    
-    log::info!("[SearchEngine:Bing] Query: '{}', Attempting...", query);
-    
-    let res = match client
-        .get(&url)
-        .header(USER_AGENT, user_agent)
-        .send()
-        .await
-    {
-        Ok(r) => r.text().await?,
-        Err(e) => {
-            let duration = start_time.elapsed().as_millis() as u64;
-            log::warn!("[SearchEngine:Bing] Failed: {} ({}ms)", e, duration);
-            return Err(anyhow::anyhow!("Bing search failed: {}", e));
+fn build_client_with_optional_proxy(timeout_secs: u64) -> Result<reqwest::Client> {
+    let mut builder = reqwest::Client::builder().timeout(Duration::from_secs(timeout_secs)).redirect(reqwest::redirect::Policy::limited(5));
+    let proxies = get_proxies_from_env();
+    if !proxies.is_empty() {
+        let mut rng = rand::thread_rng();
+        let idx = rng.gen_range(0..proxies.len());
+        if let Ok(http_proxy) = reqwest::Proxy::http(&proxies[idx]) {
+            builder = builder.proxy(http_proxy);
         }
-    };
-
-    let mut results: Vec<SearchResultMetadata> = Vec::new();
-    let selectors = SearchEngine::Bing.selectors();
-    let document = Html::parse_document(&res);
-
-    for cont_sel in &selectors.container {
-        if results.len() >= limit { break; }
-        if let Ok(container) = Selector::parse(cont_sel) {
-            for node in document.select(&container) {
-                if results.len() >= limit { break; }
-                
-                let mut found_url: Option<String> = None;
-                let mut found_title: Option<String> = None;
-                
-                for tsel in &selectors.title {
-                    if let Ok(ts) = Selector::parse(tsel) {
-                        if let Some(a) = node.select(&ts).next() {
-                            if let Some(href) = a.value().attr("href") {
-                                let cleaned = clean_url(href);
-                                if cleaned.is_some() {
-                                    found_url = cleaned;
-                                }
-                            }
-                            let text = a.text().collect::<Vec<_>>().join(" ").trim().to_string();
-                            if !text.is_empty() { found_title = Some(text); }
-                        }
-                        if found_url.is_some() && found_title.is_some() { break; }
-                    }
-                }
-
-                if found_url.is_none() { continue; }
-
-                let mut snippet_text = String::new();
-                for ssel in &selectors.snippet {
-                    if let Ok(ss) = Selector::parse(ssel) {
-                        if let Some(s) = node.select(&ss).next() {
-                            let t = s.text().collect::<Vec<_>>().join(" ");
-                            let norm = t.split_whitespace().collect::<Vec<_>>().join(" ");
-                            if !norm.is_empty() { snippet_text = norm; break; }
-                        }
-                    }
-                }
-
-                let url_final = found_url.unwrap();
-                if is_ad_or_tracker_url(&url_final) || url_final.is_empty() { continue; }
-
-                results.push(SearchResultMetadata {
-                    title: found_title.unwrap_or_else(|| url_final.clone()),
-                    url: url_final,
-                    snippet: snippet_text,
-                });
-            }
+        if let Ok(https_proxy) = reqwest::Proxy::https(&proxies[idx]) {
+            builder = builder.proxy(https_proxy);
         }
     }
-
-    let duration = start_time.elapsed().as_millis() as u64;
-    if results.is_empty() {
-        log::warn!("[SearchEngine:Bing] No results found ({}ms)", duration);
-    } else {
-        log::info!("[SearchEngine:Bing] Found {} results ({}ms)", results.len(), duration);
-    }
-
-    Ok(results)
+    Ok(builder.build()?)
 }
 
-/// Busca no Yahoo retornando apenas metadados (título, URL, snippet)
-pub async fn search_yahoo_metadata(query: &str, limit: usize) -> Result<Vec<SearchResultMetadata>> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()?;
 
-    let url = format!("{}?p={}&n={}",
-        SearchEngine::Yahoo.base_url(),
-        urlencoding::encode(query),
-        limit.min(40)
-    );
-
-    let user_agent = get_random_user_agent();
-    let start_time = Instant::now();
-    
-    log::info!("[SearchEngine:Yahoo] Query: '{}', Attempting...", query);
-    
-    let res = match client
-        .get(&url)
-        .header(USER_AGENT, user_agent)
-        .send()
-        .await
-    {
-        Ok(r) => r.text().await?,
-        Err(e) => {
-            let duration = start_time.elapsed().as_millis() as u64;
-            log::warn!("[SearchEngine:Yahoo] Failed: {} ({}ms)", e, duration);
-            return Err(anyhow::anyhow!("Yahoo search failed: {}", e));
-        }
-    };
-
-    let mut results: Vec<SearchResultMetadata> = Vec::new();
-    let selectors = SearchEngine::Yahoo.selectors();
-    let document = Html::parse_document(&res);
-
-    for cont_sel in &selectors.container {
-        if results.len() >= limit { break; }
-        if let Ok(container) = Selector::parse(cont_sel) {
-            for node in document.select(&container) {
-                if results.len() >= limit { break; }
-                
-                let mut found_url: Option<String> = None;
-                let mut found_title: Option<String> = None;
-                
-                for tsel in &selectors.title {
-                    if let Ok(ts) = Selector::parse(tsel) {
-                        if let Some(a) = node.select(&ts).next() {
-                            if let Some(href) = a.value().attr("href") {
-                                let cleaned = clean_url(href);
-                                if cleaned.is_some() {
-                                    found_url = cleaned;
-                                }
-                            }
-                            let text = a.text().collect::<Vec<_>>().join(" ").trim().to_string();
-                            if !text.is_empty() { found_title = Some(text); }
-                        }
-                        if found_url.is_some() && found_title.is_some() { break; }
-                    }
-                }
-
-                if found_url.is_none() { continue; }
-
-                let mut snippet_text = String::new();
-                for ssel in &selectors.snippet {
-                    if let Ok(ss) = Selector::parse(ssel) {
-                        if let Some(s) = node.select(&ss).next() {
-                            let t = s.text().collect::<Vec<_>>().join(" ");
-                            let norm = t.split_whitespace().collect::<Vec<_>>().join(" ");
-                            if !norm.is_empty() { snippet_text = norm; break; }
-                        }
-                    }
-                }
-
-                let url_final = found_url.unwrap();
-                if is_ad_or_tracker_url(&url_final) || url_final.is_empty() { continue; }
-
-                results.push(SearchResultMetadata {
-                    title: found_title.unwrap_or_else(|| url_final.clone()),
-                    url: url_final,
-                    snippet: snippet_text,
-                });
-            }
-        }
-    }
-
-    let duration = start_time.elapsed().as_millis() as u64;
-    if results.is_empty() {
-        log::warn!("[SearchEngine:Yahoo] No results found ({}ms)", duration);
-    } else {
-        log::info!("[SearchEngine:Yahoo] Found {} results ({}ms)", results.len(), duration);
-    }
-
-    Ok(results)
-}
-
-/// Busca no Startpage retornando apenas metadados (título, URL, snippet)
-pub async fn search_startpage_metadata(query: &str, limit: usize) -> Result<Vec<SearchResultMetadata>> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()?;
-
-    let url = format!("{}?query={}&page=1",
-        SearchEngine::Startpage.base_url(),
-        urlencoding::encode(query)
-    );
-
-    let user_agent = get_random_user_agent();
-    let start_time = Instant::now();
-    
-    log::info!("[SearchEngine:Startpage] Query: '{}', Attempting...", query);
-    
-    let res = match client
-        .get(&url)
-        .header(USER_AGENT, user_agent)
-        .send()
-        .await
-    {
-        Ok(r) => r.text().await?,
-        Err(e) => {
-            let duration = start_time.elapsed().as_millis() as u64;
-            log::warn!("[SearchEngine:Startpage] Failed: {} ({}ms)", e, duration);
-            return Err(anyhow::anyhow!("Startpage search failed: {}", e));
-        }
-    };
-
-    let mut results: Vec<SearchResultMetadata> = Vec::new();
-    let selectors = SearchEngine::Startpage.selectors();
-    let document = Html::parse_document(&res);
-
-    for cont_sel in &selectors.container {
-        if results.len() >= limit { break; }
-        if let Ok(container) = Selector::parse(cont_sel) {
-            for node in document.select(&container) {
-                if results.len() >= limit { break; }
-                
-                let mut found_url: Option<String> = None;
-                let mut found_title: Option<String> = None;
-                
-                for tsel in &selectors.title {
-                    if let Ok(ts) = Selector::parse(tsel) {
-                        if let Some(a) = node.select(&ts).next() {
-                            if let Some(href) = a.value().attr("href") {
-                                let cleaned = clean_url(href);
-                                if cleaned.is_some() {
-                                    found_url = cleaned;
-                                }
-                            }
-                            let text = a.text().collect::<Vec<_>>().join(" ").trim().to_string();
-                            if !text.is_empty() { found_title = Some(text); }
-                        }
-                        if found_url.is_some() && found_title.is_some() { break; }
-                    }
-                }
-
-                if found_url.is_none() { continue; }
-
-                let mut snippet_text = String::new();
-                for ssel in &selectors.snippet {
-                    if let Ok(ss) = Selector::parse(ssel) {
-                        if let Some(s) = node.select(&ss).next() {
-                            let t = s.text().collect::<Vec<_>>().join(" ");
-                            let norm = t.split_whitespace().collect::<Vec<_>>().join(" ");
-                            if !norm.is_empty() { snippet_text = norm; break; }
-                        }
-                    }
-                }
-
-                let url_final = found_url.unwrap();
-                if is_ad_or_tracker_url(&url_final) || url_final.is_empty() { continue; }
-
-                results.push(SearchResultMetadata {
-                    title: found_title.unwrap_or_else(|| url_final.clone()),
-                    url: url_final,
-                    snippet: snippet_text,
-                });
-            }
-        }
-    }
-
-    let duration = start_time.elapsed().as_millis() as u64;
-    if results.is_empty() {
-        log::warn!("[SearchEngine:Startpage] No results found ({}ms)", duration);
-    } else {
-        log::info!("[SearchEngine:Startpage] Found {} results ({}ms)", results.len(), duration);
-    }
-
-    Ok(results)
-}
-
-/// Busca no DuckDuckGo retornando apenas metadados (título, URL, snippet)
-pub async fn search_duckduckgo_metadata(query: &str, limit: usize) -> Result<Vec<SearchResultMetadata>> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()?;
-
-    let url = format!("https://html.duckduckgo.com/html/?q={}",
-        urlencoding::encode(query));
-
-    let user_agent = get_random_user_agent();
-    let res = client
-        .get(&url)
-        .header(USER_AGENT, user_agent)
-        .send()
-        .await?
-        .text()
-        .await?;
-
-    let mut results: Vec<SearchResultMetadata> = Vec::new();
-
-    {
-        let document = Html::parse_document(&res);
-
-        // Estruturas comuns no HTML do DuckDuckGo
-        let container_selectors = vec![
-            ".result",
-            ".web-result",
-            ".result__body",
-        ];
-        let title_selectors = vec![
-            ".result__a",
-            ".web-result__link",
-            "a.result__a",
-        ];
-        let snippet_selectors = vec![
-            ".result__snippet",
-            ".result__snippet.js-result-snippet",
-            ".web-result__snippet",
-        ];
-
-        for cont_sel in &container_selectors {
-            if results.len() >= limit { break; }
-            if let Ok(container) = Selector::parse(cont_sel) {
-                for node in document.select(&container) {
-                    if results.len() >= limit { break; }
-                    // Title + URL
-                    let mut found_url: Option<String> = None;
-                    let mut found_title: Option<String> = None;
-                    for tsel in &title_selectors {
-                        if let Ok(ts) = Selector::parse(tsel) {
-                            if let Some(a) = node.select(&ts).next() {
-                                if let Some(href) = a.value().attr("href") {
-                                    if let Some(real_url) = extract_real_url(href) {
-                                        found_url = clean_url(&real_url);
-                                    }
-                                }
-                                let text = a.text().collect::<Vec<_>>().join(" ").trim().to_string();
-                                if !text.is_empty() { found_title = Some(text); }
-                            }
-                        }
-                        if found_url.is_some() && found_title.is_some() { break; }
-                    }
-
-                    if found_url.is_none() { continue; }
-
-                    // Snippet
-                    let mut snippet_text: String = String::new();
-                    for ssel in &snippet_selectors {
-                        if let Ok(ss) = Selector::parse(ssel) {
-                            if let Some(s) = node.select(&ss).next() {
-                                let t = s.text().collect::<Vec<_>>().join(" ");
-                                let norm = t.split_whitespace().collect::<Vec<_>>().join(" ");
-                                if !norm.is_empty() { snippet_text = norm; break; }
-                            }
-                        }
-                    }
-
-                    let url_final = found_url.unwrap();
-                    if is_ad_or_tracker_url(&url_final) || url_final.is_empty() { continue; }
-
-                    results.push(SearchResultMetadata {
-                        title: found_title.unwrap_or_else(|| url_final.clone()),
-                        url: url_final,
-                        snippet: snippet_text,
-                    });
-
-                    if results.len() >= limit { break; }
-                }
-            }
-        }
-    }
-
-    // Se ainda vazio, tentar fallback simples: extrair todos os links conhecidos
-    if results.is_empty() {
-        let links = search_duckduckgo(query, limit).await?;
-        for l in links {
-            let url_clean = clean_url(&l).unwrap_or(l);
-            results.push(SearchResultMetadata {
-                title: url_clean.clone(),
-                url: url_clean,
-                snippet: String::new(),
-            });
-            if results.len() >= limit { break; }
-        }
-    }
-
-    Ok(results)
-}
-
-/// Calcula score de relevância baseado em matches de palavras-chave
-fn calculate_relevance_score(result: &SearchResultMetadata, query: &str) -> f32 {
-    let query_lower = query.to_lowercase();
-    let query_words: Vec<&str> = query_lower.split_whitespace()
-        .filter(|w| w.len() > 2)
-        .collect();
-    
-    if query_words.is_empty() {
-        return 0.5; // Score neutro se não há palavras-chave
-    }
-    
-    let title_lower = result.title.to_lowercase();
-    let snippet_lower = result.snippet.to_lowercase();
-    let combined = format!("{} {}", title_lower, snippet_lower);
-    
-    let mut matches = 0;
-    for word in &query_words {
-        if combined.contains(word) {
-            matches += 1;
-        }
-    }
-    
-    let base_score = matches as f32 / query_words.len() as f32;
-    
-    // Bônus se palavra está no título
-    let title_matches = query_words.iter()
-        .filter(|w| title_lower.contains(*w))
-        .count();
-    let title_bonus = (title_matches as f32 / query_words.len() as f32) * 0.3;
-    
-    // Bônus se snippet não está vazio
-    let snippet_bonus = if !result.snippet.is_empty() { 0.1 } else { 0.0 };
-    
-    (base_score + title_bonus + snippet_bonus).min(1.0)
-}
-
-/// Busca multi-engine com fallback automático
-pub async fn search_multi_engine_metadata(
-    query: &str,
-    limit: usize,
-    engine_order: &[SearchEngine],
-    min_results: usize,
-) -> Result<Vec<SearchResultMetadata>> {
-    let mut all_results: Vec<SearchResultMetadata> = Vec::new();
-    let mut seen_urls = std::collections::HashSet::new();
-    let mut attempt_logs: Vec<SearchAttemptLog> = Vec::new();
-    
-    log::info!("[MultiEngine] Starting search for: '{}'", query);
-    log::info!("[MultiEngine] Engine order: {:?}", engine_order.iter().map(|e| e.as_str()).collect::<Vec<_>>());
-    log::info!("[MultiEngine] Min results required: {}", min_results);
-    
-    for engine in engine_order {
-        let start_time = Instant::now();
-        let mut attempt_log = SearchAttemptLog {
-            engine: *engine,
-            query: query.to_string(),
-            success: false,
-            results_count: 0,
-            duration_ms: 0,
-            error: None,
-        };
-        
-        let result = match *engine {
-            SearchEngine::Google => search_google_metadata(query, limit).await,
-            SearchEngine::Bing => search_bing_metadata(query, limit).await,
-            SearchEngine::Yahoo => search_yahoo_metadata(query, limit).await,
-            SearchEngine::DuckDuckGo => search_duckduckgo_metadata(query, limit).await,
-            SearchEngine::Startpage => search_startpage_metadata(query, limit).await,
-        };
-        
-        attempt_log.duration_ms = start_time.elapsed().as_millis() as u64;
-        
-        match result {
-            Ok(mut engine_results) => {
-                // Filtrar duplicatas
-                engine_results.retain(|r| {
-                    if seen_urls.contains(&r.url) {
-                        false
-                    } else {
-                        seen_urls.insert(r.url.clone());
-                        true
-                    }
-                });
-                
-                attempt_log.results_count = engine_results.len();
-                attempt_log.success = true;
-                
-                if !engine_results.is_empty() {
-                    log::info!("[MultiEngine:{}] Found {} unique results ({}ms)", 
-                        engine.as_str(), engine_results.len(), attempt_log.duration_ms);
-                    all_results.extend(engine_results);
-                    
-                    // Se atingiu mínimo necessário, pode parar
-                    if all_results.len() >= min_results {
-                        log::info!("[MultiEngine] Minimum results ({}) reached, stopping early", min_results);
-                        break;
-                    }
-                } else {
-                    log::warn!("[MultiEngine:{}] No results found ({}ms), trying next engine...", 
-                        engine.as_str(), attempt_log.duration_ms);
-                }
-            }
-            Err(e) => {
-                let error_msg = format!("{}", e);
-                attempt_log.error = Some(error_msg.clone());
-                log::warn!("[MultiEngine:{}] Failed: {} ({}ms), trying next engine...", 
-                    engine.as_str(), error_msg, attempt_log.duration_ms);
-            }
-        }
-        
-        attempt_logs.push(attempt_log);
-    }
-    
-    // Ranquear resultados por relevância
-    let mut scored_results: Vec<(SearchResultMetadata, f32)> = all_results
-        .into_iter()
-        .map(|r| {
-            let score = calculate_relevance_score(&r, query);
-            (r, score)
-        })
-        .collect();
-    
-    // Ordenar por score (maior primeiro)
-    scored_results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    
-    // Retornar top limit resultados
-    let final_results: Vec<SearchResultMetadata> = scored_results
-        .into_iter()
-        .take(limit)
-        .map(|(r, _)| r)
-        .collect();
-    
-    // Log resumo
-    log::info!("[MultiEngine] Final results: {} (from {} engines)", 
-        final_results.len(), attempt_logs.len());
-    for log_entry in &attempt_logs {
-        if log_entry.success {
-            log::info!("  ✓ {}: {} results ({}ms)", 
-                log_entry.engine.as_str(), log_entry.results_count, log_entry.duration_ms);
-        } else {
-            log::warn!("  ✗ {}: Failed - {} ({}ms)", 
-                log_entry.engine.as_str(), 
-                log_entry.error.as_ref().unwrap_or(&"Unknown error".to_string()),
-                log_entry.duration_ms);
-        }
-    }
-    
-    Ok(final_results)
-}
 
 /// Expande query semanticamente (adiciona sinônimos, remove stopwords)
 pub fn expand_query_semantic(query: &str, language: &str) -> Vec<String> {
@@ -1146,8 +335,12 @@ fn clean_url(url: &str) -> Option<String> {
     }
 }
 
-/// Busca usando query "site:" para categorias específicas
-async fn search_with_site_filter(query: &str, sites: &[String], limit: usize) -> Result<Vec<String>> {
+/// Busca usando query "site:" para categorias específicas via DuckDuckGo
+async fn search_with_site_filter(
+    query: &str,
+    sites: &[String],
+    limit: usize,
+) -> Result<Vec<String>> {
     if sites.is_empty() {
         return Ok(Vec::new());
     }
@@ -1159,93 +352,94 @@ async fn search_with_site_filter(query: &str, sites: &[String], limit: usize) ->
     
     let site_query = format!("({}) {}", site_filters.join(" OR "), query);
     
-    search_duckduckgo(&site_query, limit).await
+    // Usar DuckDuckGo via Python
+    match search_via_duckduckgo(&site_query, limit).await {
+        Ok(results) => {
+            let urls: Vec<String> = results.iter().map(|r| r.url.clone()).collect();
+            Ok(urls.into_iter().take(limit).collect())
+        }
+        Err(e) => {
+            log::warn!("DuckDuckGo search failed for site filter: {}", e);
+            Err(anyhow::anyhow!("DuckDuckGo search failed: {}", e))
+        }
+    }
 }
 
-/// Busca inteligente híbrida: geral + curada por categorias
-pub async fn smart_search(query: &str, config: &SearchConfig) -> Result<Vec<String>> {
-    let mut all_urls = Vec::new();
-    let mut seen_urls = std::collections::HashSet::new();
+/// Busca via DuckDuckGo usando Python microservice
+pub async fn search_via_duckduckgo(query: &str, max_results: usize) -> Result<Vec<PythonSearchResult>> {
+    let python_scraper = get_or_create_python_scraper()
+        .map_err(|e| anyhow::anyhow!("Failed to get Python scraper: {}", e))?;
     
-    // 1. Busca geral no DuckDuckGo (ignorando anúncios)
-    log::info!("Executando busca geral para: {}", query);
-    let general_urls = search_duckduckgo(query, config.total_sources_limit).await?;
+    let mut scraper = python_scraper.lock().await;
     
-    for url in general_urls {
-        if let Some(cleaned) = clean_url(&url) {
-            if !is_domain_blocked(&cleaned, &config.excluded_domains) {
-                if seen_urls.insert(cleaned.clone()) {
-                    all_urls.push(cleaned);
-                }
-            }
-        }
+    scraper.search_duckduckgo(query, "wt-wt", "moderate", max_results)
+        .await
+        .map_err(|e| anyhow::anyhow!("DuckDuckGo search error: {}", e))
+}
+
+/// Converte resultados DuckDuckGo para URLs
+pub fn duckduckgo_results_to_urls(results: &[PythonSearchResult]) -> Vec<String> {
+    results.iter().map(|r| r.url.clone()).collect()
+}
+
+/// Converte resultados DuckDuckGo para metadata
+pub fn duckduckgo_results_to_metadata(results: &[PythonSearchResult]) -> Vec<SearchResultMetadata> {
+    results.iter().map(|r| SearchResultMetadata {
+        title: r.title.clone(),
+        url: r.url.clone(),
+        snippet: r.content.clone(),
+    }).collect()
+}
+
+/// Busca inteligente usando apenas SearXNG
+/// Nodriver é usado para scraping das URLs encontradas (fonte primária)
+pub async fn smart_search(
+    query: &str,
+    config: &SearchConfig,
+) -> Result<Vec<String>> {
+    use crate::search_orchestrator::search_with_waterfall;
+    
+    if !config.searxng.enabled {
+        return Err(anyhow::anyhow!("SearXNG não está habilitado. Configure SearXNG nas configurações."));
     }
     
-    // 2. Busca direta por categorias ativas (site: filters)
-    for category in &config.categories {
-        if !category.enabled || category.base_sites.is_empty() {
-            continue;
-        }
-        
-        log::info!("Buscando em categoria '{}' ({} sites)", category.name, category.base_sites.len());
-        
-        // Limitar sites por categoria para não exceder o limite total
-        let sites_to_search = category.base_sites.iter()
-            .take(config.total_sources_limit / config.categories.len().max(1))
-            .cloned()
-            .collect::<Vec<_>>();
-        
-        match search_with_site_filter(query, &sites_to_search, config.total_sources_limit).await {
-            Ok(category_urls) => {
-                for url in category_urls {
-                    if let Some(cleaned) = clean_url(&url) {
-                        if !is_domain_blocked(&cleaned, &config.excluded_domains) {
-                            if seen_urls.insert(cleaned.clone()) {
-                                all_urls.push(cleaned);
-                            }
+    log::info!("Executando busca via SearXNG para: {}", query);
+    
+    // Buscar metadados via SearXNG
+    match search_with_waterfall(query, config.total_sources_limit, config, None).await {
+        Ok(metadata) => {
+            let mut all_urls = Vec::new();
+            let mut seen_urls = std::collections::HashSet::new();
+            
+            // Extrair URLs dos metadados
+            for meta in metadata {
+                if let Some(cleaned) = clean_url(&meta.url) {
+                    if !is_domain_blocked(&cleaned, &config.excluded_domains) {
+                        if seen_urls.insert(cleaned.clone()) {
+                            all_urls.push(cleaned);
                         }
                     }
                 }
             }
-            Err(e) => {
-                log::warn!("Erro ao buscar categoria '{}': {}", category.name, e);
-            }
+            
+            // Limitar ao total_sources_limit
+            all_urls.truncate(config.total_sources_limit);
+            
+            log::info!("Total de {} URLs únicas coletadas via SearXNG", all_urls.len());
+            Ok(all_urls)
+        }
+        Err(e) => {
+            log::error!("Erro na busca via SearXNG: {}", e);
+            Err(anyhow::anyhow!("SearXNG search failed: {}", e))
         }
     }
-    
-    // 3. Adicionar sites customizados do usuário
-    if !config.user_custom_sites.is_empty() {
-        log::info!("Buscando em {} sites customizados", config.user_custom_sites.len());
-        match search_with_site_filter(query, &config.user_custom_sites, config.total_sources_limit).await {
-            Ok(custom_urls) => {
-                for url in custom_urls {
-                    if let Some(cleaned) = clean_url(&url) {
-                        if !is_domain_blocked(&cleaned, &config.excluded_domains) {
-                            if seen_urls.insert(cleaned.clone()) {
-                                all_urls.push(cleaned);
-                            }
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                log::warn!("Erro ao buscar sites customizados: {}", e);
-            }
-        }
-    }
-    
-    // Limitar ao total_sources_limit
-    all_urls.truncate(config.total_sources_limit);
-    
-    log::info!("Total de {} URLs únicas coletadas", all_urls.len());
-    Ok(all_urls)
 }
 
 /// Busca e extrai conteúdo de múltiplas URLs em paralelo com Semaphore
+/// Usa DuckDuckGo para busca
 pub async fn search_and_scrape(
     query: &str,
     limit: usize,
-    browser: Arc<Browser>,
     excluded_domains: Vec<String>,
 ) -> Result<Vec<ScrapedContent>> {
     // Configuração padrão (backward compatibility)
@@ -1255,18 +449,19 @@ pub async fn search_and_scrape(
         categories: Vec::new(),
         user_custom_sites: Vec::new(),
         excluded_domains,
+        searxng: SearxngConfig::default(),
     };
     
-    search_and_scrape_with_config(query, &config, browser).await
+    search_and_scrape_with_config(query, &config, None).await
 }
 
 /// Versão nova com SearchConfig completo
 pub async fn search_and_scrape_with_config(
     query: &str,
     config: &SearchConfig,
-    browser: Arc<Browser>,
+    state: Option<ScraperState>,
 ) -> Result<Vec<ScrapedContent>> {
-    // 1. Busca inteligente híbrida
+    // 1. Busca inteligente híbrida via DuckDuckGo
     let urls = smart_search(query, config).await?;
     
     if urls.is_empty() {
@@ -1274,6 +469,10 @@ pub async fn search_and_scrape_with_config(
         return Ok(Vec::new());
     }
 
+<<<<<<< HEAD
+    // 2. Scraping paralelo usando PythonScraper com Semaphore
+    scrape_urls_bulk(urls, state).await
+=======
     // 2. Scraping paralelo com Semaphore (limita abas simultâneas)
     let semaphore = Arc::new(Semaphore::new(config.max_concurrent_tabs));
     let mut handles = Vec::new();
@@ -1370,6 +569,7 @@ pub async fn search_and_scrape_with_config(
     }
 
     Ok(results)
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
 }
 
 /// Scraping estático usando apenas reqwest (sem headless browser)
@@ -1377,7 +577,11 @@ pub async fn search_and_scrape_with_config(
 /// Retorna None se o conteúdo for insuficiente (SPA/JavaScript-heavy)
 pub async fn scrape_url_static(url: &str) -> Result<Option<ScrapedContent>> {
     let client = reqwest::Client::builder()
+<<<<<<< HEAD
+        .timeout(Duration::from_secs(5)) // Reduzido de 8s para 5s para maior velocidade
+=======
         .timeout(Duration::from_secs(8))
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
         .redirect(reqwest::redirect::Policy::limited(5))
         .build()?;
     
@@ -1429,20 +633,88 @@ pub async fn scrape_url_static(url: &str) -> Result<Option<ScrapedContent>> {
     Ok(result)
 }
 
+<<<<<<< HEAD
+/// Busca e extrai conteúdo de uma única URL usando Python scraper
+/// Otimizado: Cache primeiro, depois Nodriver (PRIMÁRIO), depois estático (fallback rápido)
+=======
 /// Busca e extrai conteúdo de uma única URL (híbrido: tenta estático primeiro)
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
 pub async fn scrape_url(
     url: &str,
-    browser: Arc<Browser>,
 ) -> Result<ScrapedContent> {
+<<<<<<< HEAD
+    log::info!("[Scraper_DEBUG] Invocando scraper para URL: {}", url);
+    
+    // 1. Verificar Cache PRIMEIRO (mais rápido)
+    if let Some(cached) = ContentStore::get_cached_content(url).await {
+        log::info!("[Cache] Hit for {}", url);
+        ContentStore::log_operation(url, "CACHE_HIT", 0, cached.content_markdown.len()).await;
+        return Ok(ScrapedContent {
+            title: cached.title,
+            url: cached.url,
+            content: cached.content_markdown.clone(),
+            markdown: cached.content_markdown,
+            cached: true,
+        });
+    }
+
+    // 2. Nodriver PRIMEIRO (fonte primária, anti-detecção)
+    let python_scraper = get_or_create_python_scraper()?;
+    let mut scraper = python_scraper.lock().await;
+    
+    let start_time = Instant::now();
+    match scraper.scrape_url(url).await {
+        Ok(python_content) => {
+            let duration = start_time.elapsed().as_millis() as u64;
+            log::info!("[Nodriver] Successfully scraped {} ({} chars, {}ms)", url, python_content.content.len(), duration);
+            
+            // Salvar no Cache
+            if let Err(e) = ContentStore::save_content(
+                &python_content.url,
+                &python_content.title,
+                &python_content.markdown,
+                None
+            ).await {
+                log::warn!("Failed to save to cache: {}", e);
+            }
+            
+            ContentStore::log_operation(url, "SCRAPE_NODRIVER_SUCCESS", duration, python_content.content.len()).await;
+            
+            return Ok(ScrapedContent {
+                title: python_content.title,
+                url: python_content.url,
+                content: python_content.content,
+                markdown: python_content.markdown,
+                cached: false,
+            });
+        }
+        Err(e) => {
+            let duration = start_time.elapsed().as_millis() as u64;
+            log::warn!("[Nodriver] Failed for {} after {}ms: {}, trying static fallback", url, duration, e);
+            // Continuar para fallback estático
+        }
+    }
+    
+    // 3. Fallback: Scraping estático (rápido, ~100ms) apenas se nodriver falhar
+    if let Ok(static_result) = scrape_url_static(url).await {
+        if let Some(content) = static_result {
+            let _ = ContentStore::save_content(&content.url, &content.title, &content.markdown, None).await;
+            ContentStore::log_operation(url, "SCRAPE_STATIC_SUCCESS", 0, content.content.len()).await;
+=======
     // OTIMIZAÇÃO: Tentar scraping estático primeiro (muito mais rápido)
     if let Ok(Some(content)) = scrape_url_static(url).await {
         // Se conseguiu conteúdo suficiente (>500 chars), usar resultado estático
         if content.content.len() > 500 {
             log::info!("[ScrapeHybrid] Using static result for {} ({} chars)", url, content.content.len());
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
             return Ok(content);
         }
     }
     
+<<<<<<< HEAD
+    // Se ambos falharam, retornar erro do nodriver
+    Err(anyhow::anyhow!("Both nodriver and static scraping failed for {}", url))
+=======
     // Fallback: usar headless browser para SPAs/JS-heavy pages
     log::info!("[ScrapeHybrid] Falling back to headless for {}", url);
     let browser_clone = browser.clone();
@@ -1452,26 +724,158 @@ pub async fn scrape_url(
     })
     .await
     .map_err(|e| anyhow::anyhow!("Erro na task: {}", e))?
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
 }
 
 /// Extrai conteúdo de múltiplas URLs já definidas (bulk)
 pub async fn scrape_urls_bulk(
     urls: Vec<String>,
-    browser: Arc<Browser>,
+    state: Option<ScraperState>,
 ) -> Result<Vec<ScrapedContent>> {
+    use crate::domain_strategy::DomainStrategy;
+    
+    log::info!("[Scraper_DEBUG] Scrape bulk iniciado ({} URLs)", urls.len());
     if urls.is_empty() { return Ok(Vec::new()); }
-    let concurrency = 5usize;
+    
+    // Criar instância de DomainStrategy (Arc para compartilhar entre tasks)
+    let domain_strategy_arc = Arc::new(DomainStrategy::new());
+    
+    let python_scraper = get_or_create_python_scraper()?;
+    let concurrency = 14usize; // Aumentado para 14 URLs simultâneas para máxima velocidade
     let semaphore = Arc::new(Semaphore::new(concurrency));
     let mut handles = Vec::new();
 
-    for url in urls {
-        let browser_clone = browser.clone();
+    if let Some(s) = &state {
+        s.logger.info("ScrapeBulkStarted", Some("BulkScraper"), Some(serde_json::json!({"urls_count": urls.len()})));
+    }
+
+    for url in urls.clone() {
+        // Verificar se deve fazer scraping baseado em histórico do domínio
+        if !domain_strategy_arc.should_scrape(&url).await {
+            log::info!("[DomainStrategy] Skipping scrape for {} (low success rate)", url);
+            // Registrar como falha para manter histórico
+            domain_strategy_arc.record_result(&url, false).await;
+            continue;
+        }
+        // Check cancellation before starting new task
+        if let Some(s) = &state {
+            if s.check_cancelled() {
+                s.logger.warn("ScrapeBulkCancelled", Some("BulkScraper"), None);
+                break;
+            }
+        }
+
+        let scraper = python_scraper.clone();
         let permit = semaphore.clone().acquire_owned().await.unwrap();
         let url_clone = url.clone();
-        let handle = tokio::task::spawn_blocking(move || {
-            let res = fetch_and_convert_sync(&browser_clone, &url_clone);
+        let state_clone = state.clone();
+        let domain_strategy_clone = domain_strategy_arc.clone();
+
+        let handle = tokio::spawn(async move {
+            // Check cancellation inside task
+            if let Some(s) = &state_clone {
+                if s.check_cancelled() {
+                    drop(permit);
+                    return Err(anyhow::anyhow!("Cancelled"));
+                }
+                s.logger.log_access(&url_clone, "ScrapeStart");
+            }
+
+            // Check cache inside the task PRIMEIRO (mais rápido)
+            if let Some(cached) = ContentStore::get_cached_content(&url_clone).await {
+                drop(permit); // Release semaphore immediately
+                
+                if let Some(s) = &state_clone {
+                    s.logger.info("CacheHit", Some("ContentStore"), Some(serde_json::json!({"url": url_clone})));
+                } else {
+                    log::info!("[Cache] Hit for {}", url_clone);
+                }
+                
+                ContentStore::log_operation(&url_clone, "CACHE_HIT", 0, cached.content_markdown.len()).await;
+                // Registrar sucesso no DomainStrategy (cache hit é considerado sucesso)
+                domain_strategy_clone.record_result(&url_clone, true).await;
+                return Ok(ScrapedContent {
+                    title: cached.title,
+                    url: cached.url,
+                    content: cached.content_markdown.clone(),
+                    markdown: cached.content_markdown,
+                    cached: true,
+                });
+            }
+
+            // Tentar Nodriver PRIMEIRO (fonte primária)
+            let mut scraper_guard = scraper.lock().await;
+            
+            // Double check cancellation before heavy lifting
+            if let Some(s) = &state_clone {
+                if s.check_cancelled() {
+                    drop(scraper_guard);
+                    drop(permit);
+                    return Err(anyhow::anyhow!("Cancelled"));
+                }
+            }
+
+            let start_time = Instant::now();
+            log::info!("[Scraper_DEBUG] Chamando Nodriver (primário) para {}", url_clone);
+            let result = scraper_guard.scrape_url(&url_clone).await;
+            let duration = start_time.elapsed().as_millis() as u64;
+            drop(scraper_guard);
+            
+            // Se nodriver falhou rapidamente (< 3s), tentar fallback estático
+            if result.is_err() && duration < 3000 {
+                log::info!("[Scraper_DEBUG] Nodriver falhou rapidamente, tentando fallback estático para {}", url_clone);
+                if let Ok(static_opt) = scrape_url_static(&url_clone).await {
+                    if let Some(content) = static_opt {
+                        if let Some(s) = &state_clone {
+                            s.logger.log_scraping_result(&content.url, true, 0, content.content.len(), None);
+                        }
+                        let _ = ContentStore::save_content(&content.url, &content.title, &content.markdown, None).await;
+                        ContentStore::log_operation(&content.url, "SCRAPE_STATIC_SUCCESS", 0, content.content.len()).await;
+                        domain_strategy_clone.record_result(&url_clone, true).await;
+                        drop(permit);
+                        return Ok(content);
+                    }
+                }
+            }
+            
             drop(permit);
-            res
+            
+            // Registrar resultado no DomainStrategy
+            let success = result.is_ok();
+            domain_strategy_clone.record_result(&url_clone, success).await;
+            
+            if let Ok(ref content) = result {
+                 if let Some(s) = &state_clone {
+                     s.logger.log_scraping_result(&content.url, true, duration, content.content.len(), None);
+                     // Log raw data as requested
+                     s.logger.info("RawDataCaptured", Some("Scraper"), Some(serde_json::json!({
+                         "url": content.url,
+                         "raw_length": content.content.len(),
+                         "snippet": content.content.chars().take(200).collect::<String>()
+                     })));
+                 }
+
+                 let _ = ContentStore::save_content(
+                     &content.url,
+                     &content.title,
+                     &content.markdown,
+                     None
+                 ).await;
+                 ContentStore::log_operation(&content.url, "SCRAPE_SUCCESS", duration, content.content.len()).await;
+            } else if let Err(ref e) = result {
+                 if let Some(s) = &state_clone {
+                     s.logger.log_scraping_result(&url_clone, false, duration, 0, Some(&e.to_string()));
+                 }
+                 ContentStore::log_operation(&url_clone, "SCRAPE_ERROR", duration, 0).await;
+            }
+            
+            result.map(|python_content| ScrapedContent {
+                title: python_content.title,
+                url: python_content.url,
+                content: python_content.content,
+                markdown: python_content.markdown,
+                cached: false,
+            })
         });
         handles.push(handle);
     }
@@ -1483,328 +887,50 @@ pub async fn scrape_urls_bulk(
                 let content_len = content.content.chars().count();
                 let md_len = content.markdown.chars().count();
                 if content_len < 200 && md_len < 200 {
-                    log::debug!("Descartado por conteúdo curto: {}", content.url);
+                    if let Some(s) = &state {
+                        s.logger.info("ContentFiltered", Some("Filter"), Some(serde_json::json!({
+                            "url": content.url,
+                            "reason": "too_short",
+                            "length": content_len
+                        })));
+                    } else {
+                        log::debug!("Descartado por conteúdo curto: {}", content.url);
+                    }
                 } else {
                     results.push(content);
                 }
             }
             Ok(Err(e)) => {
                 let msg = format!("{}", e);
-                if msg.contains("Timeout") || msg.contains("ERR_HTTP") {
-                    log::debug!("Ignorado (timeout/HTTP): {}", msg);
+                if msg == "Cancelled" {
+                    // Just ignore
+                } else if msg.contains("Timeout") || msg.contains("ERR_HTTP") || msg.contains("ERR_SPA_JS_REQUIRED") {
+                    if let Some(s) = &state {
+                        s.logger.warn("ScrapeIgnored", Some("BulkScraper"), Some(&msg));
+                    } else {
+                        log::debug!("Ignorado (timeout/HTTP/SPA): {}", msg);
+                    }
                 } else {
-                    log::warn!("Erro ao processar URL: {}", e);
+                    if let Some(s) = &state {
+                        s.logger.error("ScrapeTaskError", Some("BulkScraper"), Some(&msg), None);
+                    } else {
+                        log::warn!("Erro ao processar URL: {}", e);
+                    }
                 }
             }
-            Err(e) => log::warn!("Erro na task de scraping: {}", e),
+            Err(e) => {
+                if let Some(s) = &state {
+                    s.logger.error("JoinError", Some("BulkScraper"), Some(&e.to_string()), None);
+                } else {
+                    log::warn!("Erro na task de scraping: {}", e);
+                }
+            },
         }
     }
 
     Ok(results)
 }
 
-/// Extrai conteúdo de uma URL e converte para Markdown (versão síncrona)
-/// Retorna erro se timeout ou falha HTTP, mas não mata o processo
-fn fetch_and_convert_sync(browser: &Browser, url: &str) -> Result<ScrapedContent> {
-    use std::time::Instant;
-    
-    let start_time = Instant::now();
-    let max_duration = Duration::from_secs(10); // Timeout agressivo de 10s
-    
-    // Criar nova aba com tratamento de erro
-    let tab = match browser.new_tab() {
-        Ok(t) => t,
-        Err(e) => {
-            log::warn!("Falha ao criar aba para {}: {}", url, e);
-            return Err(anyhow::anyhow!("Falha ao criar aba: {}", e));
-        }
-    };
-    
-    // Timeout reduzido para navegação
-    tab.set_default_timeout(Duration::from_secs(8));
-    
-    // Tentar navegar com tratamento de erro HTTP
-    match tab.navigate_to(url) {
-        Ok(_) => {},
-        Err(e) => {
-            let err_msg = format!("{}", e);
-            // Se for erro HTTP, apenas logar e retornar erro
-            if err_msg.contains("ERR_HTTP_RESPONSE_CODE_FAILURE") || 
-               err_msg.contains("net::ERR") {
-                log::warn!("Erro HTTP ao navegar para {}: {}", url, e);
-                return Err(anyhow::anyhow!("Erro HTTP: {}", err_msg));
-            }
-            return Err(anyhow::anyhow!("Falha ao navegar: {}", e));
-        }
-    }
-    
-    // Aguardar navegação com verificação de timeout
-    match tab.wait_until_navigated() {
-        Ok(_) => {},
-        Err(e) => {
-            let err_msg = format!("{}", e);
-            if err_msg.contains("ERR_HTTP_RESPONSE_CODE_FAILURE") || 
-               err_msg.contains("net::ERR") {
-                log::warn!("Erro HTTP após navegação para {}: {}", url, e);
-                return Err(anyhow::anyhow!("Erro HTTP: {}", err_msg));
-            }
-            // Timeout ou outro erro
-            if start_time.elapsed() > max_duration {
-                log::warn!("Timeout ao aguardar navegação para {}", url);
-                return Err(anyhow::anyhow!("Timeout ao carregar página"));
-            }
-            return Err(anyhow::anyhow!("Falha ao aguardar navegação: {}", e));
-        }
-    }
-    
-    // Verificar timeout antes de continuar
-    if start_time.elapsed() > max_duration {
-        log::warn!("Timeout antes de extrair conteúdo de {}", url);
-        return Err(anyhow::anyhow!("Timeout ao processar página"));
-    }
-    
-    // Aguardar um pouco para JS/SPAs carregarem (máximo 1.5s)
-    let wait_time = Duration::from_millis(1500);
-    if start_time.elapsed() + wait_time < max_duration {
-        std::thread::sleep(wait_time);
-    } else {
-        let remaining = max_duration.saturating_sub(start_time.elapsed());
-        if !remaining.is_zero() {
-            std::thread::sleep(remaining);
-        }
-    }
-    
-    // Verificar timeout final
-    if start_time.elapsed() > max_duration {
-        log::warn!("Timeout ao processar {}", url);
-        return Err(anyhow::anyhow!("Timeout ao processar página"));
-    }
-    
-    // Injetar script para bloquear autoplay de mídia
-    // Isso garante que nenhum vídeo/áudio seja reproduzido durante o scraping
-    match disable_media_autoplay(&tab) {
-        Ok(_) => {
-            log::debug!("Autoplay de mídia bloqueado para: {}", url);
-        }
-        Err(e) => {
-            log::warn!("Aviso: Falha ao bloquear autoplay em {}: {}", url, e);
-            // Não falhar o scraping por causa disso, apenas logar
-        }
-    }
-    
-    // Aguardar pequeno delay para garantir que script foi executado
-    std::thread::sleep(Duration::from_millis(100));
-    
-    // Extrair HTML renderizado
-    let content = match tab.get_content() {
-        Ok(c) => c,
-        Err(e) => {
-            log::warn!("Falha ao extrair conteúdo de {}: {}", url, e);
-            return Err(anyhow::anyhow!("Falha ao extrair HTML: {}", e));
-        }
-    };
-    
-    // Limpeza com Readability (remove ads, menus, footers)
-    let mut reader = std::io::Cursor::new(content.as_bytes());
-    let url_obj = match Url::parse(url) {
-        Ok(u) => u,
-        Err(e) => {
-            log::warn!("URL inválida {}: {}", url, e);
-            return Err(anyhow::anyhow!("URL inválida: {}", e));
-        }
-    };
-    
-    match readability::extractor::extract(&mut reader, &url_obj) {
-        Ok(product) => {
-            let markdown = html2text::from_read(product.content.as_bytes(), 80);
-            // Se o markdown for muito curto, significa que o readability pode ter falhado
-            if markdown.trim().chars().count() < 400 {
-                if let Some(fallback) = extract_paragraph_fallback(url, &content) {
-                    log::info!("Fallback de parágrafos aplicado para {}", url);
-                    return Ok(fallback);
-                }
-            }
-            
-            let title = if product.title.is_empty() {
-                fallback_title(&content).unwrap_or_else(|| "Fonte externa sem título".to_string())
-            } else {
-                product.title.clone()
-            };
-            
-            Ok(ScrapedContent {
-                title: title.clone(),
-                url: url.to_string(),
-                content: product.content,
-                markdown: format!(
-                    "---\nTitle: {}\nSource: {}\n---\n\n{}",
-                    title,
-                    url,
-                    markdown
-                ),
-            })
-        }
-        Err(e) => {
-            log::warn!("Falha ao extrair conteúdo legível de {}: {}. Tentando fallback...", url, e);
-            if let Some(fallback) = extract_paragraph_fallback(url, &content) {
-                return Ok(fallback);
-            }
-            Err(anyhow::anyhow!("Falha ao processar conteúdo: {}", e))
-        }
-    }
-}
-
-/// Desabilita autoplay de mídia injetando JavaScript na página
-/// Esta função pausa todos os elementos de vídeo/áudio e previne autoplay
-fn disable_media_autoplay(tab: &Tab) -> Result<()> {
-    let script = r#"
-(function() {
-  // Função para pausar todos os elementos de mídia
-  const pauseAllMedia = () => {
-    const mediaElements = document.querySelectorAll('video, audio');
-    let pausedCount = 0;
-    
-    mediaElements.forEach(media => {
-      if (!media.paused) {
-        media.pause();
-        pausedCount++;
-      }
-      // Remover atributo autoplay
-      media.removeAttribute('autoplay');
-      media.autoplay = false;
-      // Silenciar mídia
-      media.muted = true;
-      media.volume = 0;
-    });
-    
-    return pausedCount;
-  };
-  
-  // Executar imediatamente
-  const initialPaused = pauseAllMedia();
-  
-  // Observar mudanças no DOM para novos elementos de mídia
-  const observer = new MutationObserver(() => {
-    pauseAllMedia();
-  });
-  
-  if (document.body) {
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true
-    });
-  }
-  
-  // Prevenir autoplay interceptando o método play()
-  const originalPlay = HTMLMediaElement.prototype.play;
-  HTMLMediaElement.prototype.play = function() {
-    // Bloquear play se página não estiver em foco ou estiver oculta
-    if (document.hidden || !document.hasFocus()) {
-      return Promise.reject(new Error('Autoplay blocked by scraper'));
-    }
-    // Pausar imediatamente após tentativa de play
-    const result = originalPlay.call(this);
-    if (result && typeof result.then === 'function') {
-      result.then(() => {
-        this.pause();
-        this.muted = true;
-      }).catch(() => {});
-    } else {
-      this.pause();
-      this.muted = true;
-    }
-    return Promise.reject(new Error('Autoplay blocked'));
-  };
-  
-  // Pausar quando página perder foco
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-      pauseAllMedia();
-    }
-  });
-  
-  // Bloquear Web Audio API
-  if (window.AudioContext) {
-    const OriginalAudioContext = window.AudioContext;
-    window.AudioContext = function() {
-      console.warn('AudioContext blocked by scraper');
-      return null;
-    };
-    window.AudioContext.prototype = OriginalAudioContext.prototype;
-  }
-  
-  if (window.webkitAudioContext) {
-    const OriginalWebkitAudioContext = window.webkitAudioContext;
-    window.webkitAudioContext = function() {
-      console.warn('webkitAudioContext blocked by scraper');
-      return null;
-    };
-    window.webkitAudioContext.prototype = OriginalWebkitAudioContext.prototype;
-  }
-  
-  // Bloquear mídia em iframes também
-  const iframes = document.querySelectorAll('iframe');
-  iframes.forEach(iframe => {
-    try {
-      const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-      if (iframeDoc) {
-        const iframeMedia = iframeDoc.querySelectorAll('video, audio');
-        iframeMedia.forEach(media => {
-          media.pause();
-          media.muted = true;
-          media.volume = 0;
-          media.removeAttribute('autoplay');
-        });
-      }
-    } catch (e) {
-      // Ignorar erros de cross-origin
-    }
-  });
-  
-  // Retornar contagem para logging
-  return initialPaused;
-})();
-"#;
-    
-    match tab.evaluate(script, false) {
-        Ok(result) => {
-            // Tentar extrair contagem de elementos pausados do resultado
-            if let Some(count) = result.value {
-                log::info!("Script de bloqueio de mídia injetado: {} elementos pausados", count);
-            } else {
-                log::debug!("Script de bloqueio de mídia injetado com sucesso");
-            }
-            Ok(())
-        }
-        Err(e) => {
-            log::warn!("Erro ao injetar script de bloqueio de mídia: {}", e);
-            // Não falhar o scraping por causa disso, apenas logar
-            Ok(())
-        }
-    }
-}
-
-/// Cria uma instância do Browser (singleton para reutilização)
-pub fn create_browser() -> Result<Browser> {
-    use std::ffi::OsStr;
-    
-    // Argumentos do Chrome para bloquear autoplay de mídia
-    // Nota: O bloqueio principal será feito via JavaScript injection, mas esses args ajudam
-    let chrome_args: Vec<&OsStr> = vec![
-        OsStr::new("--autoplay-policy=document-user-activation-required"), // Exige interação do usuário para autoplay
-        OsStr::new("--disable-background-media-playback"), // Desabilita reprodução de mídia em segundo plano
-        OsStr::new("--mute-audio"), // Silencia todo áudio (mais agressivo, mas garante silêncio)
-        OsStr::new("--disable-features=AutoplayIgnoreWebAudio"), // Desabilita autoplay de Web Audio
-    ];
-    
-    let options = LaunchOptions {
-        headless: true,
-        args: chrome_args,
-        ..Default::default()
-    };
-    
-    Browser::new(options)
-        .map_err(|e| anyhow::anyhow!("Falha ao criar browser: {}", e))
-}
 
 fn extract_paragraph_fallback(url: &str, html: &str) -> Option<ScrapedContent> {
     use scraper::{Html, Selector};
@@ -1841,6 +967,7 @@ fn extract_paragraph_fallback(url: &str, html: &str) -> Option<ScrapedContent> {
             url,
             fallback_body
         ),
+        cached: false,
     })
 }
 

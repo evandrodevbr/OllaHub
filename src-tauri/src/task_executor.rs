@@ -2,9 +2,7 @@ use crate::scheduler::{SentinelTask, TaskAction};
 use crate::ollama_client::OllamaClient;
 use crate::web_scraper::search_and_scrape;
 use crate::{Message, ChatSession, get_chats_dir};
-use std::sync::Arc;
 use std::fs;
-use headless_chrome::Browser;
 use chrono::Utc;
 use tauri::AppHandle;
 use tauri_plugin_notification::NotificationExt;
@@ -14,7 +12,6 @@ use sysinfo::System;
 pub async fn execute_task(
     task: &SentinelTask,
     app_handle: AppHandle,
-    browser: Arc<Browser>,
     ollama_url: Option<String>,
 ) -> Result<(), String> {
     log::info!("Executando task: {} ({})", task.label, task.id);
@@ -29,7 +26,6 @@ pub async fn execute_task(
                 model,
                 *max_results,
                 &app_handle,
-                browser,
                 &client,
             ).await
         }
@@ -55,44 +51,31 @@ async fn execute_search_and_summarize(
     model: &str,
     max_results: usize,
     app_handle: &AppHandle,
-    browser: Arc<Browser>,
     ollama_client: &OllamaClient,
 ) -> Result<(), String> {
-    // 1. Buscar conteúdo na web
+    // 1. Buscar conteúdo na web via DuckDuckGo
     log::info!("Buscando conteúdo para: {}", query);
-    let scraped = search_and_scrape(query, max_results, browser, vec![])
+    
+    let scraped = search_and_scrape(query, max_results, vec![])
         .await
         .map_err(|e| format!("Erro ao buscar conteúdo: {}", e))?;
     
-    if scraped.is_empty() {
-        return Err("Nenhum resultado encontrado na busca".to_string());
-    }
-    
-    // 2. Combinar conteúdo em markdown
     let web_context: String = scraped
         .iter()
         .map(|s| format!("---\nTítulo: {}\nURL: {}\n---\n\n{}", s.title, s.url, s.markdown))
         .collect::<Vec<_>>()
         .join("\n\n");
-    
-    // 3. Criar prompt para o Ollama
-    let system_prompt = format!(
-        "Você é um assistente especializado em resumir e analisar informações da web.\n\
-        DATA ATUAL: {}\n\n\
-        Use as informações fornecidas abaixo para criar um resumo detalhado e útil.",
-        Utc::now().format("%d/%m/%Y %H:%M")
-    );
-    
-    let user_prompt = format!(
-        "Com base nas informações abaixo sobre '{}', crie um resumo detalhado e estruturado.\n\n\
-        ## CONTEXTO WEB\n{}\n\n\
-        Por favor, forneça:\n\
-        1. Resumo executivo (2-3 parágrafos)\n\
-        2. Principais pontos encontrados\n\
-        3. Conclusões ou insights relevantes",
-        query,
-        web_context
-    );
+
+    let system_prompt = if web_context.trim().is_empty() {
+        "Você é o OllaHub, um assistente de IA inteligente e prestativo. Responda às perguntas do usuário usando seu conhecimento interno da melhor forma possível. Seja educado, claro e prestativo.".to_string()
+    } else {
+        format!(
+            "Você é um assistente de pesquisa preciso e factual.\n\n### CONTEXTO RECUPERADO:\n{}\n\n### INSTRUÇÕES:\n1. Responda à pergunta do usuário BASEADO ESTRITAMENTE no contexto acima.\n2. Cite as fontes usando o formato [1] sempre que afirmar um fato do contexto.\n3. Se o contexto não contiver a resposta, diga que não encontrou nas fontes, mas ofereça seu conhecimento geral marcando claramente como 'Conhecimento Prévio'.\n4. Seja direto e evite introduções longas.",
+            web_context
+        )
+    };
+
+    let user_prompt = format!("Pergunta do usuário: {}", query);
     
     // 4. Enviar para Ollama
     log::info!("Enviando para Ollama (modelo: {})", model);

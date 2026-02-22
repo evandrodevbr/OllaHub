@@ -40,3 +40,14 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 ~/.tauri/ollahub.key
+
+# tauri build artifacts
+src-tauri/target/
+src-tauri/bundle/
+*.exe
+*.msi
+*.AppImage
+*.deb
+*.dmg
+OllamaSetup.exe
+src-tauri/bundle/ollama/

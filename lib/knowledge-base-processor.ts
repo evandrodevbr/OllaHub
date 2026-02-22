@@ -3,6 +3,7 @@ import type { QueryContext } from './contextual-analyzer';
 import { processContent, type Chunk, type ProcessedContent } from './content-condenser';
 import { scoreAndSelectChunks } from './relevance-scorer';
 import { summarizeMarkdown } from './content-condenser';
+import { chatLog } from './terminal-logger';
 
 export interface CondensationResult {
   context: string;
@@ -79,9 +80,21 @@ export function condenseKnowledgeBase(
   query: string,
   options: CondensationOptions = {}
 ): CondensationResult {
+  const condensationStart = Date.now();
+  
+  chatLog.info(`\n[KnowledgeBase] ========== CONDENSATION START ==========`);
+  chatLog.info(`[KnowledgeBase] Query: "${query}"`);
+  chatLog.info(`[KnowledgeBase] Entries: ${entries.length}`);
+  chatLog.info(`[KnowledgeBase] Options:`, {
+    maxTokens: options.maxTokens || DEFAULT_OPTIONS.maxTokens,
+    minRelevanceScore: options.minRelevanceScore || DEFAULT_OPTIONS.minRelevanceScore,
+    autoSummarize: options.autoSummarize ?? DEFAULT_OPTIONS.autoSummarize,
+  });
+  
   const opts = { ...DEFAULT_OPTIONS, ...options };
 
   if (entries.length === 0) {
+    chatLog.warn(`[KnowledgeBase] ⚠️ No entries to condense`);
     return {
       context: '',
       totalTokens: 0,
@@ -97,6 +110,9 @@ export function condenseKnowledgeBase(
   // Calcular tokens originais
   const originalContent = entries.map(e => e.content).join('\n\n');
   const originalTokens = estimateTokens(originalContent);
+  
+  chatLog.info(`[KnowledgeBase] Original content: ${originalContent.length} chars`);
+  chatLog.info(`[KnowledgeBase] Original tokens (estimated): ${originalTokens}`);
 
   // Processar cada entrada
   const allChunks: Chunk[] = [];
@@ -106,7 +122,15 @@ export function condenseKnowledgeBase(
     chunks: Chunk[];
   }> = [];
 
+  chatLog.info(`[KnowledgeBase] Processing ${entries.length} entries into chunks...`);
+  
   entries.forEach((entry, entryIndex) => {
+    const entryStart = Date.now();
+    chatLog.info(`\n[KnowledgeBase] --- Processing Entry ${entryIndex + 1}/${entries.length} ---`);
+    chatLog.info(`[KnowledgeBase] Title: ${entry.title}`);
+    chatLog.info(`[KnowledgeBase] URL: ${entry.sourceUrl}`);
+    chatLog.info(`[KnowledgeBase] Content length: ${entry.content.length} chars`);
+    
     const processed = processContent(entry.content, query, {
       summarizeThreshold: opts.summarizeThreshold,
     });
@@ -119,6 +143,19 @@ export function condenseKnowledgeBase(
       sourceTitle: entry.title,
     }));
 
+    const entryDuration = Date.now() - entryStart;
+    chatLog.info(`[KnowledgeBase] Generated ${chunksWithSource.length} chunks in ${entryDuration}ms`);
+    
+    // Log detalhes dos chunks
+    if (chunksWithSource.length > 0) {
+      chunksWithSource.slice(0, 3).forEach((chunk, chunkIdx) => {
+        chatLog.info(`  Chunk ${chunkIdx + 1}: ${chunk.content.length} chars, relevance: ${chunk.relevanceScore?.toFixed(3) || 'N/A'}`);
+      });
+      if (chunksWithSource.length > 3) {
+        chatLog.info(`  ... and ${chunksWithSource.length - 3} more chunks`);
+      }
+    }
+
     processedEntries.push({
       entry,
       processed,
@@ -127,11 +164,18 @@ export function condenseKnowledgeBase(
 
     allChunks.push(...chunksWithSource);
   });
+  
+  chatLog.info(`[KnowledgeBase] Total chunks generated: ${allChunks.length}`);
 
   // Calcular tokens disponíveis (reservar 20% para margem)
   const availableTokens = Math.floor(opts.maxTokens * 0.8);
+  chatLog.info(`[KnowledgeBase] Available tokens: ${availableTokens} (max: ${opts.maxTokens}, reserved 20%)`);
+  chatLog.info(`[KnowledgeBase] Min relevance score: ${opts.minRelevanceScore}`);
 
   // Selecionar chunks mais relevantes (usando contexto se disponível)
+  const selectionStart = Date.now();
+  chatLog.info(`[KnowledgeBase] Selecting most relevant chunks...`);
+  
   let selectedChunks = scoreAndSelectChunks(
     allChunks,
     query,
@@ -139,6 +183,19 @@ export function condenseKnowledgeBase(
     opts.minRelevanceScore,
     opts.context
   );
+  
+  const selectionDuration = Date.now() - selectionStart;
+  chatLog.info(`[KnowledgeBase] Selected ${selectedChunks.length} chunks from ${allChunks.length} total in ${selectionDuration}ms`);
+  
+  // Log top chunks selecionados
+  if (selectedChunks.length > 0) {
+    chatLog.info(`[KnowledgeBase] Top 5 selected chunks:`);
+    selectedChunks.slice(0, 5).forEach((chunk, idx) => {
+      chatLog.info(`  [${idx + 1}] Score: ${chunk.relevanceScore?.toFixed(3) || 'N/A'}, Length: ${chunk.content.length} chars`);
+      chatLog.info(`      Source: ${chunk.sourceTitle || 'Unknown'}`);
+      chatLog.info(`      Preview: ${chunk.content.substring(0, 100)}...`);
+    });
+  }
 
   // Se não selecionou chunks suficientes ou método de fallback está ativo
   let method: 'chunks' | 'summarized' | 'fallback' = 'chunks';
@@ -196,6 +253,26 @@ export function condenseKnowledgeBase(
 
   const totalTokens = estimateTokens(context);
   const compressionRatio = originalTokens > 0 ? totalTokens / originalTokens : 0;
+  const condensationDuration = Date.now() - condensationStart;
+
+  // Log resultado final
+  chatLog.info(`\n[KnowledgeBase] ========== CONDENSATION RESULTS ==========`);
+  chatLog.info(`[KnowledgeBase] Method: ${method}`);
+  chatLog.info(`[KnowledgeBase] Duration: ${condensationDuration}ms`);
+  chatLog.info(`[KnowledgeBase] Original tokens: ${originalTokens}`);
+  chatLog.info(`[KnowledgeBase] Final tokens: ${totalTokens}`);
+  chatLog.info(`[KnowledgeBase] Compression ratio: ${(compressionRatio * 100).toFixed(1)}%`);
+  chatLog.info(`[KnowledgeBase] Chunks used: ${selectedChunks.length} / ${allChunks.length}`);
+  chatLog.info(`[KnowledgeBase] Final context length: ${context.length} chars`);
+  
+  // Log estatísticas por fonte
+  chatLog.info(`[KnowledgeBase] Chunks per source:`);
+  entries.forEach((entry, idx) => {
+    const chunksUsed = selectedChunks.filter(c => c.sourceIndex === idx).length;
+    chatLog.info(`  ${entry.title}: ${chunksUsed} chunks`);
+  });
+  
+  chatLog.info(`[KnowledgeBase] ============================================\n`);
 
   return {
     context: context.trim(),

@@ -108,26 +108,15 @@ export async function extractKeyFacts(
       .replace('{{url}}', entry.sourceUrl)
       .replace('{{content}}', entry.content.substring(0, 4000)); // Limitar tamanho
 
-    const response = await fetch('http://localhost:11434/api/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        prompt,
-        stream: false,
-        options: {
-          temperature: 0.3,
-          num_predict: 600,
-        },
-      }),
+    const { invoke } = await import('@tauri-apps/api/core');
+    const rawResponse = await invoke<string>('generate_completion', {
+      model,
+      prompt,
+      options: {
+        temperature: 0.3,
+        num_predict: 600,
+      },
     });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const data = await response.json();
-    const rawResponse = (data.response || '').trim();
 
     // Limpar e extrair JSON
     let jsonText = rawResponse

@@ -18,6 +18,8 @@ import {
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
 import type { ThinkingMessageMetadata } from '@/hooks/use-chat';
+import { SearchQueriesMonitor } from './search-queries-monitor';
+import { ScrapingUrlsMonitor } from './scraping-urls-monitor';
 
 interface MessageStepThinkingProps {
   metadata: ThinkingMessageMetadata;
@@ -105,13 +107,31 @@ export function MessageStepThinking({ metadata }: MessageStepThinkingProps) {
 
       {/* Conteúdo Expandido */}
       {isExpanded && (
-        <div className="mt-2 ml-1 p-3 border-l-2 border-muted/30 space-y-2 text-sm text-muted-foreground animate-in fade-in">
+        <div className="mt-2 ml-1 p-3 border-l-2 border-muted/30 space-y-4 text-sm text-muted-foreground animate-in fade-in">
             {metadata.details && (
                 <div className="whitespace-pre-wrap">{metadata.details}</div>
             )}
+
+            {/* Monitoramento em Tempo Real - Queries */}
+            {metadata.activeQueries && metadata.activeQueries.length > 0 && (
+              <div className="pt-2 border-t border-muted/30">
+                <SearchQueriesMonitor queries={metadata.activeQueries} />
+              </div>
+            )}
+
+            {/* Monitoramento em Tempo Real - URLs */}
+            {metadata.activeUrls && metadata.activeUrls.length > 0 && (
+              <div className="pt-2 border-t border-muted/30">
+                <ScrapingUrlsMonitor urls={metadata.activeUrls} />
+              </div>
+            )}
             
             {metadata.sources && metadata.sources.length > 0 && (
-                <div className="flex flex-wrap gap-2 pt-1">
+                <div className="pt-2 border-t border-muted/30">
+                  <div className="text-xs font-medium text-muted-foreground mb-2">
+                    Fontes Encontradas ({metadata.sources.length})
+                  </div>
+                  <div className="flex flex-wrap gap-2">
                     {metadata.sources.map((source, idx) => (
                          <div key={idx} className="flex items-center gap-1 bg-background/50 border border-muted/50 px-2 py-1 rounded text-xs max-w-[200px]">
                             <ExternalLink className="w-3 h-3 opacity-50" />
@@ -121,6 +141,7 @@ export function MessageStepThinking({ metadata }: MessageStepThinkingProps) {
                             </button>
                          </div>
                     ))}
+                  </div>
                 </div>
             )}
 

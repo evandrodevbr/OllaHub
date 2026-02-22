@@ -34,7 +34,10 @@ export function useSystemHealth() {
           title: 'Modo de Economia Ativado',
           description: 'Recursos limitados para manter estabilidade. Algumas funcionalidades podem estar temporariamente indisponíveis.',
           variant: 'destructive',
+<<<<<<< HEAD
+=======
           duration: 5000,
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
         });
         setHasShownCriticalToast(true);
       } else if (newHealth.status !== 'critical') {

@@ -118,26 +118,15 @@ export async function enrichQueries(
       .replace('{{synonyms}}', context.synonyms.join(', ') || 'nenhum')
       .replace('{{domain}}', context.domain || 'geral');
 
-    const response = await fetch('http://localhost:11434/api/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        prompt,
-        stream: false,
-        options: {
-          temperature: 0.5, // Temperatura média para criatividade controlada
-          num_predict: 1000, // Espaço suficiente para múltiplas queries
-        },
-      }),
+    const { invoke } = await import('@tauri-apps/api/core');
+    const rawResponse = await invoke<string>('generate_completion', {
+      model,
+      prompt,
+      options: {
+        temperature: 0.5, // Temperatura média para criatividade controlada
+        num_predict: 1000, // Espaço suficiente para múltiplas queries
+      },
     });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    const rawResponse = (data.response || '').trim();
 
     // Limpar resposta (remover markdown code blocks se houver)
     let jsonText = rawResponse

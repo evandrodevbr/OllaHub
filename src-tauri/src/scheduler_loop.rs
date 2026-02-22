@@ -1,7 +1,6 @@
 use crate::scheduler::SchedulerState;
 use crate::task_executor::execute_task;
 use tokio_cron_scheduler::{Job, JobScheduler};
-use std::sync::Arc;
 use tauri::AppHandle;
 use chrono::Utc;
 
@@ -85,6 +84,8 @@ pub async fn reload_scheduled_tasks(
                         return;
                     }
                     
+<<<<<<< HEAD
+=======
                     // Obter browser - usando lazy initialization global
                     let browser_arc = {
                         use crate::web_scraper::get_or_create_browser;
@@ -97,8 +98,9 @@ pub async fn reload_scheduled_tasks(
                         }
                     };
                     
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
                     // Executar task
-                    match execute_task(&task, app_handle.clone(), browser_arc, ollama_url).await {
+                    match execute_task(&task, app_handle.clone(), ollama_url).await {
                         Ok(_) => {
                             // Atualizar last_run
                             let mut sched = scheduler.lock().await;

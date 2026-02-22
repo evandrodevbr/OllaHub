@@ -254,29 +254,15 @@ export function useChatStorage() {
   const generateTitleFromUserMessage = async (userMessage: string): Promise<string> => {
     // Generate title immediately from user's first message
     try {
-      const response = await fetch('http://localhost:11434/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: TITLE_MODEL,
-          messages: [
-            { role: 'system', content: 'Generate a short title (3-5 words) for a chat conversation based on this user message. Output ONLY the title, no explanation.' },
-            { role: 'user', content: userMessage }
-          ],
-          stream: false,
-        }),
+      const { invoke } = await import('@tauri-apps/api/core');
+      let title = await invoke<string>('generate_chat_completion', {
+        model: TITLE_MODEL,
+        messages: [
+          { role: 'system', content: 'Generate a short title (3-5 words) for a chat conversation based on this user message. Output ONLY the title, no explanation.' },
+          { role: 'user', content: userMessage }
+        ],
+        options: undefined,
       });
-
-      if (!response.ok) {
-        // If model not available, use fallback
-        if (response.status === 404 || response.status >= 500) {
-          throw new Error(`Model ${TITLE_MODEL} not available (status: ${response.status})`);
-        }
-        throw new Error(`Title generation failed with status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      let title = data.message?.content?.trim() || "";
       
       // If empty from start, use fallback
       if (!title || title.length === 0) {
@@ -320,30 +306,17 @@ export function useChatStorage() {
         content: removeMetadataNoise(m.content),
       }));
 
-      const response = await fetch('http://localhost:11434/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: TITLE_MODEL,
-          messages: [
-            { role: 'system', content: 'Summarize the following conversation in 3 to 5 words representing a short title. Output ONLY the title, sem metadados.' },
+      const { invoke } = await import('@tauri-apps/api/core');
+      const rawTitle = await invoke<string>('generate_chat_completion', {
+        model: TITLE_MODEL,
+        messages: [
+          { role: 'system', content: 'Summarize the following conversation in 3 to 5 words representing a short title. Output ONLY the title, sem metadados.' },
             ...sanitizedMessages
-          ],
-          stream: false,
-        }),
+        ],
+        options: undefined,
       });
-
-      if (!response.ok) {
-        // If model not found or unavailable, throw to trigger fallback
-        if (response.status === 404 || response.status >= 500) {
-          throw new Error(`Model ${TITLE_MODEL} not available (status: ${response.status})`);
-        }
-        // For other errors, use fallback
-        throw new Error(`Title generation failed with status: ${response.status}`);
-      }
       
-      const data = await response.json();
-      let title = removeMetadataNoise(data.message?.content?.trim() || "");
+      let title = removeMetadataNoise(rawTitle?.trim() || "");
       
       // If empty from start, throw to trigger fallback
       if (!title || title.length === 0) {

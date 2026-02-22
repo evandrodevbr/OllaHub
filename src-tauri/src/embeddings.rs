@@ -7,7 +7,10 @@ use anyhow::{Result, anyhow};
 use ndarray::Array2;
 use ort::session::{Session, builder::GraphOptimizationLevel};
 use ort::value::Value;
+<<<<<<< HEAD
+=======
 use std::io::Read;
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 use tokenizers::Tokenizer;
@@ -448,7 +451,11 @@ pub fn prune_context(
     let mut result = Vec::new();
     let mut total_tokens = 0;
     
+<<<<<<< HEAD
+    for (_score, paragraph, original_idx) in scored_paragraphs {
+=======
     for (score, paragraph, original_idx) in scored_paragraphs {
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
         let paragraph_tokens = paragraph.split_whitespace().count();
         
         if total_tokens + paragraph_tokens > max_tokens {

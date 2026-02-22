@@ -211,3 +211,11 @@ export function formatSearchLog(log: SearchLog): string {
   return lines.join('\n');
 }
 
+
+
+
+
+
+
+
+

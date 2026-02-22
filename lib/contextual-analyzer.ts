@@ -154,26 +154,16 @@ export async function analyzeQueryContext(
   try {
     const prompt = CONTEXTUAL_ANALYSIS_PROMPT.replace('{{query}}', query);
 
-    const response = await fetch('http://localhost:11434/api/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        prompt,
-        stream: false,
-        options: {
-          temperature: 0.3, // Baixa temperatura para análise mais determinística
-          num_predict: 800,  // Espaço suficiente para JSON completo
-        },
-      }),
+    const { invoke } = await import('@tauri-apps/api/core');
+    const rawResponse = await invoke<string>('generate_completion', {
+      model,
+      prompt,
+      options: {
+        temperature: 0.3,
+        num_predict: 800,
+        format: 'json',
+      },
     });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    const rawResponse = (data.response || '').trim();
 
     // Limpar resposta (remover markdown code blocks se houver)
     let jsonText = rawResponse
@@ -188,7 +178,7 @@ export async function analyzeQueryContext(
       jsonText = jsonMatch[0];
     }
 
-    const analysis = JSON.parse(jsonText) as Partial<QueryContext>;
+    const analysis = tryParseJsonWithRepair(jsonText) as Partial<QueryContext>;
 
     // Validar e preencher campos obrigatórios
     const context: QueryContext = {
@@ -274,3 +264,45 @@ function createFallbackContext(query: string): QueryContext {
   };
 }
 
+function repairJson(text: string): string {
+  let s = text.trim();
+  s = s.replace(/,\s*([}\]])/g, '$1');
+  let inString = false;
+  let escape = false;
+  let braceCount = 0;
+  let bracketCount = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (escape) { escape = false; continue; }
+    if (c === '\\') { escape = true; continue; }
+    if (c === '"') { inString = !inString; continue; }
+    if (!inString) {
+      if (c === '{') braceCount++;
+      else if (c === '}') braceCount--;
+      else if (c === '[') bracketCount++;
+      else if (c === ']') bracketCount--;
+    }
+  }
+  if (braceCount > 0) s += '}'.repeat(braceCount);
+  if (bracketCount > 0) s += ']'.repeat(bracketCount);
+  const lastClose = Math.max(s.lastIndexOf('}'), s.lastIndexOf(']'));
+  if (lastClose > 0) {
+    const after = s.slice(lastClose + 1);
+    if (/\S/.test(after)) {
+      s = s.slice(0, lastClose + 1);
+    }
+  }
+  return s;
+}
+
+function tryParseJsonWithRepair(text: string): unknown {
+  try { return JSON.parse(text); } catch {}
+  const repaired = repairJson(text);
+  try { return JSON.parse(repaired); } catch {}
+  const lastClose = Math.max(repaired.lastIndexOf('}'), repaired.lastIndexOf(']'));
+  if (lastClose > 0) {
+    const truncated = repaired.slice(0, lastClose + 1);
+    return JSON.parse(truncated);
+  }
+  throw new Error('Invalid JSON');
+}

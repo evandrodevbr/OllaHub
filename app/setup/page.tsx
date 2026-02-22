@@ -1,5 +1,11 @@
 'use client';
 
+<<<<<<< HEAD
+import { SetupWizard } from '@/components/setup/setup-wizard';
+import { TitleBar } from '@/components/titlebar';
+
+export default function SetupPage() {
+=======
 import { useHardware } from "@/hooks/use-hardware";
 import { HardwareScan } from "@/components/setup/hardware-scan";
 import { GpuSelector } from "@/components/setup/gpu-selector";
@@ -24,32 +30,12 @@ export default function SetupPage() {
     });
   };
 
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-4 bg-background text-foreground">
-      <div className="w-full max-w-2xl space-y-8 animate-in fade-in duration-700">
-        <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold tracking-tighter">Configuração Inicial</h1>
-          <p className="text-muted-foreground">Vamos preparar o ambiente ideal para você.</p>
-        </div>
-
-        <HardwareScan specs={specs} loading={loading} />
-
-        {!loading && specs && gpus.length > 0 && (
-          <div className="animate-in slide-in-from-bottom-8 duration-700 delay-200 fill-mode-backwards">
-            <GpuSelector gpus={gpus} />
-          </div>
-        )}
-
-        {!loading && specs && (
-          <div className="animate-in slide-in-from-bottom-8 duration-700 delay-300 fill-mode-backwards">
-            <ModelSelector 
-              recommendation={getRecommendation(specs)} 
-              onComplete={handleComplete}
-            />
-          </div>
-        )}
-      </div>
-    </main>
+    <div className="h-screen w-full bg-background overflow-hidden flex flex-col">
+      <TitleBar />
+      <SetupWizard />
+    </div>
   );
 }
 

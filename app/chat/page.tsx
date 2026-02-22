@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MessageSquare, Settings, Server, Moon, Sun, PanelLeftClose, PanelLeftOpen, Loader2, ChevronDown, Plus, RefreshCw, Cpu } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { ModelSelector } from "@/components/chat/model-selector";
 import { ChatInput } from "@/components/chat/chat-input";
 import { ChatMessage } from "@/components/chat/chat-message";
 import { ReasoningChain } from "@/components/chat/reasoning-chain";
@@ -13,6 +14,7 @@ import { TitleBar } from "@/components/titlebar";
 import { SidebarList } from "@/components/chat/sidebar-list";
 import { useChat } from "@/hooks/use-chat";
 import { useLocalModels } from "@/hooks/use-local-models";
+import { useModelSelection } from "@/hooks/use-model-selection";
 import { useChatStorage } from "@/hooks/use-chat-storage";
 import { useAutoLabelingModel } from "@/hooks/use-auto-labeling-model";
 import { useWebSearch } from "@/hooks/use-web-search";
@@ -24,9 +26,10 @@ import { useDeepResearch } from "@/hooks/use-deep-research";
 import { DEEP_RESEARCH_PROMPTS } from "@/data/prompts/deep-research";
 import { useSettingsStore } from "@/store/settings-store";
 import type { ScrapedContent } from "@/services/webSearch";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, startTransition } from "react";
 import { useTheme } from "next-themes";
 import { useRouter } from "next/navigation";
+import { invoke } from "@tauri-apps/api/core";
 import { ImperativePanelHandle } from "react-resizable-panels";
 import { ModelDownloadDialog } from "@/components/chat/model-download-dialog";
 import { chatLog } from "@/lib/terminal-logger";
@@ -43,6 +46,7 @@ export default function ChatPage() {
   const { messages, setMessages, sendMessage, isLoading, stop, clearChat } = useChat();
   const { models, refresh } = useLocalModels();
   const { theme, setTheme } = useTheme();
+  const { isSetupCompleted } = useSettingsStore();
   
   const { 
     sessions, 
@@ -112,9 +116,68 @@ export default function ChatPage() {
     }));
   }, [setMessages]);
 
-  const [selectedModel, setSelectedModel] = useState("");
+  const { selectedModel, setSelectedModel } = useModelSelection();
+  
+  // Sincronizar eventos de busca com thinking messages
+  useEffect(() => {
+    if (webSearch.activeQueries.length > 0 || webSearch.activeUrls.length > 0) {
+      updateThinkingMessage('web-research', {
+        activeQueries: webSearch.activeQueries,
+        activeUrls: webSearch.activeUrls,
+      });
+    }
+  }, [webSearch.activeQueries, webSearch.activeUrls, updateThinkingMessage]);
   const [mounted, setMounted] = useState(false);
   const initializedRef = useRef(false);
+  
+  // Refs para evitar loops e execuções múltiplas
+  const hasCheckedIntegrityRef = useRef(false);
+  const isRedirectingRef = useRef(false);
+
+  // Guarda de roteamento: verificar se setup foi completado
+  useEffect(() => {
+    if (!isSetupCompleted && !isRedirectingRef.current) {
+      isRedirectingRef.current = true;
+      startTransition(() => {
+        router.replace("/setup"); // Mudar de push para replace para consistência
+      });
+    }
+  }, [isSetupCompleted, router]);
+
+  // Guarda de integridade: verificar se Ollama está funcional
+  // Executa SEMPRE que o componente montar, independente do status do setup
+  useEffect(() => {
+    if (hasCheckedIntegrityRef.current) return; // Proteção contra múltiplas execuções
+    if (isRedirectingRef.current) return; // Evitar redirecionamentos múltiplos
+    
+    const checkIntegrity = async () => {
+      try {
+        const isOllamaIntact = await invoke<boolean>('verify_ollama_integrity_command');
+        
+        if (!isOllamaIntact && !isRedirectingRef.current) {
+          isRedirectingRef.current = true;
+          // Ollama não está funcional - redirecionar para setup
+          console.warn("Integridade do Ollama falhou no chat. Redirecionando para Setup.");
+          startTransition(() => {
+            router.replace('/setup');
+          });
+        }
+      } catch (e) {
+        // Em caso de erro na verificação, redirecionar para setup (fallback seguro)
+        if (!isRedirectingRef.current) {
+          isRedirectingRef.current = true;
+          console.error("Falha ao verificar integridade do Ollama no chat:", e);
+          startTransition(() => {
+            router.replace('/setup');
+          });
+        }
+      } finally {
+        hasCheckedIntegrityRef.current = true; // Marcar como executado
+      }
+    };
+
+    checkIntegrity();
+  }, [router]); // Remover isSetupCompleted das dependências - executar sempre
   // Initialize with default format prompt
   const [systemPrompt] = useState(defaultFormatPrompt || "Você é um assistente útil e prestativo.");
   const [isChatsSidebarCollapsed, setIsChatsSidebarCollapsed] = useState(true); // Iniciar colapsada
@@ -137,24 +200,9 @@ export default function ChatPage() {
     }
   }, [searchQuery, currentSessionId]);
 
-  // Auto-select first model
   useEffect(() => {
     setMounted(true);
   }, []);
-
-  useEffect(() => {
-    if (initializedRef.current) return;
-    const stored = settings.selectedModel;
-    const first = models.length > 0 ? models[0].name : "";
-    const next = stored || first || "";
-    if (next) {
-      setSelectedModel(next);
-      if (!stored) {
-        settings.setSelectedModel(next);
-      }
-    }
-    initializedRef.current = true;
-    }, [settings, models]);
 
   // Auto-scroll para o final durante streaming
   useEffect(() => {
@@ -425,7 +473,10 @@ export default function ChatPage() {
            
            // Executar busca progressiva para cada query do plano
            const searchPromises = searchPlan.map(async (query, idx) => {
-             chatLog.info(`  → Starting progressive search ${idx + 1}/${searchPlan.length}: "${query}"`);
+             const queryStartTime = Date.now();
+             chatLog.info(`\n[WebResearch] ========== QUERY ${idx + 1}/${searchPlan.length} ==========`);
+             chatLog.info(`[WebResearch] Query: "${query}"`);
+             chatLog.info(`[WebResearch] Timestamp: ${new Date().toISOString()}`);
              
              // Atualizar progresso
              updateThinkingMessage('web-research', {
@@ -437,6 +488,22 @@ export default function ChatPage() {
                // Obter contexto e queries enriquecidas do deep research
                const context = deepResearch.state.context;
                const enrichedQueries = deepResearch.state.enrichedQueries;
+               
+               if (context) {
+                 chatLog.info(`[WebResearch] Using contextual analysis:`, {
+                   intent: context.intent,
+                   entities: context.entities.length,
+                   topics: context.topics.length,
+                 });
+               }
+               
+               if (enrichedQueries) {
+                 chatLog.info(`[WebResearch] Using enriched queries:`, {
+                   literal: enrichedQueries.literal.length,
+                   semantic: enrichedQueries.semantic.length,
+                   related: enrichedQueries.related.length,
+                 });
+               }
                
                // Executar busca progressiva com semantic search se disponível
                const fallbackResult = await executeProgressiveSearch(
@@ -461,21 +528,46 @@ export default function ChatPage() {
                  }
                );
                
-               // Log do resultado
-               chatLog.info(`  ✓ Progressive search ${idx + 1} complete:`);
-               chatLog.info(`     - Success: ${fallbackResult.success}`);
-               chatLog.info(`     - Total results: ${fallbackResult.scrapedSources.length}`);
-               chatLog.info(`     - Total analyzed: ${fallbackResult.totalResultsAnalyzed}`);
-               chatLog.info(`     - Attempts: ${fallbackResult.attempts.length}`);
-               chatLog.info(`     - Used fallback: ${fallbackResult.usedFallback}`);
+               const queryDuration = Date.now() - queryStartTime;
                
-               // Log detalhado de cada resultado
-               fallbackResult.scrapedSources.forEach((result, resultIdx) => {
-                 chatLog.info(`    → Result ${resultIdx + 1}: ${result.title}`);
-                 chatLog.info(`       URL: ${result.url}`);
-                 const contentLength = result.markdown?.length || 0;
-                 chatLog.info(`       Content length: ${contentLength} chars`);
+               // Log detalhado do resultado
+               chatLog.info(`\n[WebResearch] ========== QUERY ${idx + 1} RESULTS ==========`);
+               chatLog.info(`[WebResearch] Duration: ${queryDuration}ms`);
+               chatLog.info(`[WebResearch] Success: ${fallbackResult.success}`);
+               chatLog.info(`[WebResearch] Total results: ${fallbackResult.scrapedSources.length}`);
+               chatLog.info(`[WebResearch] Total analyzed: ${fallbackResult.totalResultsAnalyzed}`);
+               chatLog.info(`[WebResearch] Attempts: ${fallbackResult.attempts.length}`);
+               chatLog.info(`[WebResearch] Used fallback: ${fallbackResult.usedFallback}`);
+               
+               // Log detalhado de cada tentativa
+               fallbackResult.attempts.forEach((attempt, attemptIdx) => {
+                 chatLog.info(`\n  Attempt ${attemptIdx + 1}:`);
+                 chatLog.info(`    Round: ${attempt.round}`);
+                 chatLog.info(`    Strategy: ${attempt.strategy || 'N/A'}`);
+                 chatLog.info(`    Query: "${attempt.query}"`);
+                 chatLog.info(`    Results: ${attempt.results.length}`);
+                 chatLog.info(`    Relevance score: ${attempt.relevanceScore.toFixed(3)}`);
+                 chatLog.info(`    Duration: ${attempt.duration}ms`);
                });
+               
+               // Log detalhado de cada resultado extraído
+               if (fallbackResult.scrapedSources.length > 0) {
+                 chatLog.info(`\n[WebResearch] Extracted Sources:`);
+                 fallbackResult.scrapedSources.forEach((result, resultIdx) => {
+                   chatLog.info(`\n  [${resultIdx + 1}] ${result.title}`);
+                   chatLog.info(`      URL: ${result.url}`);
+                   const contentLength = result.markdown?.length || result.content?.length || 0;
+                   const snippetLength = result.snippet?.length || 0;
+                   chatLog.info(`      Markdown length: ${contentLength} chars`);
+                   chatLog.info(`      Snippet length: ${snippetLength} chars`);
+                   chatLog.info(`      Cached: ${result.cached ? 'Yes' : 'No'}`);
+                   if (result.markdown) {
+                     const preview = result.markdown.substring(0, 200);
+                     chatLog.info(`      Preview: ${preview}${contentLength > 200 ? '...' : ''}`);
+                   }
+                 });
+               }
+               chatLog.info(`[WebResearch] ============================================\n`);
                
                // Adicionar resultados à Knowledge Base
                if (fallbackResult.scrapedSources.length > 0) {
@@ -516,13 +608,14 @@ export default function ChatPage() {
            chatLog.info(`All searches complete. Knowledge Base size: ${deepResearch.state.knowledgeBase.length}`);
            
            // Coletar todas as fontes para exibição
-           scrapedSources = deepResearch.state.knowledgeBase.map(entry => ({
-             url: entry.sourceUrl,
-             title: entry.title,
-             content: entry.content,
-             markdown: entry.content,
-             snippet: entry.content.substring(0, 200)
-           }));
+          scrapedSources = deepResearch.state.knowledgeBase.map(entry => ({
+            url: entry.sourceUrl,
+            title: entry.title,
+            content: entry.content,
+            markdown: entry.content,
+            snippet: entry.content.substring(0, 200),
+            cached: false
+          }));
 
            // Adicionar mensagem: Fontes encontradas
            if (scrapedSources.length > 0) {
@@ -535,56 +628,84 @@ export default function ChatPage() {
 
            if (deepResearch.state.knowledgeBase.length > 0) {
              // Passo 3: Validação e Contexto
-             chatLog.info('\nStep 3: Validation');
+             chatLog.info('\n[DeepResearch] ========== STEP 3: VALIDATION ==========');
              deepResearch.setStep('aggregating');
              
              // Adicionar mensagem: Processamento
              addThinkingMessage('processing', 'Processando contexto...', 'running');
+             const validationStart = Date.now();
              validationReport = await deepResearch.validate(selectedModel, content);
-             chatLog.info(`Validation Report Length: ${validationReport.length} chars`);
+             const validationDuration = Date.now() - validationStart;
+             
+             chatLog.info(`[DeepResearch] Validation duration: ${validationDuration}ms`);
+             chatLog.info(`[DeepResearch] Validation report length: ${validationReport.length} chars`);
+             if (validationReport) {
+               const preview = validationReport.substring(0, 500);
+               chatLog.info(`[DeepResearch] Validation preview: ${preview}${validationReport.length > 500 ? '...' : ''}`);
+             }
              
              // Passo 4: Obter contexto curado (usando versão otimizada)
-             chatLog.info('\nStep 4: Getting Curated Context (Optimized)');
+             chatLog.info('\n[DeepResearch] ========== STEP 4: CONTEXT CONDENSATION ==========');
              
              // Calcular tokens disponíveis dinamicamente
              const { getModelContextInfo } = await import('@/lib/model-context');
              const contextInfo = await getModelContextInfo(selectedModel, systemPrompt, messages);
              const availableTokens = contextInfo.recommendedContextWindow;
              
-             chatLog.info(`Model Context Window: ${contextInfo.maxContextWindow} tokens`);
-             chatLog.info(`Available Tokens for KB: ${availableTokens} tokens`);
+             chatLog.info(`[DeepResearch] Model: ${selectedModel}`);
+             chatLog.info(`[DeepResearch] Max context window: ${contextInfo.maxContextWindow} tokens`);
+             chatLog.info(`[DeepResearch] Available tokens for KB: ${availableTokens} tokens`);
              
+             const condensationStart = Date.now();
              const optimizedResult = deepResearch.getCuratedContextOptimized(content, availableTokens);
+             const condensationDuration = Date.now() - condensationStart;
              knowledgeBaseContext = optimizedResult.context;
              
-             chatLog.info(`Knowledge Base Context Length: ${knowledgeBaseContext.length} chars`);
-             chatLog.info(`Condensation Method: ${optimizedResult.result.method}`);
-             chatLog.info(`Chunks Used: ${optimizedResult.result.chunksUsed} / ${optimizedResult.result.chunksTotal}`);
-             chatLog.info(`Compression Ratio: ${(optimizedResult.result.compressionRatio * 100).toFixed(1)}%`);
+             chatLog.info(`\n[DeepResearch] ========== CONDENSATION SUMMARY ==========`);
+             chatLog.info(`[DeepResearch] Duration: ${condensationDuration}ms`);
+             chatLog.info(`[DeepResearch] Final context length: ${knowledgeBaseContext.length} chars`);
+             chatLog.info(`[DeepResearch] Method: ${optimizedResult.result.method}`);
+             chatLog.info(`[DeepResearch] Chunks used: ${optimizedResult.result.chunksUsed} / ${optimizedResult.result.chunksTotal}`);
+             chatLog.info(`[DeepResearch] Compression ratio: ${(optimizedResult.result.compressionRatio * 100).toFixed(1)}%`);
+             chatLog.info(`[DeepResearch] Original tokens: ${optimizedResult.result.originalTokens}`);
+             chatLog.info(`[DeepResearch] Final tokens: ${optimizedResult.result.totalTokens}`);
+             
+             // Log detalhado por fonte
+             if (optimizedResult.result.sources.length > 0) {
+               chatLog.info(`[DeepResearch] Chunks per source:`);
+               optimizedResult.result.sources.forEach((source, idx) => {
+                 chatLog.info(`  [${idx + 1}] ${source.title}: ${source.chunksUsed} chunks`);
+                 chatLog.info(`      URL: ${source.url}`);
+               });
+             }
              
              // Log preview do contexto se não for muito longo
              if (knowledgeBaseContext.length > 0) {
+               chatLog.info(`\n[DeepResearch] Context preview:`);
                if (knowledgeBaseContext.length > 2000) {
-                 chatLog.info(`Context Preview (first 2000 chars):\n${knowledgeBaseContext.substring(0, 2000)}...`);
+                 chatLog.info(`${knowledgeBaseContext.substring(0, 2000)}...`);
+                 chatLog.info(`[DeepResearch] (truncated, ${knowledgeBaseContext.length} chars total)`);
                } else {
-                 chatLog.info(`Full Context:\n${knowledgeBaseContext}`);
+                 chatLog.info(knowledgeBaseContext);
                }
                
                // Validar contexto
                const { validateCondensedContext } = await import('@/lib/knowledge-base-processor');
                const validation = validateCondensedContext(optimizedResult.result, content);
                
+               chatLog.info(`\n[DeepResearch] ========== CONTEXT VALIDATION ==========`);
                if (!validation.isValid) {
-                 chatLog.error(`Context validation failed: ${validation.warnings.join(', ')}`);
+                 chatLog.error(`[DeepResearch] Validation failed: ${validation.warnings.join(', ')}`);
                } else if (validation.warnings.length > 0) {
                  validation.warnings.forEach(warning => {
-                   chatLog.warn(`⚠️ ${warning}`);
+                   chatLog.warn(`[DeepResearch] ⚠️ ${warning}`);
                  });
                } else {
-                 chatLog.info('✓ Context validation passed');
+                 chatLog.info(`[DeepResearch] ✓ Context validation passed`);
                }
+               chatLog.info(`[DeepResearch] ============================================\n`);
              } else {
-               chatLog.warn('⚠️ Knowledge Base Context is empty!');
+               chatLog.warn('[DeepResearch] ⚠️ Knowledge Base Context is empty!');
              }
                
              
@@ -623,17 +744,21 @@ export default function ChatPage() {
       } catch (error) {
         // Tratar erro graciosamente sem quebrar o fluxo
         const errorMsg = error instanceof Error ? error.message : String(error);
-        chatLog.warn(`⚠️ Error in Deep Research pipeline (continuing with partial results): ${errorMsg}`);
+        chatLog.warn(`⚠️ Error in Deep Research pipeline (using local model fallback): ${errorMsg}`);
         
         // Atualizar mensagem de processo com aviso (não erro fatal)
         updateThinkingMessage('web-research', {
-          status: 'completed', // Marcar como completed mesmo com erro parcial
-          details: `Alguns erros ocorreram durante a pesquisa: ${errorMsg}. Continuando com resultados parciais...`,
+          status: 'completed', // Marcar como completed mesmo com erro
+          details: `Erro na pesquisa web (${errorMsg}). Usando modelo local como fallback.`,
           duration: Date.now() - webResearchStart,
         });
         
+        // Garantir que o estado de erro seja registrado para ativar fallback
+        // O erro já será detectado pelo hasWebSearchError através do estado do hook
+        chatLog.info('Web search error registered - will use local model fallback');
+        
         // Não definir erro global - permitir que o fluxo continue
-        // O sistema continuará com conhecimento interno se necessário
+        // O sistema continuará com conhecimento interno (fallback automático)
       }
     } else {
       if (!webSearch.isEnabled) {
@@ -694,8 +819,9 @@ export default function ChatPage() {
     let enhancedSystemPrompt = systemPrompt;
     
     // Se tivermos uma Knowledge Base, usar o prompt STRICT_GENERATION
-    // Verificar se houve fallback (nenhum resultado relevante encontrado)
+    // Verificar se houve fallback (nenhum resultado relevante encontrado ou erro na pesquisa)
     const usedFallback = knowledgeBaseContext.length === 0 || knowledgeBaseContext.length < 100;
+    const hasWebSearchError = webSearch.status === 'error' || webSearch.error !== null;
     
     if (knowledgeBaseContext && knowledgeBaseContext.length > 100) {
        const strictPrompt = DEEP_RESEARCH_PROMPTS.STRICT_GENERATION
@@ -704,25 +830,36 @@ export default function ChatPage() {
          .replace('{{userQuery}}', content);
          
        enhancedSystemPrompt = strictPrompt;
-    } else if (usedFallback) {
+    } else if (usedFallback || hasWebSearchError) {
       // Fallback: usar prompt sem contexto web, mas informando que não encontrou fontes
+      // Isso garante que o modelo local sempre gere uma resposta mesmo sem dados web
+      const errorContext = hasWebSearchError && webSearch.error 
+        ? `\n**Motivo:** ${webSearch.error}`
+        : '';
+      
       enhancedSystemPrompt = `${systemPrompt}
 
-## ⚠️ AVISO IMPORTANTE
+## ⚠️ FALLBACK PARA CONHECIMENTO INTERNO
 
-Não foi possível encontrar informações relevantes nas fontes web consultadas após múltiplas tentativas de busca.
+Não foi possível acessar fontes web para esta consulta após múltiplas tentativas de busca.${errorContext}
 
-**INSTRUÇÕES:**
-- Responda usando APENAS seu conhecimento interno (treinamento)
-- Seja honesto e diga: "Não encontrei essa informação nas fontes consultadas."
-- Se tiver conhecimento sobre o tópico, compartilhe, mas deixe claro que não há fontes externas verificadas
-- Não invente informações ou cite fontes que não foram consultadas
+**INSTRUÇÕES CRÍTICAS:**
+- Você DEVE responder usando APENAS seu conhecimento interno (treinamento do modelo)
+- Seja transparente: informe que não foi possível acessar fontes web, mas que você responderá com base no seu conhecimento
+- Se tiver conhecimento sobre o tópico, compartilhe-o de forma útil e detalhada
+- Seja honesto sobre limitações: se não souber algo, diga claramente
+- NÃO invente informações ou cite fontes que não foram consultadas
+- NÃO mencione "fontes consultadas" ou "pesquisa realizada" - apenas responda com seu conhecimento
+
+**IMPORTANTE:** Este é um fallback legítimo. O usuário espera uma resposta útil mesmo sem dados web. Use seu conhecimento para ajudar da melhor forma possível.
 
 ## DATA E HORA ATUAL DO SISTEMA
 
 **DATA/HORA FORMATADA:** ${currentDateTime}
+**DATA/HORA NUMÉRICA:** ${currentDateExplicit}
+**ISO 8601:** ${currentDateISO}
 
-Use esta data exata para referências temporais.`;
+Use esta data exata para referências temporais quando relevante.`;
     }
     // Fallback para lógica antiga se não tiver Knowledge Base
     else if (knowledgeBaseContext) {
@@ -792,6 +929,9 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
     let finalUserContent = content;
     if (knowledgeBaseContext && knowledgeBaseContext.length > 100) {
       finalUserContent = `[KNOWLEDGE BASE - ÚNICA FONTE DE VERDADE]\n${knowledgeBaseContext}\n[/KNOWLEDGE BASE]\n\nResponda a pergunta usando APENAS os dados acima. Se a informação não estiver na Knowledge Base, diga "Não encontrei essa informação nas fontes consultadas."\n\nPergunta: ${content}`;
+    } else if (usedFallback || hasWebSearchError) {
+      // Quando usar fallback, garantir que o modelo saiba que deve usar conhecimento interno
+      finalUserContent = `Pergunta do usuário: ${content}\n\nNota: Não foi possível acessar fontes web para esta consulta. Responda usando seu conhecimento interno de forma útil e detalhada.`;
     }
     
     chatLog.info(`Final User Content Length: ${finalUserContent.length} chars`);
@@ -822,6 +962,75 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
     chatLog.info('✅ Response generation complete');
     chatLog.info('========== QUERY COMPLETE ==========\n');
     
+<<<<<<< HEAD
+    // Capturar dados antes do setMessages para garantir que estão no escopo correto
+    const currentScrapedSources = scrapedSources.length > 0 
+      ? scrapedSources 
+      : deepResearch.state.knowledgeBase.map(entry => ({
+          url: entry.sourceUrl,
+          title: entry.title,
+          content: entry.content,
+          markdown: entry.content,
+          cached: false,
+        }));
+    
+    // Coletar thinking steps das mensagens (apenas os relacionados a esta query)
+    const allThinkingSteps: ThinkingMessageMetadata[] = [];
+    const currentMessages = messages; // Capturar referência atual
+    currentMessages.forEach((msg, idx) => {
+      // Coletar thinking steps das últimas mensagens (relacionadas a esta query)
+      if (idx >= currentMessages.length - 10) { // Últimas 10 mensagens
+        if (msg.metadata && typeof msg.metadata === 'object' && 'type' in msg.metadata && msg.metadata.type === 'thinking') {
+          allThinkingSteps.push(msg.metadata as ThinkingMessageMetadata);
+        }
+      }
+    });
+    
+    // Coletar sites pesquisados com detalhes completos
+    const sitesResearched = currentScrapedSources.map((source, idx) => {
+      // Tentar encontrar informações de duração e status dos logs
+      const sourceLog = deepResearch.state.logs.find(log => {
+        if (!log.parsedOutput || typeof log.parsedOutput !== 'object') return false;
+        const parsed = log.parsedOutput as Record<string, unknown>;
+        return 'url' in parsed && parsed.url === source.url;
+      });
+      
+      let duration: number | undefined = undefined;
+      if (sourceLog?.parsedOutput && typeof sourceLog.parsedOutput === 'object') {
+        const parsed = sourceLog.parsedOutput as Record<string, unknown>;
+        if ('duration' in parsed && typeof parsed.duration === 'number') {
+          duration = parsed.duration;
+        }
+      }
+      
+      return {
+        url: source.url,
+        title: source.title || 'Sem título',
+        status: source.cached ? 'cached' : 'scraped',
+        source: source.cached ? 'cache' : 'nodriver',
+        contentLength: source.content?.length || source.markdown?.length || 0,
+        scrapedAt: sourceLog?.timestamp || Date.now(),
+        duration: duration,
+      };
+    });
+    
+    // Coletar dados de raciocínio dos logs do deep research
+    const reasoningSteps = deepResearch.state.logs
+      .filter(log => log.stage === 'generation' || log.stage === 'validation')
+      .map(log => ({
+        stage: log.stage,
+        input: log.input,
+        output: log.rawOutput || JSON.stringify(log.parsedOutput),
+        timestamp: log.timestamp,
+      }));
+    
+    // Estimar token usage (aproximado)
+    const estimatedInputTokens = Math.ceil((enhancedSystemPrompt.length + finalUserContent.length) / 4);
+    const lastAssistantMsg = currentMessages.find(m => m.role === 'assistant');
+    const estimatedOutputTokens = Math.ceil((lastAssistantMsg?.content?.length || 0) / 4);
+    
+=======
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
     // Construir dados de debug para a última mensagem do assistente
     setMessages(prev => {
       const newMessages = [...prev];
@@ -834,6 +1043,16 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
           latency: Date.now() - responseStart,
           systemPrompt: enhancedSystemPrompt,
           userQuery: content,
+<<<<<<< HEAD
+          contextUsed: prev.filter(m => m.role !== 'system' && m.role !== 'assistant'),
+          webResearch: {
+            queries: deepResearch.state.plan || [],
+            enrichedQueries: deepResearch.state.enrichedQueries || undefined,
+            sources: currentScrapedSources,
+            sitesResearched: sitesResearched,
+            logs: deepResearch.state.logs || [],
+            plan: deepResearch.state.plan || [],
+=======
           contextUsed: messages.filter(m => m.role !== 'system'),
           webResearch: {
             queries: deepResearch.state.plan || [],
@@ -841,15 +1060,39 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
             sources: scrapedSources,
             logs: deepResearch.state.logs,
             plan: deepResearch.state.plan,
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
             knowledgeBase: deepResearch.state.knowledgeBase.map(entry => ({
               sourceUrl: entry.sourceUrl,
               title: entry.title,
               content: entry.content,
             })),
+<<<<<<< HEAD
+            activeQueries: webSearch.activeQueries.length > 0 ? webSearch.activeQueries : undefined,
+            activeUrls: webSearch.activeUrls.length > 0 ? webSearch.activeUrls : undefined,
+          },
+          deepResearchState: deepResearch.state,
+          thinkingSteps: allThinkingSteps.length > 0 ? allThinkingSteps : undefined,
+          reasoning: reasoningSteps.length > 0 ? {
+            steps: reasoningSteps.map(r => `${r.stage}: ${r.input.substring(0, 100)}...`),
+            intermediateResults: reasoningSteps.map(r => ({
+              stage: r.stage,
+              output: r.output,
+              timestamp: r.timestamp,
+            })),
+          } : undefined,
+          finalResponse: lastMsg.content || '',
+          rawResponse: lastMsg.content || '',
+          tokenUsage: {
+            input: estimatedInputTokens,
+            output: estimatedOutputTokens,
+            total: estimatedInputTokens + estimatedOutputTokens,
+          },
+=======
           },
           deepResearchState: deepResearch.state,
           finalResponse: lastMsg.content,
           rawResponse: lastMsg.content,
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
         };
         
         // Armazenar debug data usando o índice da mensagem
@@ -1030,7 +1273,7 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
       <TitleBar />
       
       {/* Main Content Area */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden pt-8">
         <ResizablePanelGroup direction="horizontal" className="flex-1">
         
         <ResizablePanel 
@@ -1137,61 +1380,7 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
 
               <div className="flex-1 max-w-full sm:max-w-[420px] flex items-center gap-2 min-w-0">
                 <div className="flex-1 min-w-0">
-                  <TooltipProvider>
-                    <Select 
-                      value={selectedModel || undefined} 
-                      onValueChange={(v) => {
-                        if (v === "__add_model__") {
-                          setShowDownloadDialog(true);
-                          // Não alterar selectedModel quando abrir dialog
-                        } else {
-                          setSelectedModel(v);
-                          settings.setSelectedModel(v);
-                        }
-                      }}
-                    >
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <SelectTrigger className="h-9 min-w-0 max-w-full">
-                            <SelectValue placeholder="Selecione um modelo..." className="truncate" />
-                          </SelectTrigger>
-                        </TooltipTrigger>
-                        {selectedModel && (
-                          <TooltipContent side="top" className="max-w-[70vw] break-words">
-                            <p className="text-sm">{selectedModel}</p>
-                          </TooltipContent>
-                        )}
-                      </Tooltip>
-                      <SelectContent className="max-w-[90vw] sm:max-w-[420px]">
-                        {models.map(m => (
-                          <Tooltip key={m.name}>
-                            <TooltipTrigger asChild>
-                              <SelectItem value={m.name} className="min-w-0">
-                                <span className="flex items-center justify-between w-full min-w-0 gap-2">
-                                  <span className="flex items-center gap-2 truncate flex-1 min-w-0" style={{ maxWidth: '70vw' }}>
-                                    <Cpu className="w-4 h-4 text-muted-foreground shrink-0" />
-                                    <span className="truncate">{m.name}</span>
-                                  </span>
-                                  <span className="ml-2 text-xs text-muted-foreground shrink-0">{m.size}</span>
-                                </span>
-                              </SelectItem>
-                            </TooltipTrigger>
-                            {m.name.length > 40 && (
-                              <TooltipContent side="right" className="max-w-[70vw] break-words">
-                                <p className="text-sm">{m.name}</p>
-                              </TooltipContent>
-                            )}
-                          </Tooltip>
-                        ))}
-                        <SelectItem value="__add_model__" className="text-primary font-medium">
-                          <span className="flex items-center gap-2">
-                            <Plus className="h-4 w-4" />
-                            Adicionar modelo...
-                          </span>
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </TooltipProvider>
+                  <ModelSelector />
                 </div>
                 <Button variant="outline" size="icon" className="h-9 w-9" onClick={refresh} title="Atualizar modelos">
                   <RefreshCw className="w-4 h-4" />
@@ -1463,4 +1652,3 @@ Ao responder sobre fatos atuais ou notícias, inicie mencionando explicitamente 
     </div>
   );
 }
-

@@ -43,12 +43,31 @@ export function useSetupCheck() {
         // Aguardar um pouco para o servidor iniciar
         await new Promise(resolve => setTimeout(resolve, 2000));
         
+<<<<<<< HEAD
+        // Verificar integridade completa (instalação + serviço rodando)
+        try {
+          const isInstalledAndRunning = await invoke<boolean>('verify_ollama_integrity_command');
+          if (!isInstalledAndRunning) {
+            // Ainda não está rodando ou instalação está corrompida
+            return 'needs_setup';
+          }
+        } catch (verifyError) {
+          // Fallback para verificação simples se o comando robusto falhar
+          console.warn('verify_ollama_integrity failed, using fallback:', verifyError);
+          const running = await invoke<boolean>('check_ollama_running');
+          if (!running) {
+            return 'needs_setup';
+          }
+        }
+        
+=======
         // Verificar novamente se está rodando
         const running = await invoke<boolean>('check_ollama_running');
         if (!running) {
           // Ainda não está rodando, precisa de intervenção do usuário
           return 'needs_setup';
         }
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
         // Agora está rodando, verificar modelos
         const hasAnyModels = await checkModels();
         return hasAnyModels ? 'ready' : 'needs_setup';

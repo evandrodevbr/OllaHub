@@ -49,6 +49,14 @@ export function useAppUpdater(): AppUpdaterState {
 
   // Verificar atualizações
   const checkUpdate = useCallback(async () => {
+<<<<<<< HEAD
+    // Ignorar verificação de updates em ambiente de desenvolvimento
+    if (process.env.NODE_ENV === 'development') {
+      return;
+    }
+
+=======
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
     setIsChecking(true);
     setError(null);
 
@@ -104,6 +112,14 @@ export function useAppUpdater(): AppUpdaterState {
 
   // Verificação automática periódica (a cada 6 horas)
   useEffect(() => {
+<<<<<<< HEAD
+    // Ignorar verificação automática em desenvolvimento
+    if (process.env.NODE_ENV === 'development') {
+      return;
+    }
+
+=======
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
     if (!autoCheckEnabled) return;
 
     // Verificar imediatamente ao montar (com delay para não interferir no carregamento)

@@ -27,10 +27,15 @@ export interface SettingsState {
     totalSourcesLimit: number;
     categories: SearchCategory[];
     userCustomSites: string[];
-    engineOrder: string[]; // Ordem dos motores de busca: ['google', 'bing', 'yahoo', 'duckduckgo', 'startpage']
-    minResultsPerEngine: number; // Mínimo de resultados para considerar sucesso
     enableSemanticExpansion: boolean; // Habilitar expansão semântica de queries
     semanticExpansionLanguage: string; // Idioma para expansão: 'pt-BR', 'en', 'es'
+    searxng: {
+      enabled: boolean; // false por padrão
+      selfHosted: boolean; // true se self-hosted
+      url: string; // URL do SearXNG (default: http://localhost:8080)
+      status: 'unknown' | 'checking' | 'available' | 'unavailable';
+      lastChecked: number; // timestamp
+    };
   };
 
   // Content Processing
@@ -62,6 +67,23 @@ export interface SettingsState {
   // Debug
   debugMode: boolean;
 
+<<<<<<< HEAD
+  // Setup
+  isSetupCompleted: boolean;
+
+  // Runtime Selection (Ollama vs llama.cpp)
+  runtime: 'ollama' | 'llama-cpp';
+  llamaCppParams: {
+    nGpuLayers: number;
+    nCtx: number;
+    threads: number;
+    temperature: number;
+    topP: number;
+    topK: number;
+  };
+
+=======
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
   // Query Preprocessing
   queryPreprocessing: {
     enabled: boolean;
@@ -82,10 +104,12 @@ export interface SettingsState {
   setWebSearchTimeout: (timeout: number) => void;
   setWebSearchMaxConcurrentTabs: (max: number) => void;
   setWebSearchTotalSourcesLimit: (limit: number) => void;
-  setWebSearchEngineOrder: (order: string[]) => void;
-  setWebSearchMinResultsPerEngine: (min: number) => void;
   setWebSearchSemanticExpansion: (enabled: boolean) => void;
   setWebSearchSemanticExpansionLanguage: (language: string) => void;
+  setSearxngEnabled: (enabled: boolean) => void;
+  setSearxngUrl: (url: string) => void;
+  setSearxngStatus: (status: 'unknown' | 'checking' | 'available' | 'unavailable') => void;
+  checkSearxngStatus: () => Promise<void>;
   addExcludedDomain: (domain: string) => void;
   removeExcludedDomain: (domain: string) => void;
   toggleCategory: (categoryId: string) => void;
@@ -108,6 +132,12 @@ export interface SettingsState {
   // Debug Actions
   setDebugMode: (enabled: boolean) => void;
   
+<<<<<<< HEAD
+  // Setup Actions
+  setSetupCompleted: (completed: boolean) => void;
+  
+=======
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
   // Query Preprocessing Actions
   setQueryPreprocessingEnabled: (enabled: boolean) => void;
   setQueryPreprocessingMinLength: (min: number) => void;
@@ -124,6 +154,10 @@ export interface SettingsState {
   setContentProcessingMinRelevanceScore: (score: number) => void;
   setContentProcessingUseKeyFactsExtraction: (enabled: boolean) => void;
   setContentProcessingFallbackToSummarization: (enabled: boolean) => void;
+  
+  // Runtime Actions
+  setRuntime: (runtime: 'ollama' | 'llama-cpp') => void;
+  setLlamaCppParams: (params: Partial<SettingsState['llamaCppParams']>) => void;
 }
 
 const defaultSystemPrompt = `Você é um assistente de IA local integrado ao OllaHub.
@@ -222,10 +256,15 @@ const initialState = {
     totalSourcesLimit: 100,
     categories: defaultCategories,
     userCustomSites: [],
-    engineOrder: ['google', 'bing', 'yahoo', 'duckduckgo', 'startpage'], // Ordem padrão
-    minResultsPerEngine: 1, // Mínimo de 1 resultado para considerar sucesso
     enableSemanticExpansion: true, // Habilitado por padrão
     semanticExpansionLanguage: 'pt-BR', // Português brasileiro por padrão
+    searxng: {
+      enabled: false, // Não ativado por padrão
+      selfHosted: false,
+      url: 'http://localhost:8080',
+      status: 'unknown' as const,
+      lastChecked: 0,
+    },
   },
   sourcesConfig: null,
   autoStart: false,
@@ -235,6 +274,19 @@ const initialState = {
   },
   autoCheckUpdates: true,
   debugMode: false,
+<<<<<<< HEAD
+  isSetupCompleted: false,
+  runtime: 'ollama',
+  llamaCppParams: {
+    nGpuLayers: 0, // CPU por padrão
+    nCtx: 4096,
+    threads: 0, // Auto
+    temperature: 0.7,
+    topP: 0.9,
+    topK: 40,
+  },
+=======
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
   queryPreprocessing: {
     enabled: true,
     minLength: 3,
@@ -292,14 +344,6 @@ export const useSettingsStore = create<SettingsState>()(
         set((state) => ({
           webSearch: { ...state.webSearch, totalSourcesLimit: limit },
         })),
-      setWebSearchEngineOrder: (order) =>
-        set((state) => ({
-          webSearch: { ...state.webSearch, engineOrder: order },
-        })),
-      setWebSearchMinResultsPerEngine: (min) =>
-        set((state) => ({
-          webSearch: { ...state.webSearch, minResultsPerEngine: min },
-        })),
       setWebSearchSemanticExpansion: (enabled) =>
         set((state) => ({
           webSearch: { ...state.webSearch, enableSemanticExpansion: enabled },
@@ -308,6 +352,66 @@ export const useSettingsStore = create<SettingsState>()(
         set((state) => ({
           webSearch: { ...state.webSearch, semanticExpansionLanguage: language },
         })),
+      setSearxngEnabled: (enabled) =>
+        set((state) => ({
+          webSearch: {
+            ...state.webSearch,
+            searxng: { ...state.webSearch.searxng, enabled },
+          },
+        })),
+      setSearxngUrl: (url) =>
+        set((state) => ({
+          webSearch: {
+            ...state.webSearch,
+            searxng: { ...state.webSearch.searxng, url },
+          },
+        })),
+      setSearxngStatus: (status) =>
+        set((state) => ({
+          webSearch: {
+            ...state.webSearch,
+            searxng: { ...state.webSearch.searxng, status, lastChecked: Date.now() },
+          },
+        })),
+      checkSearxngStatus: async () => {
+        const state = useSettingsStore.getState();
+        set((s) => ({
+          webSearch: {
+            ...s.webSearch,
+            searxng: { ...s.webSearch.searxng, status: 'checking' as const },
+          },
+        }));
+        
+        try {
+          const { invoke } = await import('@tauri-apps/api/core');
+          const isAvailable = await invoke<boolean>('check_searxng_status', {
+            url: state.webSearch.searxng.url,
+          });
+          
+          set((s) => ({
+            webSearch: {
+              ...s.webSearch,
+              searxng: {
+                ...s.webSearch.searxng,
+                status: isAvailable ? ('available' as const) : ('unavailable' as const),
+                lastChecked: Date.now(),
+              },
+            },
+          }));
+        } catch (error) {
+          console.error('Failed to check SearXNG status:', error);
+          set((s) => ({
+            webSearch: {
+              ...s.webSearch,
+              searxng: {
+                ...s.webSearch.searxng,
+                status: 'unavailable' as const,
+                lastChecked: Date.now(),
+              },
+            },
+          }));
+        }
+      },
       addExcludedDomain: (domain) =>
         set((state) => {
           const normalized = domain.toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
@@ -429,6 +533,13 @@ export const useSettingsStore = create<SettingsState>()(
       setDebugMode: (enabled) =>
         set({ debugMode: enabled }),
       
+<<<<<<< HEAD
+      // Setup Actions
+      setSetupCompleted: (completed) =>
+        set({ isSetupCompleted: completed }),
+      
+=======
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
       // Query Preprocessing Actions
       setQueryPreprocessingEnabled: (enabled) =>
         set((state) => ({
@@ -498,10 +609,21 @@ export const useSettingsStore = create<SettingsState>()(
         set((state) => ({
           contentProcessing: { ...state.contentProcessing, fallbackToSummarization: enabled },
         })),
+      
+      // Runtime Actions
+      setRuntime: (runtime) => set({ runtime }),
+      setLlamaCppParams: (params) =>
+        set((state) => ({
+          llamaCppParams: { ...state.llamaCppParams, ...params },
+        })),
     }),
     {
       name: 'ollahub-settings',
+<<<<<<< HEAD
+      version: 7,
+=======
       version: 4,
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
       migrate: (persistedState: any, version: number) => {
         // Migração da versão 1 para 3
         if (version < 3) {
@@ -517,6 +639,47 @@ export const useSettingsStore = create<SettingsState>()(
             debugMode: persistedState.debugMode ?? false,
           };
         }
+<<<<<<< HEAD
+        // Migração da versão 4 para 5
+        if (version < 5) {
+          return {
+            ...persistedState,
+            isSetupCompleted: persistedState.isSetupCompleted ?? false,
+          };
+        }
+        // Migração da versão 5 para 6
+        if (version < 6) {
+          return {
+            ...persistedState,
+            runtime: persistedState.runtime ?? 'ollama',
+            llamaCppParams: persistedState.llamaCppParams ?? {
+              nGpuLayers: 0,
+              nCtx: 4096,
+              threads: 0,
+              temperature: 0.7,
+              topP: 0.9,
+              topK: 40,
+            },
+          };
+        }
+        // Migração da versão 6 para 7
+        if (version < 7) {
+          return {
+            ...persistedState,
+            webSearch: {
+              ...persistedState.webSearch,
+              searxng: persistedState.webSearch?.searxng ?? {
+                enabled: false,
+                selfHosted: false,
+                url: 'http://localhost:8080',
+                status: 'unknown',
+                lastChecked: 0,
+              },
+            },
+          };
+        }
+=======
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
         return persistedState;
       },
     }

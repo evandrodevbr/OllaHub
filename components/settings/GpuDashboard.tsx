@@ -269,3 +269,11 @@ export function GpuDashboard({ gpuId, pollInterval = 2000 }: GpuDashboardProps) 
 }
 
 
+
+
+
+
+
+
+
+

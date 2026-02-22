@@ -63,7 +63,7 @@ const DEFAULT_CONFIG: FallbackConfig = {
   maxRounds: 4,
   maxResultsPerRound: 10,
   maxTotalResults: 40,
-  minRelevanceScore: 0.3,
+  minRelevanceScore: 0.1,
   enableQueryExpansion: true,
   initialTimeout: TIMEOUT_CONFIG.initialTimeout,
   maxTimeoutPerQuery: TIMEOUT_CONFIG.maxTimeoutPerQuery,
@@ -100,37 +100,33 @@ Instruções:
 
 Query expandida:`;
 
-    const response = await fetch('http://localhost:11434/api/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        prompt: expansionPrompt,
-        stream: false,
-        options: {
-          temperature: 0.5,
-          num_predict: 100,
-        },
-      }),
-    });
+    const { invoke } = await import('@tauri-apps/api/core');
+    const expanded = (await invoke<string>('generate_completion', {
+      model,
+      prompt: expansionPrompt,
+      options: {
+        temperature: 0.5,
+        num_predict: 100,
+      },
+    }))
+    .replace(/^["']|["']$/g, '')
+    .replace(/\.$/, '')
+    .trim();
 
-    if (!response.ok) {
-      chatLog.warn('Failed to expand query, using original');
+    const sanitized = expanded
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      .replace(/^\s*```[a-zA-Z]*\s*/g, '')
+      .replace(/\s*```\s*$/g, '')
+      .replace(/^(here\s+is\s+the\s+query|sure|okay|final\s+query)\s*[:,-]*\s*/i, '')
+      .trim()
+      .replace(/[\r\n]+/g, ' ');
+
+    if (sanitized.length < 3 || sanitized.length > 150 || /[<>]/.test(sanitized)) {
       return originalQuery;
     }
 
-    const data = await response.json();
-    const expanded = (data.response || '').trim()
-      .replace(/^["']|["']$/g, '')
-      .replace(/\.$/, '')
-      .trim();
-
-    if (expanded.length < 3) {
-      return originalQuery;
-    }
-
-    chatLog.info(`Query expanded: "${originalQuery}" → "${expanded}"`);
-    return expanded;
+    chatLog.info(`Query expanded: "${originalQuery}" → "${sanitized}"`);
+    return sanitized;
   } catch (error) {
     chatLog.warn(`Error expanding query, using original: ${error instanceof Error ? error.message : String(error)}`);
     return originalQuery;
@@ -155,7 +151,7 @@ export function calculateRelevanceScoreForFallback(
   
   // Contar matches de palavras-chave
   let matches = 0;
-  let totalWords = queryWords.length;
+  const totalWords = queryWords.length;
   
   for (const word of queryWords) {
     if (combinedText.includes(word)) {
@@ -283,7 +279,7 @@ export async function executeProgressiveSearch(
   const finalConfig = { ...DEFAULT_CONFIG, ...config };
   const attempts: FallbackAttempt[] = [];
   let totalResultsAnalyzed = 0;
-  let allResults: ScrapedContent[] = [];
+  const allResults: ScrapedContent[] = [];
   const seenUrls = new Set<string>();
   const queryStartTime = Date.now();
   const maxQueryTimeout = finalConfig.maxTimeoutPerQuery || TIMEOUT_CONFIG.maxTimeoutPerQuery;
@@ -337,8 +333,8 @@ export async function executeProgressiveSearch(
     chatLog.info(`Round timeout: ${actualRoundTimeout}ms (adaptativo: ${roundTimeout}ms, máximo: ${maxRoundTimeout}ms)`);
     
     const roundStartTime = Date.now();
-    let roundResults: ScrapedContent[] = [];
-    let roundQueries: string[] = [];
+    const roundResults: ScrapedContent[] = [];
+    const roundQueries: string[] = [];
     
     // Executar todas as queries do round em paralelo com timeout por round
     const queryPromises = roundConfig.queries.map(async (query) => {
@@ -351,8 +347,13 @@ export async function executeProgressiveSearch(
         // Passar round para searchFn para timeout adaptativo
         const results = await searchFn(finalQuery, finalConfig.maxResultsPerRound, round);
         return { query: finalQuery, results };
+<<<<<<< HEAD
+      } catch (err) {
+        chatLog.warn(`[Round ${round}] Query "${finalQuery}" failed: ${err instanceof Error ? err.message : String(err)}`);
+=======
       } catch (error) {
         chatLog.warn(`[Round ${round}] Query "${finalQuery}" failed: ${error instanceof Error ? error.message : String(error)}`);
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
         return { query: finalQuery, results: [] };
       }
     });
@@ -367,7 +368,7 @@ export async function executeProgressiveSearch(
     let queryResults: QueryResult[];
     try {
       queryResults = await Promise.race([roundPromise, timeoutPromise]);
-    } catch (error) {
+    } catch (_err) {
       chatLog.warn(`[Round ${round}] Timeout do round após ${actualRoundTimeout}ms, usando resultados parciais`);
       // Tentar obter resultados parciais das promises que já completaram
       queryResults = await Promise.allSettled(queryPromises).then(results => 
@@ -406,13 +407,15 @@ export async function executeProgressiveSearch(
     }
     
     // Calcular relevância usando contexto se disponível
+    let semanticSimilarity: ((ctx: QueryContext, text: string) => number) | null = null;
+    if (finalConfig.context) {
+      const mod = await import('./relevance-scorer');
+      semanticSimilarity = mod.calculateSemanticSimilarity;
+    }
     const relevanceScore = roundResults.length > 0
       ? roundResults.reduce((sum, r) => {
-          // Usar contexto para cálculo de relevância se disponível
-          if (finalConfig.context) {
-            // Importar função dinamicamente para evitar circular dependency
-            const { calculateSemanticSimilarity } = require('./relevance-scorer');
-            return sum + calculateSemanticSimilarity(finalConfig.context, r.markdown || r.title);
+          if (semanticSimilarity && finalConfig.context) {
+            return sum + semanticSimilarity(finalConfig.context, r.markdown || r.title);
           }
           return sum + calculateRelevanceScoreForFallback(r, originalQuery);
         }, 0) / roundResults.length
@@ -479,4 +482,3 @@ export async function executeProgressiveSearch(
     usedFallback: true,
   };
 }
-

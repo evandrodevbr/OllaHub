@@ -1,8 +1,10 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { webSearchService, ScrapedContent, SearchConfig } from '@/services/webSearch';
 import { useSettingsStore } from '@/store/settings-store';
+import { useWebSearchEvents, type ActiveQuery, type ActiveUrl } from './use-web-search-events';
 
-export type SearchStatus = 'idle' | 'searching' | 'scraping' | 'completed' | 'error';
+export type SearchStatus = 'idle' | 'searching' | 'scraping' | 'completed' | 'error' | 'cancelled';
 
 export interface WebSearchState {
   isEnabled: boolean;
@@ -10,6 +12,8 @@ export interface WebSearchState {
   currentQuery: string;
   scrapedSources: ScrapedContent[];
   error: string | null;
+  activeQueries: ActiveQuery[];
+  activeUrls: ActiveUrl[];
 }
 
 const DEFAULT_STATE: WebSearchState = {
@@ -18,12 +22,16 @@ const DEFAULT_STATE: WebSearchState = {
   currentQuery: '',
   scrapedSources: [],
   error: null,
+  activeQueries: [],
+  activeUrls: [],
 };
 
 /**
  * Hook para gerenciar estado do Web Search
  */
 export function useWebSearch() {
+  const events = useWebSearchEvents();
+  
   const [state, setState] = useState<WebSearchState>(() => {
     // Carregar preferência do localStorage
     if (typeof window !== 'undefined') {
@@ -35,6 +43,15 @@ export function useWebSearch() {
     }
     return DEFAULT_STATE;
   });
+
+  // Sincronizar eventos com estado usando useEffect
+  useEffect(() => {
+    setState((prev) => ({
+      ...prev,
+      activeQueries: events.activeQueries,
+      activeUrls: events.activeUrls,
+    }));
+  }, [events.activeQueries, events.activeUrls]);
 
   /**
    * Ativa/desativa Web Search
@@ -175,7 +192,7 @@ export function useWebSearch() {
     } catch (error) {
       // Se houver erro, logar mas retornar array vazio (não quebrar o fluxo)
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido no smartSearchRag';
-      console.warn('Erro em smartSearchRag (retornando vazio):', errorMessage);
+      console.warn('Erro em smartSearchRag (retornando vazio para usar fallback de modelo local):', errorMessage);
       
       setState(prev => ({
         ...prev,
@@ -185,6 +202,7 @@ export function useWebSearch() {
       }));
       
       // Retornar vazio em vez de throw para não quebrar o fluxo
+      // O sistema continuará usando o modelo local como fallback
       return [];
     }
   }, []);
@@ -219,6 +237,22 @@ export function useWebSearch() {
   }, []);
 
   /**
+   * Cancela a busca atual
+   */
+  const cancel = useCallback(async () => {
+    try {
+      await invoke('cancel_scraping');
+      setState(prev => ({
+        ...prev,
+        status: 'cancelled',
+        error: null
+      }));
+    } catch (error) {
+      console.error('Erro ao cancelar busca:', error);
+    }
+  }, []);
+
+  /**
    * Reseta o estado
    */
   const reset = useCallback(() => {
@@ -235,14 +269,19 @@ export function useWebSearch() {
     webSearchService.clearCache();
   }, []);
 
+
   return {
     ...state,
+    activeQueries: events.activeQueries,
+    activeUrls: events.activeUrls,
     setEnabled,
     search,
     smartSearchRag,
     extractUrl,
+    cancel,
     reset,
     clearCache,
+    setState, // Expor setState para permitir atualização externa em caso de erro
   };
 }
 

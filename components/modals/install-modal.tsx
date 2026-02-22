@@ -87,10 +87,7 @@ export function InstallModal({ open, onCheckAgain }: InstallModalProps) {
   const handleInstall = async () => {
     try {
       await downloadState.handleInstall();
-      toast({
-        title: 'Instalador iniciado',
-        description: 'O instalador foi aberto. Siga as instruções na tela.',
-      });
+      // Toast será mostrado automaticamente via eventos de progresso
     } catch (error) {
       toast({
         title: 'Erro ao executar instalador',
@@ -144,8 +141,10 @@ export function InstallModal({ open, onCheckAgain }: InstallModalProps) {
     const isActive = activeTab === os;
     const isDownloading = downloadState.isDownloading && isActive;
     const hasDownloaded = downloadState.filePath !== null && isActive;
+    const isInstalling = downloadState.isInstalling && isActive;
+    const installStatus = downloadState.installStatus;
 
-    if (!isDownloading && !hasDownloaded) {
+    if (!isDownloading && !hasDownloaded && !isInstalling) {
       return null;
     }
 
@@ -162,7 +161,18 @@ export function InstallModal({ open, onCheckAgain }: InstallModalProps) {
             <Progress value={downloadState.downloadProgress} className="h-2" />
           </>
         )}
-        {hasDownloaded && !isDownloading && (
+        {isInstalling && (
+          <>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">
+                {installStatus || 'Instalando...'}
+              </span>
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            </div>
+            <Progress value={undefined} className="h-2" />
+          </>
+        )}
+        {hasDownloaded && !isDownloading && !isInstalling && (
           <div className="flex items-start gap-2 p-3 bg-green-50 dark:bg-green-950/20 rounded-md">
             <CheckCircle2 className="h-4 w-4 mt-0.5 text-green-600 dark:text-green-400" />
             <div className="text-sm flex-1">
@@ -170,7 +180,20 @@ export function InstallModal({ open, onCheckAgain }: InstallModalProps) {
                 Download concluído
               </p>
               <p className="text-green-700 dark:text-green-300">
-                Clique em "Instalar Ollama" para iniciar a instalação.
+                Clique em "Instalar Ollama" para iniciar a instalação automática.
+              </p>
+            </div>
+          </div>
+        )}
+        {downloadState.isInstalled && !isInstalling && (
+          <div className="flex items-start gap-2 p-3 bg-green-50 dark:bg-green-950/20 rounded-md">
+            <CheckCircle2 className="h-4 w-4 mt-0.5 text-green-600 dark:text-green-400" />
+            <div className="text-sm flex-1">
+              <p className="font-medium text-green-900 dark:text-green-100">
+                Instalação concluída!
+              </p>
+              <p className="text-green-700 dark:text-green-300">
+                {installStatus || 'Ollama foi instalado com sucesso.'}
               </p>
             </div>
           </div>
@@ -183,7 +206,9 @@ export function InstallModal({ open, onCheckAgain }: InstallModalProps) {
     <Dialog open={open}>
       <DialogContent className="sm:max-w-[600px]">
         <DialogHeader>
-          <DialogTitle>Ollama não encontrado</DialogTitle>
+          <DialogTitle data-tauri-drag-region className="cursor-move select-none">
+            Ollama não encontrado
+          </DialogTitle>
           <DialogDescription>
             Para usar o OllaHub, você precisa ter o Ollama instalado no seu sistema.
             Baixe e instale o Ollama usando os passos abaixo.

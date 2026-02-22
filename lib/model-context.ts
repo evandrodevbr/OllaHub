@@ -29,16 +29,12 @@ export async function detectModelContextWindow(modelName: string): Promise<numbe
 
   try {
     // Tentar obter informações do modelo via Ollama API
-    const response = await fetch('http://localhost:11434/api/show', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: modelName,
-      }),
+    const { invoke } = await import('@tauri-apps/api/core');
+    const data = await invoke<any>('get_ollama_model_info', {
+      modelName,
     });
 
-    if (response.ok) {
-      const data = await response.json();
+    if (data) {
       
       // Ollama retorna 'context_length' ou 'parameter_size' que pode indicar contexto
       // Mapear tamanhos conhecidos de modelos

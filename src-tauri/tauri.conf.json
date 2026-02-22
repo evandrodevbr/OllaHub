@@ -1,7 +1,11 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "ollahub",
+<<<<<<< HEAD
+  "version": "0.1.1",
+=======
   "version": "0.1.0",
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
   "identifier": "dev.evandrodevbr.ollahub",
   "build": {
     "frontendDist": "../out",
@@ -28,7 +32,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": "nsis",
     "icon": [
       "icons/icon.ico",
       "icons/32x32.ico",
@@ -36,6 +40,14 @@
       "icons/256x256.ico",
       "icons/512x512.ico",
       "icons/icon.icns"
+<<<<<<< HEAD
+    ],
+    "resources": [
+      "bundle/ollama/OllamaSetup.exe",
+      "bundle/models/embeddings/**/*",
+      "scripts/scraper.py"
+=======
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
     ]
   },
   "plugins": {
@@ -45,7 +57,11 @@
         "https://github.com/evandrodevbr/OllaHub/releases/latest/download/latest.json"
       ],
       "dialog": true,
+<<<<<<< HEAD
+      "pubkey": "~/.tauri/ollahub.key.pub"
+=======
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgxMjY3NThDMUQyREQ5QUYKUldTdjJTMGRqSFVtZ1k1ZWFHSEcxNExDZzgrNVh6M0Z6VXIyaTU5dDAvZnpQb3p0UVpuRW1Od3YK"
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
     }
   }
 }

@@ -376,6 +376,16 @@
   background: transparent;
 }
 
+/* Utility class para ocultar scrollbar */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari and Opera */
+}
+
 /* Reasoning Chain animations */
 @keyframes reasoning-fade-in {
   from { 

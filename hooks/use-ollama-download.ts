@@ -12,6 +12,13 @@ interface DownloadState {
   isInstalled: boolean;
   isChecking: boolean;
   checkStatus: string;
+  installStatus: string | null;
+  isInstalling: boolean;
+  speed: string;
+  downloadedBytes: number;
+  totalBytes: number;
+  eta: number;
+  status: 'downloading' | 'verifying' | 'completed';
 }
 
 export function useOllamaDownload() {
@@ -24,6 +31,13 @@ export function useOllamaDownload() {
     isInstalled: false,
     isChecking: false,
     checkStatus: '',
+    installStatus: null,
+    isInstalling: false,
+    speed: '0 MB/s',
+    downloadedBytes: 0,
+    totalBytes: 0,
+    eta: 0,
+    status: 'downloading',
   });
 
   const checkingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -31,17 +45,71 @@ export function useOllamaDownload() {
 
   // Escutar eventos de progresso do download
   useEffect(() => {
-    const unlistenPromise = listen('installer-download-progress', (event: any) => {
+    const unlistenDownloadPromise = listen('installer-download-progress', (event: any) => {
       const data = event.payload;
+      const statusText = data.status || '';
+      const isVerifying = statusText.includes('Verificando');
+      const isCompleted = data.progress === 100 && !isVerifying;
+      
       setState(prev => ({
         ...prev,
         downloadProgress: data.progress || 0,
-        downloadStatus: data.status || '',
+        downloadStatus: statusText,
+        speed: data.speed_formatted || '0 MB/s',
+        downloadedBytes: data.downloaded || 0,
+        totalBytes: data.total || 0,
+        eta: data.eta_seconds || 0,
+        status: isVerifying ? 'verifying' : isCompleted ? 'completed' : 'downloading',
+        isDownloading: !isCompleted,
       }));
     });
 
+    // Escutar eventos de progresso da instalação
+    const unlistenInstallPromise = listen('installer-progress', (event: any) => {
+      const data = event.payload;
+      const status = data.status || 'unknown';
+      const message = data.message || 'Processando...';
+      
+      setState(prev => ({
+        ...prev,
+        isInstalling: status !== 'success' && status !== 'error' && status !== 'partial',
+        installStatus: message,
+        isInstalled: status === 'success',
+        downloadError: status === 'error' ? message : prev.downloadError,
+      }));
+
+      // Se a instalação foi bem-sucedida, iniciar verificação automática
+      if (status === 'success') {
+        // Usar setTimeout para evitar dependência circular
+        setTimeout(() => {
+          // startAutoCheck será chamado via closure do componente
+          // Por enquanto, apenas atualizar o estado
+          setState(prev => ({
+            ...prev,
+            isChecking: true,
+            checkStatus: 'Verificando instalação...',
+          }));
+        }, 100);
+      }
+    });
+
+    // Escutar evento de Ollama pronto
+    const unlistenReadyPromise = listen('ollama-ready', () => {
+      setState(prev => ({
+        ...prev,
+        isInstalling: false,
+        installStatus: 'Ollama instalado e rodando!',
+        isInstalled: true,
+        isChecking: false,
+        checkStatus: 'Ollama encontrado e rodando!',
+      }));
+      window.dispatchEvent(new CustomEvent('ollama-installed'));
+    });
+
     return () => {
-      unlistenPromise.then(unlisten => unlisten());
+      unlistenDownloadPromise.then(unlisten => unlisten());
+      unlistenInstallPromise.then(unlisten => unlisten());
+      unlistenReadyPromise.then(unlisten => unlisten());
     };
   }, []);
 
@@ -55,6 +123,16 @@ export function useOllamaDownload() {
       isInstalled: false,
       isChecking: false,
       checkStatus: '',
+<<<<<<< HEAD
+      installStatus: null,
+      isInstalling: false,
+      speed: '0 MB/s',
+      downloadedBytes: 0,
+      totalBytes: 0,
+      eta: 0,
+      status: 'downloading',
+=======
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
     });
 
     try {
@@ -70,6 +148,16 @@ export function useOllamaDownload() {
           isInstalled: false,
           isChecking: false,
           checkStatus: '',
+<<<<<<< HEAD
+          installStatus: null,
+          isInstalling: false,
+          speed: '0 MB/s',
+          downloadedBytes: 0,
+          totalBytes: 0,
+          eta: 0,
+          status: 'completed',
+=======
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
         });
         return;
       }
@@ -85,6 +173,16 @@ export function useOllamaDownload() {
         isInstalled: false,
         isChecking: false,
         checkStatus: '',
+<<<<<<< HEAD
+        installStatus: null,
+        isInstalling: false,
+        speed: '0 MB/s',
+        downloadedBytes: 0,
+        totalBytes: 0,
+        eta: 0,
+        status: 'completed',
+=======
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
       });
     } catch (error) {
       setState({
@@ -96,6 +194,16 @@ export function useOllamaDownload() {
         isInstalled: false,
         isChecking: false,
         checkStatus: '',
+<<<<<<< HEAD
+        installStatus: null,
+        isInstalling: false,
+        speed: '0 MB/s',
+        downloadedBytes: 0,
+        totalBytes: 0,
+        eta: 0,
+        status: 'downloading',
+=======
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
       });
     }
   };
@@ -109,6 +217,24 @@ export function useOllamaDownload() {
       return;
     }
 
+<<<<<<< HEAD
+    // Atualizar estado para mostrar que a instalação está começando
+    setState(prev => ({
+      ...prev,
+      isInstalling: true,
+      installStatus: 'Iniciando instalação silenciosa...',
+      downloadError: null,
+    }));
+
+    // Chamar Tauri em background (não bloquear)
+    runInstaller(state.filePath)
+      .then(() => {
+        // Após iniciar a instalação, começar a verificação automática após um delay
+        setTimeout(() => {
+          startAutoCheck();
+        }, 2000);
+      })
+=======
     // Optimistic UI: atualizar estado imediatamente antes da chamada Tauri
     setState(prev => ({
       ...prev,
@@ -120,27 +246,40 @@ export function useOllamaDownload() {
 
     // Chamar Tauri em background (não bloquear)
     runInstaller(state.filePath)
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
       .catch((error) => {
         setState(prev => ({
           ...prev,
           downloadError: error instanceof Error ? error.message : 'Erro ao executar instalador',
+<<<<<<< HEAD
+          isInstalling: false,
+          installStatus: null,
+=======
           isInstalled: false, // Reverter se falhar
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
         }));
       });
   };
 
   const checkOllama = async (): Promise<boolean> => {
     try {
-      const installed = await invoke<boolean>('check_ollama_installed');
-      if (!installed) {
-        return false;
-      }
-
-      const running = await invoke<boolean>('check_ollama_running');
-      return running;
+      // Usar verificação robusta multi-camada (PATH, caminhos absolutos, HTTP)
+      const isInstalledAndRunning = await invoke<boolean>('verify_ollama_integrity_command');
+      return isInstalledAndRunning;
     } catch (error) {
       console.error('Erro ao verificar Ollama:', error);
-      return false;
+      // Fallback para verificação simples se o comando robusto falhar
+      try {
+        const installed = await invoke<boolean>('check_ollama_installed');
+        if (!installed) {
+          return false;
+        }
+        const running = await invoke<boolean>('check_ollama_running');
+        return running;
+      } catch (fallbackError) {
+        console.error('Fallback check also failed:', fallbackError);
+        return false;
+      }
     }
   };
 
@@ -237,6 +376,7 @@ export function useOllamaDownload() {
         filePath: existingPath,
         downloadProgress: 100,
         downloadStatus: 'Download já concluído',
+        status: 'completed',
       }));
     }
   };
@@ -252,6 +392,13 @@ export function useOllamaDownload() {
       isInstalled: false,
       isChecking: false,
       checkStatus: '',
+      installStatus: null,
+      isInstalling: false,
+      speed: '0 MB/s',
+      downloadedBytes: 0,
+      totalBytes: 0,
+      eta: 0,
+      status: 'downloading',
     });
   };
 

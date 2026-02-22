@@ -15,7 +15,8 @@ export function useAutoLabelingModel() {
 
   const checkAndDownload = async () => {
     try {
-      const installed = await invoke<boolean>('check_if_model_installed', { name: TARGET_MODEL });
+      // O comando Tauri é check_if_model_installed_command, mas o Tauri remove o sufixo _command
+      const installed = await invoke<boolean>('check_if_model_installed_command', { name: TARGET_MODEL });
       if (installed) {
         setIsReady(true);
         return;
@@ -49,6 +50,25 @@ export function useAutoLabelingModel() {
       setIsDownloading(false);
       setIsReady(true);
     } catch (error) {
+      // Detectar erros de conexão/rede e tratá-los silenciosamente
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isConnectionError = 
+        errorMessage.toLowerCase().includes('connection') ||
+        errorMessage.toLowerCase().includes('network') ||
+        errorMessage.toLowerCase().includes('econnrefused') ||
+        errorMessage.toLowerCase().includes('timeout') ||
+        errorMessage.toLowerCase().includes('failed to connect') ||
+        errorMessage.toLowerCase().includes('connection refused');
+      
+      if (isConnectionError) {
+        // Erro de conexão: Ollama está offline - tratar silenciosamente
+        // Não logar console.error para não poluir o console
+        setIsDownloading(false);
+        setIsReady(false);
+        return;
+      }
+      
+      // Outros erros: manter log atual para debug
       console.error("Failed to setup auto-labeling model:", error);
       setIsDownloading(false);
     }

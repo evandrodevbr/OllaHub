@@ -53,14 +53,15 @@ export async function checkLocalInstallerExists(os: OS): Promise<boolean> {
  * Faz download do instalador (oficial ou fallback)
  * Retorna o caminho do arquivo baixado
  */
-export async function downloadInstaller(os: OS): Promise<string> {
+export async function downloadInstaller(os: OS, expectedSha256?: string): Promise<string> {
   const url = OLLAMA_DOWNLOAD_URLS[os];
   const filename = LOCAL_INSTALLER_FILES[os];
   
   try {
     const filePath = await invoke<string>('download_installer', { 
       url,
-      filename
+      filename,
+      expected_sha256: expectedSha256 || null
     });
     return filePath;
   } catch (error) {
@@ -87,9 +88,12 @@ export async function getDownloadedInstallerPath(os: OS): Promise<string | null>
 /**
  * Executa o instalador baixado
  */
-export async function runInstaller(filePath: string): Promise<void> {
+export async function runInstaller(filePath: string, expectedSha256?: string): Promise<void> {
   try {
-    await invoke('run_installer', { filePath });
+    await invoke('run_installer', { 
+      file_path: filePath,
+      expected_sha256: expectedSha256 || null
+    });
   } catch (error) {
     throw new Error(`Falha ao executar instalador: ${error}`);
   }

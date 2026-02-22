@@ -18,7 +18,11 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+<<<<<<< HEAD
+import { Message, ThinkingMessageMetadata } from '@/hooks/use-chat';
+=======
 import { Message } from '@/hooks/use-chat';
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
 import type { DeepResearchState } from '@/hooks/use-deep-research';
 import type { ScrapedContent } from '@/services/webSearch';
 
@@ -39,6 +43,18 @@ export interface DebugData {
       contextual: string[];
     };
     sources: ScrapedContent[];
+<<<<<<< HEAD
+    sitesResearched?: Array<{
+      url: string;
+      title: string;
+      status: string;
+      source: string;
+      duration?: number;
+      contentLength: number;
+      scrapedAt: number;
+    }>;
+=======
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
     logs: Array<{
       stage: string;
       timestamp: number;
@@ -53,6 +69,35 @@ export interface DebugData {
       title: string;
       content: string;
     }>;
+<<<<<<< HEAD
+    activeQueries?: Array<{
+      query: string;
+      source: string;
+      round?: number;
+      startedAt: number;
+    }>;
+    activeUrls?: Array<{
+      url: string;
+      title?: string;
+      status: string;
+      source?: string;
+      startedAt: number;
+      duration?: number;
+    }>;
+  };
+  deepResearchState?: DeepResearchState;
+  thinkingSteps?: ThinkingMessageMetadata[];
+  reasoning?: {
+    steps?: string[];
+    intermediateResults?: any[];
+  };
+  finalResponse: string;
+  rawResponse: string;
+  tokenUsage?: {
+    input: number;
+    output: number;
+    total: number;
+=======
   };
   deepResearchState?: DeepResearchState;
   finalResponse: string;
@@ -60,6 +105,7 @@ export interface DebugData {
   tokenUsage?: {
     input: number;
     output: number;
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
   };
 }
 

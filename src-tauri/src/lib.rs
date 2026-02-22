@@ -3,9 +3,14 @@ use std::io::{BufRead, BufReader, Write, Read};
 use std::time::{Duration, Instant};
 use futures_util::StreamExt;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+<<<<<<< HEAD
+use tokio::sync::Mutex as AsyncMutex;
+use tauri::async_runtime::JoinHandle as TauriJoinHandle;
+=======
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
 use tauri::{command, Window, Emitter, Manager, AppHandle, State, WebviewWindow};
 use sysinfo::System;
 use chrono::{DateTime, Utc};
@@ -13,6 +18,9 @@ use zip::write::{FileOptions, ZipWriter};
 use zip::CompressionMethod;
 
 mod web_scraper;
+mod scraper_logger;
+mod scraper_state;
+mod python_scraper;
 mod scheduler;
 mod ollama_client;
 mod task_executor;
@@ -22,25 +30,52 @@ mod system_monitor;
 mod intent_classifier;
 mod db;
 mod embeddings;
+<<<<<<< HEAD
+mod setup;
+mod setup_manager;
+mod content_store;
+mod crypto;
+mod models_dir;
+mod llama_cpp_state;
+mod local_models;
+mod huggingface_download;
+mod searxng_manager;
+mod searxng_search;
+mod search_orchestrator;
+mod event_emitter;
+mod domain_strategy;
+mod docker_requirements;
+mod docker_installer;
+mod docker_validator;
+mod docker_fix;
+=======
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
 
 use web_scraper::{
     ScrapedContent,
     SearchResultMetadata,
-    create_browser,
-    search_and_scrape,
     search_and_scrape_with_config,
     scrape_url,
     SearchConfig,
-    search_duckduckgo_metadata,
-    search_multi_engine_metadata,
-    SearchEngine,
-    smart_search,
     scrape_urls_bulk,
 };
-use headless_chrome::Browser;
+use search_orchestrator::search_with_waterfall;
+use searxng_manager::{
+    check_docker_available as check_docker_available_impl,
+    check_docker_running as check_docker_running_impl,
+    start_searxng as start_searxng_impl,
+    stop_searxng as stop_searxng_impl,
+    check_searxng_status as check_searxng_status_impl,
+    get_searxng_logs as get_searxng_logs_impl,
+};
 use scheduler::{SentinelTask, SchedulerService, SchedulerState, TaskAction};
+use scraper_state::ScraperState;
 use sources_config::{SourcesConfig, load_sources_config, save_sources_config};
+<<<<<<< HEAD
+use system_monitor::{SystemStats, SystemMonitorState, GpuInfo, GpuStats, HealthStatus};
+=======
 use system_monitor::{SystemStats, SystemMonitorState, GpuInfo, GpuStats, SystemHealth, HealthStatus};
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
 
 // CommandExt é importado localmente onde necessário
 
@@ -175,8 +210,6 @@ struct McpProcessHandle {
 // MCP Process Manager State
 type McpProcessMap = Arc<Mutex<HashMap<String, McpProcessHandle>>>;
 
-// Web Scraper Browser State (singleton para reutilização)
-type BrowserState = Arc<Mutex<Option<Arc<Browser>>>>;
 
 // File Lock Manager - previne corrupção de dados em escritas concorrentes
 type FileLockMap = Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>;
@@ -343,7 +376,12 @@ fn toggle_devtools(window: WebviewWindow) -> Result<(), String> {
     }
     #[cfg(not(debug_assertions))]
     {
+<<<<<<< HEAD
+        // Em release, não fazer nada - window não é usado mas necessário para a assinatura
+        let _ = window;
+=======
         // Em release, não fazer nada
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
     }
     Ok(())
 }
@@ -432,7 +470,11 @@ fn save_chat_session(
                 updated_at: session.updated_at,
             };
             
+<<<<<<< HEAD
+            if let Err(e) = db.create_session(&db_session) {
+=======
             if let Err(e) = db.save_session(&db_session) {
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
                 log::warn!("Failed to save session to SQLite (continuing with JSON only): {}", e);
             } else {
                 // Converter Message para ChatMessage e salvar no SQLite
@@ -457,11 +499,21 @@ fn save_chat_session(
                     }
                 }).collect();
                 
+<<<<<<< HEAD
+                // Salvar mensagens individualmente
+                for msg in &chat_messages {
+                    if let Err(e) = db.save_message(msg) {
+                        log::warn!("Failed to save message to SQLite: {}", e);
+                    }
+                }
+                log::debug!("Successfully saved {} messages to SQLite for session {}", chat_messages.len(), session.id);
+=======
                 if let Err(e) = db.save_messages_batch(&session.id, &chat_messages) {
                     log::warn!("Failed to save messages to SQLite (continuing with JSON only): {}", e);
                 } else {
                     log::debug!("Successfully saved {} messages to SQLite for session {}", chat_messages.len(), session.id);
                 }
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
             }
         }
         Err(e) => {
@@ -1068,7 +1120,10 @@ fn start_system_monitor(window: Window) {
     let window_clone = window.clone();
     std::thread::spawn(move || {
         let mut sys = System::new_all();
+<<<<<<< HEAD
+=======
         let mut last_health_status: Option<HealthStatus> = None;
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
         
         loop {
             sys.refresh_cpu_all();
@@ -1108,7 +1163,15 @@ fn start_system_monitor(window: Window) {
 /// Inicia monitoramento contínuo da saúde do sistema
 #[command]
 fn start_health_monitor(app_handle: AppHandle) -> Result<(), String> {
+<<<<<<< HEAD
+    // Obter o Arc do monitor state e cloná-lo antes de mover para o async
+    let monitor_state_arc = app_handle.try_state::<Arc<Mutex<SystemMonitorState>>>()
+        .ok_or_else(|| "SystemMonitorState not found".to_string())?
+        .inner()
+        .clone();
+=======
     let monitor_state = app_handle.state::<Arc<Mutex<SystemMonitorState>>>();
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
     let window = app_handle.get_webview_window("main")
         .ok_or_else(|| "Main window not found".to_string())?;
     
@@ -1120,7 +1183,11 @@ fn start_health_monitor(app_handle: AppHandle) -> Result<(), String> {
             tokio::time::sleep(Duration::from_secs(2)).await;
             
             let health = {
+<<<<<<< HEAD
+                let mut monitor = match monitor_state_arc.lock() {
+=======
                 let mut monitor = match monitor_state.lock() {
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
                     Ok(m) => m,
                     Err(_) => break,
                 };
@@ -1186,6 +1253,12 @@ fn list_local_models() -> Vec<LocalModel> {
     }
 }
 
+/// Lista modelos GGUF locais (não do Ollama)
+#[command]
+fn list_local_gguf_models(app_handle: AppHandle) -> Result<Vec<local_models::LocalGgufModel>, String> {
+    local_models::list_local_gguf_models(&app_handle)
+}
+
 #[command]
 async fn delete_model(name: String) -> Result<(), String> {
     let mut cmd = Command::new("ollama");
@@ -1208,8 +1281,13 @@ async fn delete_model(name: String) -> Result<(), String> {
     }
 }
 
+<<<<<<< HEAD
+// Função interna (sem #[command]) para uso em outros módulos
+pub fn check_if_model_installed(name: String) -> bool {
+=======
 #[command]
 fn check_if_model_installed(name: String) -> bool {
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
     let mut cmd = Command::new("ollama");
     cmd.arg("list");
     
@@ -1224,17 +1302,44 @@ fn check_if_model_installed(name: String) -> bool {
 
     match output {
         Ok(output) => {
+            // Verificar se o comando foi executado com sucesso
+            if !output.status.success() {
+                return false;
+            }
+            
             let stdout = String::from_utf8_lossy(&output.stdout);
-            stdout.contains(&name)
+            
+            // Fazer parsing correto: pular header e verificar primeira coluna (nome do modelo)
+            for line in stdout.lines().skip(1) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 1 {
+                    // A primeira coluna é o nome do modelo
+                    let model_name = parts[0];
+                    // Comparação exata (case-sensitive)
+                    if model_name == name {
+                        return true;
+                    }
+                }
+            }
+            false
         }
         Err(_) => false,
     }
 }
 
+// Wrapper com #[command] para exposição via Tauri
+#[command]
+fn check_if_model_installed_command(name: String) -> bool {
+    check_if_model_installed(name)
+}
+
+// Nota: A função check_if_model_installed acima (linha 1203) é interna e não tem #[command]
+// para evitar conflito com a macro. Apenas check_if_model_installed_command tem #[command].
+
 /// Instala um modelo GGUF a partir de um arquivo local
 #[command]
 async fn install_gguf_model(
-    app_handle: AppHandle,
+    _app_handle: AppHandle,
     file_path: String,
     model_name: Option<String>,
 ) -> Result<String, String> {
@@ -1513,7 +1618,153 @@ fn parse_ollama_progress(line: &str) -> DownloadProgress {
 }
 
 #[command]
-async fn pull_model(window: Window, name: String) -> Result<(), String> {
+async fn pull_model(window: Window, state: State<'_, DownloadState>, name: String) -> Result<(), String> {
+    // Abort any existing download task
+    if let Some(existing) = state.current_task.lock().await.take() {
+        existing.abort();
+    }
+
+    let window_clone = window.clone();
+    let name_clone = name.clone();
+    let handle = tauri::async_runtime::spawn(async move {
+        let _ = pull_model_impl_window(&window_clone, name_clone).await;
+        if let Some(app_handle) = window_clone.app_handle().try_state::<DownloadState>() {
+            let _ = app_handle.current_task.lock().await.take();
+        }
+    });
+
+    *state.current_task.lock().await = Some(handle);
+    Ok(())
+}
+
+/// Implementação interna que aceita Window
+async fn pull_model_impl_window(window: &Window, name: String) -> Result<(), String> {
+    let client = reqwest::Client::new();
+    
+    // Fazer requisição POST para API do Ollama com streaming
+    let response = client
+        .post("http://localhost:11434/api/pull")
+        .json(&serde_json::json!({ "name": name, "stream": true }))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to connect to Ollama API: {}", e))?;
+    
+    if !response.status().is_success() {
+        return Err(format!("Ollama API returned error: {}", response.status()));
+    }
+    
+    let mut stream = response.bytes_stream();
+    let mut buffer = String::new();
+    let mut last_completed: u64 = 0;
+    let mut last_time = Instant::now();
+    
+    // Processar stream NDJSON (Newline Delimited JSON)
+    while let Some(chunk_result) = stream.next().await {
+        let chunk = chunk_result.map_err(|e| format!("Stream error: {}", e))?;
+        let chunk_str = String::from_utf8_lossy(&chunk);
+        buffer.push_str(&chunk_str);
+        
+        // Processar linhas completas (separadas por \n)
+        while let Some(pos) = buffer.find('\n') {
+            let line = buffer[..pos].trim().to_string();
+            buffer = buffer[pos + 1..].to_string();
+            
+            if line.is_empty() {
+                continue;
+            }
+            
+            // Tentar deserializar como PullProgress
+            match serde_json::from_str::<PullProgress>(&line) {
+                Ok(json_progress) => {
+                    // Calcular porcentagem se tiver total/completed
+                    let percent = if json_progress.total > 0 {
+                        Some(((json_progress.completed as f64 / json_progress.total as f64) * 100.0) as u8)
+                    } else {
+                        None
+                    };
+                    
+                    // Calcular velocidade
+                    let now = Instant::now();
+                    let delta_time = now.duration_since(last_time).as_secs_f64();
+                    let speed = if delta_time > 0.0 && json_progress.completed > last_completed {
+                        let delta_bytes = json_progress.completed - last_completed;
+                        let bytes_per_sec = delta_bytes as f64 / delta_time;
+                        Some(format_speed(bytes_per_sec))
+                    } else {
+                        None
+                    };
+                    
+                    last_completed = json_progress.completed;
+                    last_time = now;
+                    
+                    // Criar DownloadProgress estruturado
+                    let progress = DownloadProgress {
+                        status: json_progress.status.clone(),
+                        percent,
+                        downloaded: format_bytes(json_progress.completed),
+                        total: format_bytes(json_progress.total),
+                        speed,
+                        raw: line.clone(),
+                    };
+                    
+                    // Emitir evento para frontend
+                    if let Ok(json) = serde_json::to_string(&progress) {
+                        window.emit("download-progress", json).unwrap_or(());
+                    }
+                    
+                    // Se status for "success", finalizar
+                    if json_progress.status == "success" {
+                        let success_progress = DownloadProgress {
+                            status: "success".to_string(),
+                            percent: Some(100),
+                            downloaded: format_bytes(json_progress.completed),
+                            total: format_bytes(json_progress.total),
+                            speed: None,
+                            raw: "success".to_string(),
+                        };
+                        if let Ok(json) = serde_json::to_string(&success_progress) {
+                            window.emit("download-progress", json).unwrap_or(());
+                        }
+                        return Ok(());
+                    }
+                }
+                Err(_) => {
+                    // Se não conseguir parsear como JSON, tratar como linha raw (fallback)
+                    let progress = DownloadProgress {
+                        status: "downloading".to_string(),
+                        percent: None,
+                        downloaded: None,
+                        total: None,
+                        speed: None,
+                        raw: line,
+                    };
+                    if let Ok(json) = serde_json::to_string(&progress) {
+                        window.emit("download-progress", json).unwrap_or(());
+                    }
+                }
+            }
+        }
+    }
+    
+    // Se chegou aqui, o stream terminou sem "success" explícito
+    // Emitir sucesso final
+    let success_progress = DownloadProgress {
+        status: "success".to_string(),
+        percent: Some(100),
+        downloaded: format_bytes(last_completed),
+        total: None,
+        speed: None,
+        raw: "success".to_string(),
+    };
+    if let Ok(json) = serde_json::to_string(&success_progress) {
+        window.emit("download-progress", json).unwrap_or(());
+    }
+    
+    Ok(())
+}
+
+/// Implementação interna que aceita WebviewWindow
+async fn pull_model_impl_webview(window: &WebviewWindow, name: String) -> Result<(), String> {
     let client = reqwest::Client::new();
     
     // Fazer requisição POST para API do Ollama com streaming
@@ -1655,8 +1906,13 @@ fn format_speed(bytes_per_sec: f64) -> String {
     }
 }
 
+<<<<<<< HEAD
+// Função interna (sem #[command]) para uso em outros módulos
+pub fn check_ollama_installed() -> bool {
+=======
 #[command]
 fn check_ollama_installed() -> bool {
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
     let mut cmd = Command::new("ollama");
     cmd.arg("--version");
     
@@ -1673,11 +1929,39 @@ fn check_ollama_installed() -> bool {
     }
 }
 
+// Wrapper com #[command] para exposição via Tauri
+#[command]
+fn check_ollama_installed_command() -> bool {
+    check_ollama_installed()
+}
+
+/// Comando Tauri para verificação robusta do Ollama
+#[command]
+async fn verify_ollama_integrity_command() -> Result<bool, String> {
+    verify_ollama_integrity().await
+}
+
+// Nota: A função check_ollama_installed acima (linha 1787) é interna e não tem #[command]
+// para evitar conflito com a macro. Apenas check_ollama_installed_command tem #[command].
+
 #[command]
 async fn check_ollama_running() -> bool {
     match reqwest::get("http://localhost:11434").await {
         Ok(resp) => resp.status().is_success(),
         Err(_) => false,
+    }
+}
+
+/// Heartbeat rápido no endpoint raiz com timeout curto
+#[command]
+async fn check_ollama_heartbeat() -> Result<bool, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(1))
+        .build()
+        .map_err(|e| format!("Erro ao criar cliente HTTP: {}", e))?;
+    match client.get("http://127.0.0.1:11434/").send().await {
+        Ok(resp) => Ok(resp.status().is_success()),
+        Err(_) => Ok(false),
     }
 }
 
@@ -1689,9 +1973,122 @@ struct OllamaCheckResult {
     status: String, // "not_installed" | "installed_stopped" | "running"
 }
 
+<<<<<<< HEAD
+/// Verificação robusta multi-camada do Ollama
+/// Prioriza resposta HTTP como fonte da verdade
+/// Retorna Ok(true) se funcional, Ok(false) se não encontrado/não funcional, Err(msg) em caso de erro
+pub async fn verify_ollama_integrity() -> Result<bool, String> {
+    // PRIORIDADE 1: Verificar HTTP endpoint (fonte da verdade)
+    // Se HTTP responder 200 OK, retornar true imediatamente
+    {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(1))
+            .build()
+            .map_err(|e| format!("Erro ao criar cliente HTTP: {}", e))?;
+        
+        match client.get("http://localhost:11434/api/version").send().await {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    log::debug!("Ollama HTTP endpoint respondendo - integridade confirmada");
+                    return Ok(true);
+                } else {
+                    log::debug!("Ollama HTTP endpoint retornou status: {}", resp.status());
+                }
+            }
+            Err(e) => {
+                log::debug!("Ollama HTTP endpoint não acessível: {}", e);
+            }
+        }
+    }
+    
+    // Se HTTP falhou, verificar se processo está rodando (serviço pode estar iniciando)
+    // PRIORIDADE 2: Verificar se processo Ollama está rodando
+    let process_running = {
+        #[cfg(target_os = "windows")]
+        {
+            let mut cmd = Command::new("tasklist");
+            cmd.arg("/FI").arg("IMAGENAME eq ollama.exe");
+            
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            
+            match cmd.output() {
+                Ok(output) => {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    // tasklist retorna o nome do processo se estiver rodando
+                    stdout.contains("ollama.exe")
+                }
+                Err(_) => false,
+            }
+        }
+        
+        #[cfg(target_os = "linux")]
+        {
+            let mut cmd = Command::new("pgrep");
+            cmd.arg("-f").arg("ollama");
+            cmd.stdout(Stdio::null());
+            cmd.stderr(Stdio::null());
+            
+            match cmd.output() {
+                Ok(output) => output.status.success(),
+                Err(_) => {
+                    // Fallback: usar ps
+                    let mut ps_cmd = Command::new("ps");
+                    ps_cmd.arg("aux");
+                    ps_cmd.stdout(Stdio::piped());
+                    ps_cmd.stderr(Stdio::null());
+                    
+                    match ps_cmd.output() {
+                        Ok(ps_output) => {
+                            let stdout = String::from_utf8_lossy(&ps_output.stdout);
+                            stdout.contains("ollama")
+                        }
+                        Err(_) => false,
+                    }
+                }
+            }
+        }
+        
+        #[cfg(target_os = "macos")]
+        {
+            let mut cmd = Command::new("pgrep");
+            cmd.arg("-f").arg("ollama");
+            cmd.stdout(Stdio::null());
+            cmd.stderr(Stdio::null());
+            
+            match cmd.output() {
+                Ok(output) => output.status.success(),
+                Err(_) => false,
+            }
+        }
+        
+        #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+        {
+            false
+        }
+    };
+    
+    // Se processo está rodando mas HTTP falhou, considerar como funcional (serviço iniciando)
+    if process_running {
+        log::debug!("Processo Ollama detectado rodando, mas HTTP ainda não responde (serviço iniciando)");
+        return Ok(true);
+    }
+    
+    // Se HTTP falhou e processo não está rodando, retornar false
+    // NÃO verificar apenas existência de arquivo - arquivo pode existir sem serviço funcional
+    log::debug!("Ollama não está funcional: HTTP não responde e processo não está rodando");
+    Ok(false)
+}
+
+/// Faz polling do serviço Ollama até estar disponível
+/// Retorna Ok(()) quando o serviço responder 200 OK, ou erro após timeout
+pub async fn poll_ollama_ready(timeout_secs: u64) -> Result<(), String> {
+=======
 /// Faz polling do serviço Ollama até estar disponível
 /// Retorna Ok(()) quando o serviço responder 200 OK, ou erro após timeout
 async fn poll_ollama_ready(timeout_secs: u64) -> Result<(), String> {
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
     let start = Instant::now();
     let timeout = Duration::from_secs(timeout_secs);
     
@@ -1788,7 +2185,108 @@ async fn check_ollama_full() -> Result<OllamaCheckResult, String> {
     })
 }
 
+/// Opções para geração de texto (espelha GenerationOptions do ollama_client)
+#[derive(serde::Deserialize)]
+struct GenerationOptionsInput {
+    temperature: Option<f64>,
+    num_predict: Option<u32>,
+    format: Option<String>,
+}
+
+/// Gera completion usando /api/generate (não streaming)
 #[command]
+<<<<<<< HEAD
+async fn generate_completion(
+    model: String,
+    prompt: String,
+    options: Option<GenerationOptionsInput>,
+) -> Result<String, String> {
+    use ollama_client::{OllamaClient, GenerationOptions};
+    
+    let client = OllamaClient::new(None);
+    
+    let gen_options = options.map(|opts| GenerationOptions {
+        temperature: opts.temperature,
+        num_predict: opts.num_predict,
+        format: opts.format,
+    });
+    log::info!("[LLM_DEBUG] generate_completion wrapper: model={} prompt_len={} format={:?}", model, prompt.len(), gen_options.as_ref().and_then(|o| o.format.as_deref()));
+    let result = client.generate_completion(&model, &prompt, gen_options).await?;
+    log::info!("[LLM_DEBUG] generate_completion wrapper: returned {} chars", result.len());
+    Ok(result)
+}
+
+/// Gera chat completion usando /api/chat (não streaming)
+#[command]
+async fn generate_chat_completion(
+    model: String,
+    messages: Vec<Message>,
+    options: Option<GenerationOptionsInput>,
+) -> Result<String, String> {
+    use ollama_client::{OllamaClient, OllamaMessage, GenerationOptions};
+    
+    let client = OllamaClient::new(None);
+    
+    // Converter Message para OllamaMessage
+    let ollama_messages: Vec<OllamaMessage> = messages
+        .into_iter()
+        .map(|msg| OllamaMessage {
+            role: msg.role,
+            content: msg.content,
+        })
+        .collect();
+    
+    let gen_options = options.map(|opts| GenerationOptions {
+        temperature: opts.temperature,
+        num_predict: opts.num_predict,
+        format: opts.format,
+    });
+    
+    client.generate_chat_completion(&model, ollama_messages, gen_options).await
+}
+
+/// Obtém informações de um modelo usando /api/show
+#[command]
+async fn get_ollama_model_info(model_name: String) -> Result<serde_json::Value, String> {
+    use ollama_client::OllamaClient;
+    
+    let client = OllamaClient::new(None);
+    client.get_model_info(&model_name).await
+}
+
+/// Lista modelos disponíveis usando /api/tags
+#[command]
+async fn get_ollama_tags() -> Result<Vec<serde_json::Value>, String> {
+    use ollama_client::OllamaClient;
+    
+    let client = OllamaClient::new(None);
+    let models = client.get_tags().await?;
+    
+    // Converter para JSON genérico para compatibilidade com frontend
+    let result: Vec<serde_json::Value> = models
+        .into_iter()
+        .map(|model| {
+            let mut obj = serde_json::Map::new();
+            obj.insert("name".to_string(), serde_json::Value::String(model.name));
+            if let Some(size) = model.size {
+                obj.insert("size".to_string(), serde_json::Value::Number(size.into()));
+            }
+            if let Some(modified_at) = model.modified_at {
+                obj.insert("modified_at".to_string(), serde_json::Value::String(modified_at));
+            }
+            if let Some(digest) = model.digest {
+                obj.insert("digest".to_string(), serde_json::Value::String(digest));
+            }
+            serde_json::Value::Object(obj)
+        })
+        .collect();
+    
+    Ok(result)
+}
+
+#[command]
+=======
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
 fn start_ollama_server(ollama_process: State<'_, OllamaProcessState>) -> Result<(), String> {
     // Verificar se já há processo rastreado
     {
@@ -2392,6 +2890,8 @@ fn check_mcp_server_available(
 
 // ========== Web Scraper Commands ==========
 
+<<<<<<< HEAD
+=======
 /// Verifica se pode criar browser baseado no estado do sistema
 fn can_create_browser(monitor_state: &State<'_, Arc<Mutex<SystemMonitorState>>>) -> Result<bool, String> {
     let monitor = monitor_state.lock()
@@ -2440,21 +2940,77 @@ pub fn get_or_create_browser(
     *browser_opt = Some(browser.clone());
     Ok(browser)
 }
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
 
-/// Busca no DuckDuckGo e extrai conteúdo das URLs encontradas
+/// Busca via SearXNG e extrai conteúdo das URLs encontradas usando Nodriver (fonte primária)
 #[command]
 async fn search_and_extract_content(
+    app_handle: AppHandle,
     query: String,
     limit: Option<usize>,
     excluded_domains: Option<Vec<String>>,
     search_config: Option<SearchConfig>,
+<<<<<<< HEAD
+=======
     state: State<'_, BrowserState>,
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
     monitor_state: State<'_, Arc<Mutex<SystemMonitorState>>>,
 ) -> Result<Vec<ScrapedContent>, String> {
+    log::info!("[Scraper_DEBUG] Função de scraping iniciada para query: {}", query);
     if query.trim().is_empty() {
         return Err("Query não pode estar vazia".to_string());
     }
     
+<<<<<<< HEAD
+    // Obter ScraperState
+    let scraper_state = app_handle.try_state::<ScraperState>()
+        .map(|s| s.inner().clone());
+
+    if let Some(ref s) = scraper_state {
+        s.reset();
+    }
+    
+    // Verificar estado do sistema e ajustar configuração
+    let health = {
+        let mut monitor = monitor_state.lock()
+            .map_err(|e| format!("Failed to lock monitor state: {}", e))?;
+        monitor.get_health()
+    };
+    
+    // Ajustar configuração baseado no estado do sistema
+    let mut config = search_config.unwrap_or_else(|| SearchConfig {
+        max_concurrent_tabs: 5,
+        total_sources_limit: limit.unwrap_or(3),
+        categories: Vec::new(),
+        user_custom_sites: Vec::new(),
+        excluded_domains: excluded_domains.unwrap_or_default(),
+        searxng: web_scraper::SearxngConfig::default(),
+    });
+    
+    // Aplicar throttling baseado no estado do sistema
+    match health.status {
+        HealthStatus::Critical => {
+            // Bloquear scraping completamente
+            return Err("Sistema sobrecarregado: recursos limitados. Tente novamente em alguns instantes.".to_string());
+        }
+        HealthStatus::Warning => {
+            // Limitar concorrência drasticamente
+            config.max_concurrent_tabs = 1;
+            log::info!("Sistema em warning, limitando concorrência do scraper para {}", config.max_concurrent_tabs);
+        }
+        HealthStatus::Healthy => {
+            // Configuração normal
+        }
+    }
+    
+    log::info!("[Scraper_DEBUG] Chamando search_and_scrape_with_config (limit: {}, max_tabs: {}, excluded_domains: {})",
+        config.total_sources_limit,
+        config.max_concurrent_tabs,
+        config.excluded_domains.len()
+    );
+    
+    search_and_scrape_with_config(&query, &config, scraper_state)
+=======
     // Verificar estado do sistema e ajustar configuração
     let health = {
         let mut monitor = monitor_state.lock()
@@ -2491,6 +3047,7 @@ async fn search_and_extract_content(
     
     // Usar a função com configuração ajustada
     search_and_scrape_with_config(&query, &config, browser)
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
         .await
         .map_err(|e| format!("Erro ao buscar e extrair conteúdo: {}", e))
 }
@@ -2498,8 +3055,12 @@ async fn search_and_extract_content(
 /// Extrai conteúdo de uma URL específica
 #[command]
 async fn extract_url_content(
+    app_handle: AppHandle,
     url: String,
+<<<<<<< HEAD
+=======
     state: State<'_, BrowserState>,
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
     monitor_state: State<'_, Arc<Mutex<SystemMonitorState>>>,
 ) -> Result<ScrapedContent, String> {
     if url.trim().is_empty() {
@@ -2517,25 +3078,77 @@ async fn extract_url_content(
             .map_err(|e| format!("Failed to lock monitor state: {}", e))?;
         monitor.get_health()
     };
+<<<<<<< HEAD
+=======
     
     if health.status == HealthStatus::Critical {
         return Err("Sistema sobrecarregado: recursos limitados. Tente novamente em alguns instantes.".to_string());
     }
     
     let browser = get_or_create_browser(state, Some(monitor_state))?;
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
     
-    scrape_url(&url, browser)
-        .await
-        .map_err(|e| format!("Erro ao extrair conteúdo da URL: {}", e))
+    if health.status == HealthStatus::Critical {
+        return Err("Sistema sobrecarregado: recursos limitados. Tente novamente em alguns instantes.".to_string());
+    }
+    
+    use event_emitter::{ScrapingUrlEvent, emit_scraping_event};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    
+    // Emitir evento de início
+    let start_timestamp = SystemTime::now().duration_since(UNIX_EPOCH)
+        .unwrap_or_default().as_secs() * 1000;
+    emit_scraping_event(&app_handle, &ScrapingUrlEvent {
+        url: url.clone(),
+        title: None,
+        status: "started".to_string(),
+        duration_ms: None,
+        source: None,
+        timestamp: start_timestamp,
+    });
+    
+    let start_time = std::time::Instant::now();
+    let result = scrape_url(&url).await;
+    let duration = start_time.elapsed().as_millis() as u64;
+    
+    // Emitir evento de conclusão
+    let end_timestamp = SystemTime::now().duration_since(UNIX_EPOCH)
+        .unwrap_or_default().as_secs() * 1000;
+    
+    match &result {
+        Ok(content) => {
+            emit_scraping_event(&app_handle, &ScrapingUrlEvent {
+                url: url.clone(),
+                title: Some(content.title.clone()),
+                status: if content.cached { "cached".to_string() } else { "completed".to_string() },
+                duration_ms: Some(duration),
+                source: Some(if content.cached { "cached".to_string() } else { "playwright".to_string() }),
+                timestamp: end_timestamp,
+            });
+        }
+        Err(_) => {
+            emit_scraping_event(&app_handle, &ScrapingUrlEvent {
+                url: url.clone(),
+                title: None,
+                status: "failed".to_string(),
+                duration_ms: Some(duration),
+                source: None,
+                timestamp: end_timestamp,
+            });
+        }
+    }
+    
+    result.map_err(|e| format!("Erro ao extrair conteúdo da URL: {}", e))
 }
 
-/// Busca metadados leves (título/URL/snippet) sem abrir páginas
+/// Busca metadados leves (título/URL/snippet) via SearXNG
 #[command]
 async fn search_web_metadata(
+    _app_handle: AppHandle,
     query: String,
     limit: Option<usize>,
     search_config: Option<SearchConfig>,
-    engine_order: Option<Vec<String>>,
+    _engine_order: Option<Vec<String>>, // Mantido para compatibilidade, mas não usado
 ) -> Result<Vec<SearchResultMetadata>, String> {
     if query.trim().is_empty() {
         return Err("Query não pode estar vazia".to_string());
@@ -2543,90 +3156,114 @@ async fn search_web_metadata(
 
     let lim = limit.unwrap_or(5);
 
-    // Converter engine_order (strings) para Vec<SearchEngine>
-    let engines: Vec<SearchEngine> = if let Some(order) = engine_order {
-        order.iter()
-            .filter_map(|s| SearchEngine::from_str(s))
-            .collect()
-    } else {
-        // Ordem padrão: Google primeiro, depois outros
-        vec![
-            SearchEngine::Google,
-            SearchEngine::Bing,
-            SearchEngine::Yahoo,
-            SearchEngine::DuckDuckGo,
-            SearchEngine::Startpage,
-        ]
-    };
-
-    // Se não há engines configuradas, usar DuckDuckGo como fallback
-    if engines.is_empty() {
-        log::warn!("No valid engines in order, using DuckDuckGo as fallback");
-        return search_duckduckgo_metadata(&query, lim)
-            .await
-            .map_err(|e| format!("Erro ao buscar metadados: {}", e));
-    }
-
-    // Usar multi-engine search
-    let min_results = 1; // Mínimo de 1 resultado para considerar sucesso
-    match search_multi_engine_metadata(&query, lim, &engines, min_results).await {
-        Ok(results) => {
-            if results.is_empty() && search_config.is_some() {
-                // Fallback para smart_search se multi-engine retornou vazio
-                log::info!("Multi-engine returned empty, trying smart_search fallback");
-                if let Some(config) = search_config {
-                    match smart_search(&query, &config).await {
-                        Ok(mut urls) => {
-                            urls.truncate(lim);
-                            let metas = urls
-                                .into_iter()
-                                .map(|u| SearchResultMetadata { title: u.clone(), url: u, snippet: String::new() })
-                                .collect::<Vec<_>>();
-                            Ok(metas)
-                        }
-                        Err(e) => Err(format!("Erro ao executar smart_search: {}", e)),
-                    }
-                } else {
-                    Ok(results)
+    // Usar SearXNG se config fornecido e habilitado
+    if let Some(config) = &search_config {
+        if config.searxng.enabled {
+            match search_with_waterfall(&query, lim, config, Some(&_app_handle)).await {
+                Ok(metadata) => {
+                    log::info!("[SearchMetadata] SearXNG returned {} results", metadata.len());
+                    return Ok(metadata);
                 }
-            } else {
-                Ok(results)
+                Err(e) => {
+                    log::error!("[SearchMetadata] SearXNG failed: {}", e);
+                    return Err(format!("SearXNG search failed: {}", e));
+                }
             }
+        } else {
+            return Err("SearXNG não está habilitado. Configure SearXNG nas configurações.".to_string());
         }
-        Err(e) => {
-            // Se multi-engine falhou completamente, tentar DuckDuckGo como último recurso
-            log::warn!("Multi-engine search failed: {}, trying DuckDuckGo fallback", e);
-            search_duckduckgo_metadata(&query, lim)
-                .await
-                .map_err(|e| format!("Erro ao buscar metadados: {}", e))
-        }
+    } else {
+        return Err("SearchConfig não fornecido. SearXNG é obrigatório.".to_string());
     }
 }
 
 /// Faz scraping em lote de URLs fornecidas
 #[command]
 async fn scrape_urls(
+    app_handle: AppHandle,
     urls: Vec<String>,
-    state: State<'_, BrowserState>,
 ) -> Result<Vec<ScrapedContent>, String> {
     if urls.is_empty() {
         return Ok(Vec::new());
     }
 
+<<<<<<< HEAD
+    use event_emitter::{ScrapingUrlEvent, emit_scraping_event};
+    use std::time::{SystemTime, UNIX_EPOCH};
+=======
     let browser = get_or_create_browser(state, None)?;
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
 
-    scrape_urls_bulk(urls, browser)
+    // Emitir eventos de início para cada URL
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)
+        .unwrap_or_default().as_secs() * 1000;
+    
+    for url in &urls {
+        emit_scraping_event(&app_handle, &ScrapingUrlEvent {
+            url: url.clone(),
+            title: None,
+            status: "started".to_string(),
+            duration_ms: None,
+            source: None,
+            timestamp,
+        });
+    }
+
+    let scraper_state = app_handle.try_state::<ScraperState>()
+        .ok_or_else(|| "ScraperState not found".to_string())?
+        .inner()
+        .clone();
+
+    // Reset cancellation state before starting
+    scraper_state.reset();
+
+    let results = scrape_urls_bulk(urls.clone(), Some(scraper_state))
         .await
-        .map_err(|e| format!("Erro ao extrair conteúdo das URLs: {}", e))
+        .map_err(|e| format!("Erro ao extrair conteúdo das URLs: {}", e))?;
+
+    // Emitir eventos de conclusão
+    let completed_timestamp = SystemTime::now().duration_since(UNIX_EPOCH)
+        .unwrap_or_default().as_secs() * 1000;
+    
+    let results_map: std::collections::HashMap<String, &ScrapedContent> = results
+        .iter()
+        .map(|r| (r.url.clone(), r))
+        .collect();
+    
+    for url in &urls {
+        if let Some(result) = results_map.get(url) {
+            emit_scraping_event(&app_handle, &ScrapingUrlEvent {
+                url: url.clone(),
+                title: Some(result.title.clone()),
+                status: "completed".to_string(),
+                duration_ms: None, // TODO: calcular duração real
+                source: Some(if result.cached { "cached".to_string() } else { "playwright".to_string() }),
+                timestamp: completed_timestamp,
+            });
+        } else {
+            emit_scraping_event(&app_handle, &ScrapingUrlEvent {
+                url: url.clone(),
+                title: None,
+                status: "failed".to_string(),
+                duration_ms: None,
+                source: None,
+                timestamp: completed_timestamp,
+            });
+        }
+    }
+
+    Ok(results)
 }
 
-/// Reinicia o browser (útil se houver problemas)
+/// Cancela operação de scraping em andamento
 #[command]
-fn reset_browser(state: State<'_, BrowserState>) -> Result<(), String> {
-    let mut browser_opt = state.lock().map_err(|e| format!("Erro ao acessar estado do browser: {}", e))?;
-    // Limpar referência - o browser será dropado automaticamente
-    *browser_opt = None;
-    log::info!("Browser resetado - processo será encerrado quando não houver mais referências");
+fn cancel_scraping(app_handle: AppHandle) -> Result<(), String> {
+    if let Some(scraper_state) = app_handle.try_state::<ScraperState>() {
+        let state = scraper_state.inner();
+        state.cancel();
+    } else {
+        log::warn!("[Scraper_DEBUG] cancel_scraping called but ScraperState not found; treating as no-op");
+    }
     Ok(())
 }
 
@@ -2669,6 +3306,10 @@ fn cleanup_all_child_processes(
         }
     }
     
+<<<<<<< HEAD
+    // 3. Limpar processos Python scraper (se necessário)
+    // O PythonScraper gerencia seu próprio processo, não precisa de cleanup manual aqui
+=======
     // 3. Limpar processos Chrome headless
     match force_kill_browser() {
         Ok(count) => {
@@ -2680,122 +3321,24 @@ fn cleanup_all_child_processes(
             log::warn!("Erro ao encerrar processos Chrome headless: {}", e);
         }
     }
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
     
     log::info!("Cleanup de processos filhos concluído");
     Ok(())
 }
 
+<<<<<<< HEAD
+/// Força o encerramento de processos Python scraper (se necessário)
+/// Mantido para compatibilidade, mas não é mais necessário com PythonScraper
+=======
 /// Força o encerramento apenas de processos Chrome/Chromium headless criados pelo app
 /// Seguro: não mata o navegador pessoal do usuário
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
 #[command]
 fn force_kill_browser() -> Result<u32, String> {
-    let mut system = System::new_all();
-    system.refresh_all();
-    
-    let mut killed_count = 0;
-    let process_names = vec!["chrome", "chromium", "chromedriver", "headless_shell"];
-    
-    for (pid, process) in system.processes() {
-        let name = process.name().to_string_lossy().to_lowercase();
-        
-        // Verifica se o nome do processo corresponde
-        if !process_names.iter().any(|&pn| name.contains(pn)) {
-            continue;
-        }
-        
-        // SAFE KILL: Estratégia conservadora para identificar processos headless
-        // No Windows, tentamos usar wmic para obter a linha de comando completa
-        #[cfg(target_os = "windows")]
-        let is_headless = {
-            use std::process::Command;
-            // Tenta obter a linha de comando do processo via wmic
-            let cmd_output = Command::new("wmic")
-                .args(&["process", "where", &format!("ProcessId={}", pid), "get", "CommandLine", "/format:list"])
-                .output();
-            
-            if let Ok(output) = cmd_output {
-                if let Ok(cmd_str) = String::from_utf8(output.stdout) {
-                    let cmd_lower = cmd_str.to_lowercase();
-                    // Só mata se tiver flags muito específicas de headless
-                    cmd_lower.contains("--headless") 
-                        || cmd_lower.contains("--remote-debugging-port")
-                        || (cmd_lower.contains("--disable-gpu") && cmd_lower.contains("--no-sandbox"))
-                } else {
-                    false // Se não conseguir ler, não mata (seguro)
-                }
-            } else {
-                // Se wmic falhar, usa heurística conservadora: só mata se o nome for muito específico
-                name.contains("headless_shell") || name.contains("chromedriver")
-            }
-        };
-        
-        #[cfg(not(target_os = "windows"))]
-        let is_headless = {
-            // No Linux/Mac, tenta ler /proc/PID/cmdline
-            use std::fs;
-            if let Ok(cmdline) = fs::read_to_string(format!("/proc/{}/cmdline", pid)) {
-                let cmd_lower = cmdline.to_lowercase();
-                cmd_lower.contains("--headless") 
-                    || cmd_lower.contains("--remote-debugging-port")
-                    || (cmd_lower.contains("--disable-gpu") && cmd_lower.contains("--no-sandbox"))
-            } else {
-                // Se não conseguir ler, usa heurística conservadora
-                name.contains("headless_shell") || name.contains("chromedriver")
-            }
-        };
-        
-        if !is_headless {
-            log::debug!("Ignorando processo Chrome não-headless: PID {} ({})", pid, name);
-            continue;
-        }
-        
-        // Processo identificado como headless - pode matar com segurança
-            #[cfg(target_os = "windows")]
-            {
-                use std::process::Command;
-                match Command::new("taskkill")
-                    .args(&["/F", "/PID", &pid.to_string()])
-                    .output()
-                {
-                    Ok(output) => {
-                        if output.status.success() {
-                            killed_count += 1;
-                        log::info!("Processo Chrome headless encerrado: PID {} ({})", pid, name);
-                        }
-                    }
-                    Err(e) => {
-                        log::warn!("Erro ao encerrar processo {}: {}", pid, e);
-                    }
-                }
-            }
-            
-            #[cfg(not(target_os = "windows"))]
-            {
-                use std::process::Command;
-                match Command::new("kill")
-                    .args(&["-9", &pid.to_string()])
-                    .output()
-                {
-                    Ok(output) => {
-                        if output.status.success() {
-                            killed_count += 1;
-                        log::info!("Processo Chrome headless encerrado: PID {} ({})", pid, name);
-                        }
-                    }
-                    Err(e) => {
-                        log::warn!("Erro ao encerrar processo {}: {}", pid, e);
-                }
-            }
-        }
-    }
-    
-    if killed_count > 0 {
-        log::info!("Total de {} processos Chrome headless encerrados (seguro)", killed_count);
-    } else {
-        log::info!("Nenhum processo Chrome headless encontrado para encerrar");
-    }
-    
-    Ok(killed_count)
+    // PythonScraper gerencia seu próprio processo, não precisa de kill manual
+    log::info!("force_kill_browser chamado, mas não é mais necessário com PythonScraper");
+    Ok(0)
 }
 
 // ========== Storage Management Commands ==========
@@ -2945,7 +3488,7 @@ fn get_app_data_dir(app_handle: AppHandle) -> Result<String, String> {
 
 /// Salva um arquivo temporário e retorna o caminho
 #[command]
-fn save_temp_file(app_handle: AppHandle, data: Vec<u8>, extension: String) -> Result<String, String> {
+fn save_temp_file(_app_handle: AppHandle, data: Vec<u8>, extension: String) -> Result<String, String> {
     use std::time::{SystemTime, UNIX_EPOCH};
     
     // Obter diretório temporário
@@ -3052,6 +3595,32 @@ fn get_local_installer_path(filename: String, app_handle: AppHandle) -> Result<O
     Ok(None)
 }
 
+/// Calcula o hash SHA256 de um arquivo
+fn calculate_sha256(file_path: &Path) -> Result<String, String> {
+    use sha2::{Sha256, Digest};
+    use std::io::Read;
+    
+    let mut file = fs::File::open(file_path)
+        .map_err(|e| format!("Failed to open file for hash calculation: {}", e))?;
+    
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 8192]; // Buffer de 8KB para leitura em chunks
+    
+    loop {
+        let bytes_read = file.read(&mut buffer)
+            .map_err(|e| format!("Failed to read file for hash: {}", e))?;
+        
+        if bytes_read == 0 {
+            break;
+        }
+        
+        hasher.update(&buffer[..bytes_read]);
+    }
+    
+    let hash = hasher.finalize();
+    Ok(format!("{:x}", hash))
+}
+
 /// Faz download do instalador da URL oficial ou usa fallback local
 #[command]
 async fn download_installer(
@@ -3059,6 +3628,7 @@ async fn download_installer(
     filename: String,
     window: Window,
     app_handle: AppHandle,
+    expected_sha256: Option<String>,
 ) -> Result<String, String> {
     use std::io::Write;
     use futures_util::StreamExt;
@@ -3126,6 +3696,12 @@ async fn download_installer(
     let mut downloaded: u64 = 0;
     let mut stream = response.bytes_stream();
     
+    // Variáveis para cálculo de velocidade e ETA
+    let start_time = Instant::now();
+    let mut last_update_time = start_time;
+    let mut last_downloaded: u64 = 0;
+    let mut speed_bytes_per_sec: f64 = 0.0;
+    
     while let Some(item) = stream.next().await {
         let chunk = item.map_err(|e| format!("Failed to read chunk: {}", e))?;
         file.write_all(&chunk)
@@ -3133,23 +3709,81 @@ async fn download_installer(
         
         downloaded += chunk.len() as u64;
         
-        // Emitir progresso
+        // Calcular velocidade a cada segundo (média móvel)
+        let now = Instant::now();
+        let elapsed = now.duration_since(last_update_time);
+        
+        if elapsed.as_secs() >= 1 || downloaded == total_size {
+            let bytes_delta = downloaded - last_downloaded;
+            let time_delta = elapsed.as_secs_f64();
+            
+            if time_delta > 0.0 {
+                speed_bytes_per_sec = bytes_delta as f64 / time_delta;
+            }
+            
+            last_update_time = now;
+            last_downloaded = downloaded;
+        }
+        
+        // Calcular progresso e ETA
         let progress = if total_size > 0 {
             (downloaded * 100) / total_size
         } else {
             0
         };
         
+        let speed_mb_per_sec = speed_bytes_per_sec / (1024.0 * 1024.0);
+        let eta_seconds = if speed_bytes_per_sec > 0.0 && total_size > downloaded {
+            ((total_size - downloaded) as f64 / speed_bytes_per_sec) as u64
+        } else {
+            0
+        };
+        
+        // Emitir progresso com telemetria
         window.emit("installer-download-progress", serde_json::json!({
             "progress": progress,
             "downloaded": downloaded,
             "total": total_size,
+            "speed": speed_bytes_per_sec as u64,
+            "speed_formatted": format!("{:.1} MB/s", speed_mb_per_sec),
+            "eta_seconds": eta_seconds,
             "status": format!("Baixando... {}%", progress)
         })).ok();
     }
     
+    // Fechar arquivo antes de calcular hash
+    drop(file);
+    
+    // Validar hash SHA256 se fornecido
+    if let Some(ref expected_hash) = expected_sha256 {
+        window.emit("installer-download-progress", serde_json::json!({
+            "progress": 100,
+            "downloaded": downloaded,
+            "total": total_size,
+            "status": "Verificando integridade..."
+        })).ok();
+        
+        let calculated_hash = calculate_sha256(&dest_path)
+            .map_err(|e| format!("Failed to calculate file hash: {}", e))?;
+        
+        // Comparar hashes (case-insensitive)
+        if calculated_hash.to_lowercase() != expected_hash.to_lowercase() {
+            // Remover arquivo corrompido
+            let _ = fs::remove_file(&dest_path);
+            return Err(format!(
+                "Download corrompido: hash esperado {}, mas obteve {}. Arquivo removido.",
+                expected_hash,
+                calculated_hash
+            ));
+        }
+        
+        log::info!("Hash SHA256 validado com sucesso para: {:?}", dest_path);
+    }
+    
     window.emit("installer-download-progress", serde_json::json!({
         "progress": 100,
+        "downloaded": downloaded,
+        "total": total_size,
         "status": "Download concluído"
     })).ok();
     
@@ -3159,11 +3793,47 @@ async fn download_installer(
 
 /// Executa o instalador baixado e faz polling até Ollama estar pronto
 #[command]
+<<<<<<< HEAD
+async fn run_installer(app_handle: AppHandle, file_path: String, expected_sha256: Option<String>) -> Result<(), String> {
+=======
 async fn run_installer(app_handle: AppHandle, file_path: String) -> Result<(), String> {
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
     let path = PathBuf::from(&file_path);
     
     if !path.exists() {
         return Err(format!("Instalador não encontrado: {}", file_path));
+    }
+    
+    let window = app_handle.get_webview_window("main");
+    
+    // Validar hash SHA256 se fornecido antes de executar
+    if let Some(ref expected_hash) = expected_sha256 {
+        if let Some(ref w) = window {
+            let _ = w.emit("installer-progress", serde_json::json!({
+                "status": "verifying",
+                "message": "Verificando integridade do instalador..."
+            }));
+        }
+        
+        let calculated_hash = calculate_sha256(&path)
+            .map_err(|e| format!("Failed to calculate file hash: {}", e))?;
+        
+        // Comparar hashes (case-insensitive)
+        if calculated_hash.to_lowercase() != expected_hash.to_lowercase() {
+            if let Some(ref w) = window {
+                let _ = w.emit("installer-progress", serde_json::json!({
+                    "status": "error",
+                    "message": format!("Arquivo corrompido: hash esperado {}, mas obteve {}", expected_hash, calculated_hash)
+                }));
+            }
+            return Err(format!(
+                "Arquivo corrompido: hash esperado {}, mas obteve {}. Não é seguro executar o instalador.",
+                expected_hash,
+                calculated_hash
+            ));
+        }
+        
+        log::info!("Hash SHA256 validado com sucesso antes de executar instalador");
     }
     
     #[cfg(target_os = "windows")]
@@ -3171,12 +3841,76 @@ async fn run_installer(app_handle: AppHandle, file_path: String) -> Result<(), S
         // No Windows, executar o .exe diretamente com flags silenciosas
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
+<<<<<<< HEAD
+        
+        // Emitir evento de início da instalação
+        let window_clone_for_start = window.clone();
+        if let Some(ref w) = window_clone_for_start {
+            let _ = w.emit("installer-progress", serde_json::json!({
+                "status": "starting",
+                "message": "Iniciando instalação silenciosa..."
+            }));
+        }
+        
+        // Tentar múltiplas flags de instalação silenciosa (NSIS suporta /S, /SILENT, /VERYSILENT)
+        // /VERYSILENT é o mais silencioso (sem janela, sem progresso)
+        // /SILENT mostra progresso mas sem interação
+        // /S é o padrão NSIS
+        let mut cmd = Command::new(&path);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        
+        // Usar /VERYSILENT para instalação completamente silenciosa
+        // /NORESTART evita reiniciar o sistema
+        cmd.arg("/VERYSILENT")
+           .arg("/NORESTART")
+           .arg("/SUPPRESSMSGBOXES");
+        
+        log::info!("Executando instalador com flags silenciosas: {:?}", path);
+        
+        // Aguardar o processo terminar para saber se a instalação foi bem-sucedida
+        let window_clone_for_error = window.clone();
+        let output = cmd.output()
+            .map_err(|e| {
+                let error_msg = format!("Failed to run installer: {}", e);
+                if let Some(ref w) = window_clone_for_error {
+                    let _ = w.emit("installer-progress", serde_json::json!({
+                        "status": "error",
+                        "message": error_msg.clone()
+                    }));
+                }
+                error_msg
+            })?;
+        
+        if output.status.success() {
+            log::info!("Instalador executado com sucesso");
+            if let Some(ref w) = window {
+                let _ = w.emit("installer-progress", serde_json::json!({
+                    "status": "completed",
+                    "message": "Instalação concluída. Verificando Ollama..."
+                }));
+            }
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let error_msg = format!("Instalador retornou código de erro: {}. {}", output.status.code().unwrap_or(-1), stderr);
+            log::warn!("{}", error_msg);
+            
+            // Mesmo com erro, tentar verificar se o Ollama foi instalado
+            // (alguns instaladores retornam erro mesmo quando instalam corretamente)
+            if let Some(ref w) = window {
+                let _ = w.emit("installer-progress", serde_json::json!({
+                    "status": "warning",
+                    "message": "Instalador concluído (com avisos). Verificando instalação..."
+                }));
+            }
+        }
+=======
         let mut cmd = Command::new(&path);
         cmd.creation_flags(CREATE_NO_WINDOW);
         // Adicionar flag /S para instalação silenciosa (se suportado pelo instalador)
         cmd.arg("/S");
         cmd.spawn()
             .map_err(|e| format!("Failed to run installer: {}", e))?;
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
     }
     
     #[cfg(target_os = "linux")]
@@ -3229,6 +3963,72 @@ async fn run_installer(app_handle: AppHandle, file_path: String) -> Result<(), S
         }
     }
     
+<<<<<<< HEAD
+    // Iniciar polling em background para detectar quando Ollama estiver pronto
+    let window_clone = app_handle.get_webview_window("main");
+    tauri::async_runtime::spawn(async move {
+        // Aguardar um pouco para a instalação finalizar e o serviço iniciar
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        
+        if let Some(ref w) = window_clone {
+            let _ = w.emit("installer-progress", serde_json::json!({
+                "status": "checking",
+                "message": "Verificando se Ollama foi instalado corretamente..."
+            }));
+        }
+        
+        // Fazer polling por até 90 segundos (dar mais tempo para instalação completa)
+        let max_attempts = 90;
+        let mut attempts = 0;
+        
+        while attempts < max_attempts {
+            // Verificar se o Ollama está instalado
+            if check_ollama_installed_async().await {
+                // Verificar se o serviço está rodando
+                if let Ok(_) = poll_ollama_ready(5).await {
+                    log::info!("Ollama está pronto após instalação");
+                    if let Some(ref w) = window_clone {
+                        let _ = w.emit("installer-progress", serde_json::json!({
+                            "status": "success",
+                            "message": "Ollama instalado e rodando com sucesso!"
+                        }));
+                        let _ = w.emit("ollama-ready", ());
+                    }
+                    return;
+                }
+            }
+            
+            attempts += 1;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            
+            // Atualizar progresso a cada 5 segundos
+            if attempts % 5 == 0 && attempts < max_attempts {
+                if let Some(ref w) = window_clone {
+                    let _ = w.emit("installer-progress", serde_json::json!({
+                        "status": "checking",
+                        "message": format!("Aguardando Ollama iniciar... ({}s)", attempts)
+                    }));
+                }
+            }
+        }
+        
+        // Timeout - verificar se pelo menos está instalado
+        if check_ollama_installed_async().await {
+            log::warn!("Ollama instalado mas não iniciou automaticamente");
+            if let Some(w) = window_clone {
+                let _ = w.emit("installer-progress", serde_json::json!({
+                    "status": "partial",
+                    "message": "Ollama instalado, mas não iniciou automaticamente. Tente iniciar manualmente."
+                }));
+            }
+        } else {
+            log::warn!("Polling timeout: Ollama não foi detectado após instalação");
+            if let Some(ref w) = window_clone {
+                let _ = w.emit("installer-progress", serde_json::json!({
+                    "status": "error",
+                    "message": "Instalação pode ter falhado. Verifique manualmente."
+                }));
+=======
     log::info!("Instalador executado: {:?}", path);
     
     // Iniciar polling em background para detectar quando Ollama estiver pronto
@@ -3248,11 +4048,72 @@ async fn run_installer(app_handle: AppHandle, file_path: String) -> Result<(), S
             }
             Err(e) => {
                 log::warn!("Polling timeout: {}", e);
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
             }
         }
     });
     
     Ok(())
+}
+
+/// Verifica se o Ollama está instalado (verifica se o executável existe) - versão async
+pub async fn check_ollama_installed_async() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        // No Windows, verificar se ollama.exe existe no PATH ou em localizações comuns
+        use std::process::Command;
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        
+        let mut cmd = Command::new("where");
+        cmd.arg("ollama");
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        
+        if let Ok(output) = cmd.output() {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                return !stdout.trim().is_empty();
+            }
+        }
+        
+        // Verificar localizações comuns do Ollama no Windows
+        let common_paths: Vec<PathBuf> = vec![
+            std::path::PathBuf::from(r"C:\Program Files\Ollama\ollama.exe"),
+            std::path::PathBuf::from(r"C:\Program Files (x86)\Ollama\ollama.exe"),
+        ];
+        
+        // Adicionar path do home dir se disponível
+        if let Some(mut home_path) = dirs::home_dir() {
+            home_path.push("AppData\\Local\\Programs\\Ollama\\ollama.exe");
+            let mut paths_with_home = common_paths;
+            paths_with_home.push(home_path);
+            
+            for path in paths_with_home {
+                if path.exists() {
+                    return true;
+                }
+            }
+        } else {
+            for path in common_paths {
+                if path.exists() {
+                    return true;
+                }
+            }
+        }
+        
+        false
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Linux/Mac: verificar se ollama está no PATH
+        use std::process::Command;
+        if let Ok(output) = Command::new("which").arg("ollama").output() {
+            output.status.success()
+        } else {
+            false
+        }
+    }
 }
 
 /// Verifica se o instalador já foi baixado
@@ -3550,6 +4411,10 @@ async fn chat_stream(
     system_prompt: Option<String>,
     enable_rag: Option<bool>,
     monitor_state: State<'_, Arc<Mutex<SystemMonitorState>>>,
+<<<<<<< HEAD
+    processing_state: State<'_, ProcessingState>,
+=======
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
 ) -> Result<String, String> {
     use uuid::Uuid;
     use ollama_client::OllamaClient;
@@ -3561,6 +4426,8 @@ async fn chat_stream(
         let mut monitor = monitor_state.lock()
             .map_err(|e| format!("Failed to lock monitor state: {}", e))?;
         monitor.get_health()
+<<<<<<< HEAD
+=======
     };
     
     if health.status == HealthStatus::Critical {
@@ -3612,26 +4479,139 @@ async fn chat_stream(
         (generated_title, generated_emoji)
     } else {
         (String::new(), "💬".to_string())
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
     };
     
-    // 2. Preparar mensagens para Ollama
-    let mut ollama_messages = Vec::new();
-    
-    // Adicionar system prompt se fornecido
-    if let Some(sys_prompt) = system_prompt {
-        ollama_messages.push(serde_json::json!({
-            "role": "system",
-            "content": sys_prompt
-        }));
+    if health.status == HealthStatus::Critical {
+        return Err("Sistema sobrecarregado: aguarde alguns instantes antes de fazer novas requisições.".to_string());
     }
     
-    // Converter mensagens para formato Ollama
-    for msg in &messages {
-        ollama_messages.push(serde_json::json!({
-            "role": msg.role,
-            "content": msg.content
-        }));
+    let session_id = session_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+    let _enable_rag = enable_rag.unwrap_or(false);
+    let is_new_session = messages.len() == 1 && messages[0].role == "user";
+    {
+        let mut status = processing_state.status.lock().await;
+        status.insert(session_id.clone(), ("running".to_string(), Utc::now()));
     }
+<<<<<<< HEAD
+    let _ = window.emit("processing-status", &ProcessingStatusEvent { session_id: session_id.clone(), status: "running".to_string() });
+    let window_cloned = window.clone();
+    let app_handle_cloned = app_handle.clone();
+    let model_cloned = model.clone();
+    let system_prompt_cloned = system_prompt.clone();
+    let messages_cloned = messages.clone();
+    let session_id_cloned = session_id.clone();
+    let handle = tauri::async_runtime::spawn(async move {
+        let ollama_client = OllamaClient::new(None);
+        let mut title = String::new();
+        let mut emoji = "💬".to_string();
+        if is_new_session {
+            let user_input = &messages_cloned[0].content;
+            let generated_title = match tokio::time::timeout(
+                tokio::time::Duration::from_secs(5),
+                ollama_client.generate_title(&model_cloned, user_input)
+            ).await {
+                Ok(Ok(t)) => t,
+                Ok(Err(_)) => user_input.split_whitespace().take(5).collect::<Vec<_>>().join(" "),
+                Err(_) => user_input.split_whitespace().take(5).collect::<Vec<_>>().join(" "),
+            };
+            let generated_emoji = OllamaClient::generate_emoji(&generated_title);
+            title = generated_title.clone();
+            emoji = generated_emoji.clone();
+            let created_event = ChatCreatedEvent { session_id: session_id_cloned.clone(), title: generated_title, emoji: generated_emoji };
+            let _ = window_cloned.emit("chat-created", &created_event);
+        }
+        let mut ollama_messages = Vec::new();
+        if let Some(sys_prompt) = system_prompt_cloned {
+            ollama_messages.push(serde_json::json!({ "role": "system", "content": sys_prompt }));
+        }
+        for msg in &messages_cloned {
+            ollama_messages.push(serde_json::json!({ "role": msg.role, "content": msg.content }));
+        }
+        if let Err(e) = ollama_client.check_connection().await {
+            let _ = window_cloned.emit("chat-error", &ChatErrorEvent { session_id: session_id_cloned.clone(), error: e });
+            let _ = window_cloned.emit("chat-token", &ChatTokenEvent { session_id: session_id_cloned.clone(), content: String::new(), done: true });
+            if let Some(state_ref) = app_handle_cloned.try_state::<ProcessingState>() { 
+                let mut status = state_ref.status.lock().await; 
+                status.insert(session_id_cloned.clone(), ("error".to_string(), Utc::now()));
+                let mut sessions = state_ref.sessions.lock().await; 
+                let _ = sessions.remove(&session_id_cloned);
+            }
+            let _ = window_cloned.emit("processing-status", &ProcessingStatusEvent { session_id: session_id_cloned.clone(), status: "error".to_string() });
+            return;
+        }
+        let request = serde_json::json!({ "model": model_cloned, "messages": ollama_messages, "stream": true });
+        let client = match reqwest::Client::builder().timeout(std::time::Duration::from_secs(300)).build() { Ok(c) => c, Err(e) => {
+            let _ = window_cloned.emit("chat-error", &ChatErrorEvent { session_id: session_id_cloned.clone(), error: format!("Failed to create HTTP client: {}", e) });
+            let _ = window_cloned.emit("chat-token", &ChatTokenEvent { session_id: session_id_cloned.clone(), content: String::new(), done: true });
+            if let Some(state_ref) = app_handle_cloned.try_state::<ProcessingState>() { 
+                let mut status = state_ref.status.lock().await; 
+                status.insert(session_id_cloned.clone(), ("error".to_string(), Utc::now()));
+                let mut sessions = state_ref.sessions.lock().await; 
+                let _ = sessions.remove(&session_id_cloned);
+            }
+            let _ = window_cloned.emit("processing-status", &ProcessingStatusEvent { session_id: session_id_cloned.clone(), status: "error".to_string() });
+            return;
+        }};
+        let url = "http://localhost:11434/api/chat";
+        let response = match client.post(url).json(&request).send().await { Ok(r) => r, Err(e) => {
+            let _ = window_cloned.emit("chat-error", &ChatErrorEvent { session_id: session_id_cloned.clone(), error: format!("Failed to send request to Ollama: {}", e) });
+            let _ = window_cloned.emit("chat-token", &ChatTokenEvent { session_id: session_id_cloned.clone(), content: String::new(), done: true });
+            if let Some(state_ref) = app_handle_cloned.try_state::<ProcessingState>() { 
+                let mut status = state_ref.status.lock().await; 
+                status.insert(session_id_cloned.clone(), ("error".to_string(), Utc::now()));
+                let mut sessions = state_ref.sessions.lock().await; 
+                let _ = sessions.remove(&session_id_cloned);
+            }
+            let _ = window_cloned.emit("processing-status", &ProcessingStatusEvent { session_id: session_id_cloned.clone(), status: "error".to_string() });
+            return;
+        }};
+        if !response.status().is_success() {
+            let error_msg = format!("Ollama returned status: {}", response.status());
+            let _ = window_cloned.emit("chat-error", &ChatErrorEvent { session_id: session_id_cloned.clone(), error: error_msg.clone() });
+            let _ = window_cloned.emit("chat-token", &ChatTokenEvent { session_id: session_id_cloned.clone(), content: String::new(), done: true });
+            if let Some(state_ref) = app_handle_cloned.try_state::<ProcessingState>() { 
+                let mut status = state_ref.status.lock().await; 
+                status.insert(session_id_cloned.clone(), ("error".to_string(), Utc::now()));
+                let mut sessions = state_ref.sessions.lock().await; 
+                let _ = sessions.remove(&session_id_cloned);
+            }
+            let _ = window_cloned.emit("processing-status", &ProcessingStatusEvent { session_id: session_id_cloned.clone(), status: "error".to_string() });
+            return;
+        }
+        let mut stream = response.bytes_stream();
+        let mut buffer = String::new();
+        let mut full_content = String::new();
+        let mut token_buffer = String::new();
+        let mut last_emit = std::time::Instant::now();
+        const EMIT_INTERVAL_MS: u64 = 16;
+        const MAX_BUFFER_CHARS: usize = 50;
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = match chunk_result { Ok(c) => c, Err(e) => {
+                let _ = window_cloned.emit("chat-error", &ChatErrorEvent { session_id: session_id_cloned.clone(), error: format!("Stream error: {}", e) });
+                break;
+            }};
+            let chunk_str = String::from_utf8_lossy(&chunk);
+            buffer.push_str(&chunk_str);
+            while let Some(pos) = buffer.find('\n') {
+                let line = buffer[..pos].trim().to_string();
+                buffer = buffer[pos + 1..].to_string();
+                if line.is_empty() { continue; }
+                match serde_json::from_str::<serde_json::Value>(&line) {
+                    Ok(json) => {
+                        let is_done = json.get("done").and_then(|d| d.as_bool()) == Some(true);
+                        if let Some(message) = json.get("message") {
+                            if let Some(content) = message.get("content").and_then(|c| c.as_str()) {
+                                if !content.is_empty() {
+                                    full_content.push_str(content);
+                                    token_buffer.push_str(content);
+                                    let elapsed = last_emit.elapsed().as_millis() as u64;
+                                    if elapsed >= EMIT_INTERVAL_MS || token_buffer.len() >= MAX_BUFFER_CHARS {
+                                        let token_event = ChatTokenEvent { session_id: session_id_cloned.clone(), content: std::mem::take(&mut token_buffer), done: false };
+                                        let _ = window_cloned.emit("chat-token", &token_event);
+                                        last_emit = std::time::Instant::now();
+                                    }
+=======
     
     // 3. TODO: Classificar intent e aplicar RAG se necessário
     // if enable_rag {
@@ -3726,10 +4706,23 @@ async fn chat_stream(
                                         log::warn!("Erro ao emitir token: {}", e);
                                     }
                                     last_emit = std::time::Instant::now();
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
                                 }
                             }
                         }
+                        if is_done {
+                            if !token_buffer.is_empty() {
+                                let flush_event = ChatTokenEvent { session_id: session_id_cloned.clone(), content: std::mem::take(&mut token_buffer), done: false };
+                                let _ = window_cloned.emit("chat-token", &flush_event);
+                            }
+                            let final_event = ChatTokenEvent { session_id: session_id_cloned.clone(), content: String::new(), done: true };
+                            let _ = window_cloned.emit("chat-token", &final_event);
+                            break;
+                        }
                     }
+<<<<<<< HEAD
+                    Err(_) => {}
+=======
                     
                     // Verificar se stream terminou
                     if is_done {
@@ -3756,84 +4749,328 @@ async fn chat_stream(
                 Err(e) => {
                     log::debug!("Failed to parse JSON chunk: {} - Line: {}", e, line);
                     // Continuar mesmo com erro de parse
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
                 }
             }
         }
+        match Database::new(&app_handle_cloned) {
+            Ok(db) => {
+                let now = Utc::now();
+                let session = if is_new_session && !title.is_empty() { ChatSession { id: session_id_cloned.clone(), title, emoji, created_at: now, updated_at: now } } else {
+                    match db.get_session(&session_id_cloned) { Ok(Some(mut existing)) => { existing.updated_at = now; existing }, _ => ChatSession { id: session_id_cloned.clone(), title: "Nova Conversa".to_string(), emoji: "💬".to_string(), created_at: now, updated_at: now } }
+                };
+                let _ = db.create_session(&session);
+                for msg in &messages_cloned {
+                    let chat_msg = ChatMessage { id: None, session_id: session_id_cloned.clone(), role: msg.role.clone(), content: msg.content.clone(), metadata: msg.metadata.as_ref().and_then(|m| serde_json::to_string(m).ok()), created_at: now };
+                    let _ = db.save_message(&chat_msg);
+                }
+                if !full_content.is_empty() {
+                    let assistant_msg = ChatMessage { id: None, session_id: session_id_cloned.clone(), role: "assistant".to_string(), content: full_content, metadata: None, created_at: Utc::now() };
+                    let _ = db.save_message(&assistant_msg);
+                }
+            }
+            Err(_) => {}
+        }
+        if let Some(state_ref) = app_handle_cloned.try_state::<ProcessingState>() {
+            {
+                let mut status = state_ref.status.lock().await;
+                status.insert(session_id_cloned.clone(), ("completed".to_string(), Utc::now()));
+            }
+            {
+                let mut sessions = state_ref.sessions.lock().await;
+                let _ = sessions.remove(&session_id_cloned);
+            }
+        }
+        let _ = window_cloned.emit("processing-status", &ProcessingStatusEvent { session_id: session_id_cloned.clone(), status: "completed".to_string() });
+    });
+    {
+        let mut sessions = processing_state.sessions.lock().await;
+        sessions.insert(session_id.clone(), handle);
     }
+    Ok(session_id)
+}
+
+// ========== Setup Commands ==========
+
+#[command]
+async fn get_setup_state_command(app_handle: AppHandle) -> Result<setup::SetupState, String> {
+    use setup::get_setup_state;
+    get_setup_state(&app_handle).await
+}
+
+// Nota: Esta função é o único comando Tauri para get_setup_state.
+// A função setup::get_setup_state é interna e não tem #[command].
+
+#[command]
+fn check_chocolatey_installed_command() -> bool {
+    use setup_manager::check_chocolatey_installed;
+    check_chocolatey_installed()
+}
+
+#[command]
+async fn install_chocolatey_command(window: WebviewWindow) -> Result<(), String> {
+    use setup_manager::install_chocolatey;
+    install_chocolatey(window).await
+}
+
+#[command]
+async fn install_ollama_choco_command(window: WebviewWindow) -> Result<(), String> {
+    use setup_manager::install_ollama_choco;
+    install_ollama_choco(window).await
+}
+
+#[command]
+async fn install_ollama_silently_command(
+    app_handle: AppHandle,
+    installer_path: Option<String>,
+) -> Result<(), String> {
+    use setup::install_ollama_silently;
+    install_ollama_silently(app_handle, installer_path).await
+}
+
+#[command]
+async fn download_default_model_command(
+    app_handle: AppHandle,
+    state: State<'_, DownloadState>,
+    model_name: String,
+) -> Result<(), String> {
+    use setup::download_default_model;
+    if let Some(existing) = state.current_task.lock().await.take() {
+        existing.abort();
+    }
+    let app_handle_clone = app_handle.clone();
+    let model_name_clone = model_name.clone();
+    let handle = tauri::async_runtime::spawn(async move {
+        let _ = download_default_model(app_handle_clone, model_name_clone).await;
+        if let Some(state_ref) = app_handle.try_state::<DownloadState>() {
+            let _ = state_ref.current_task.lock().await.take();
+        }
+    });
+    *state.current_task.lock().await = Some(handle);
+    Ok(())
+}
+
+// ============== COMANDOS DE EMBEDDINGS ==============
+
+/// Baixa o modelo de embeddings se não existir
+#[command]
+async fn download_embedding_model(app_handle: AppHandle) -> Result<bool, String> {
+    let app_data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
     
-    // 6. Persistir sessão e mensagens no SQLite
-    match Database::new(&app_handle) {
-        Ok(db) => {
-            let now = Utc::now();
-            
-            // Criar ou atualizar sessão
-            let session = if is_new_session && !title.is_empty() {
-                ChatSession {
-                    id: session_id.clone(),
-                    title,
-                    emoji,
-                    created_at: now,
-                    updated_at: now,
-                }
-            } else {
-                // Buscar sessão existente ou criar nova
-                match db.get_session(&session_id) {
-                    Ok(Some(mut existing)) => {
-                        existing.updated_at = now;
-                        existing
-                    }
-                    _ => ChatSession {
-                        id: session_id.clone(),
-                        title: "Nova Conversa".to_string(),
-                        emoji: "💬".to_string(),
-                        created_at: now,
-                        updated_at: now,
-                    }
-                }
-            };
-            
-            if let Err(e) = db.create_session(&session) {
-                log::warn!("Erro ao salvar sessão: {}", e);
-            }
-            
-            // Salvar mensagens do usuário
-            for msg in &messages {
-                let chat_msg = ChatMessage {
-                    id: None,
-                    session_id: session_id.clone(),
-                    role: msg.role.clone(),
-                    content: msg.content.clone(),
-                    metadata: msg.metadata.as_ref().and_then(|m| serde_json::to_string(m).ok()),
-                    created_at: now,
-                };
-                
-                if let Err(e) = db.add_message(&chat_msg) {
-                    log::warn!("Erro ao salvar mensagem: {}", e);
-                }
-            }
-            
-            // Salvar mensagem final do assistente
-            if !full_content.is_empty() {
-                let assistant_msg = ChatMessage {
-                    id: None,
-                    session_id: session_id.clone(),
-                    role: "assistant".to_string(),
-                    content: full_content,
-                    metadata: None,
-                    created_at: Utc::now(),
-                };
-                
-                if let Err(e) = db.add_message(&assistant_msg) {
-                    log::warn!("Erro ao salvar mensagem do assistente: {}", e);
-                }
-            }
+    match embeddings::ensure_model_files(&app_data_dir).await {
+        Ok(_) => {
+            log::info!("[Embeddings] Model files ready");
+            Ok(true)
         }
         Err(e) => {
-            log::warn!("Erro ao inicializar banco de dados: {}", e);
+            log::error!("[Embeddings] Failed to ensure model files: {}", e);
+            Err(format!("Failed to download model: {}", e))
+        }
+    }
+}
+
+/// Verifica se o modelo de embeddings está disponível
+#[command]
+fn is_embedding_model_available(app_handle: AppHandle) -> Result<bool, String> {
+    let app_data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    
+    Ok(embeddings::is_model_available(&app_data_dir))
+}
+
+// ============== COMANDOS HUGGING FACE ==============
+
+/// Baixa um modelo GGUF do Hugging Face
+#[command]
+async fn download_gguf_model(
+    app_handle: AppHandle,
+    model_id: String,
+    filename: String,
+) -> Result<String, String> {
+    // Obter window principal se disponível
+    let window = app_handle.get_webview_window("main");
+    let path = huggingface_download::download_gguf_model(app_handle, model_id, filename, window).await?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// Lista modelos GGUF disponíveis no Hugging Face
+#[command]
+async fn list_huggingface_gguf_models(
+    app_handle: AppHandle,
+    query: Option<String>,
+    quantization: Option<String>,
+) -> Result<Vec<huggingface_download::HuggingFaceModel>, String> {
+    huggingface_download::list_huggingface_gguf_models(&app_handle, query, quantization).await
+}
+
+/// Calcula scores de relevância para textos em relação a uma query
+#[command]
+fn calculate_relevance_scores(
+    app_handle: AppHandle,
+    query: String,
+    texts: Vec<String>,
+) -> Result<Vec<(usize, f32)>, String> {
+    let app_data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    
+    let model_arc = embeddings::get_or_init_model(&app_data_dir)
+        .map_err(|e| format!("Failed to load model: {}", e))?;
+    
+    let mut model = model_arc.lock()
+        .map_err(|e| format!("Failed to lock model: {}", e))?;
+    
+    let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+    
+    embeddings::rank_by_relevance(&mut model, &query, &text_refs)
+        .map_err(|e| format!("Failed to calculate relevance: {}", e))
+}
+
+/// Gera embedding para um texto
+#[command]
+fn generate_embedding(
+    app_handle: AppHandle,
+    text: String,
+) -> Result<Vec<f32>, String> {
+    let app_data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    
+    let model_arc = embeddings::get_or_init_model(&app_data_dir)
+        .map_err(|e| format!("Failed to load model: {}", e))?;
+    
+    let mut model = model_arc.lock()
+        .map_err(|e| format!("Failed to lock model: {}", e))?;
+    
+    model.embed(&text)
+        .map_err(|e| format!("Failed to generate embedding: {}", e))
+}
+
+/// Copia recursos do bundle para AppData e configura tudo necessário
+async fn setup_bundle_resources(
+    app_handle: &AppHandle,
+    window: Option<&WebviewWindow>,
+) -> Result<(), String> {
+    let app_data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    
+    let resource_dir = app_handle.path()
+        .resource_dir()
+        .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+    
+    // 1. Copiar modelos de embeddings do bundle para AppData
+    let embedding_source = resource_dir.join("bundle/models/embeddings");
+    let embedding_dest = app_data_dir.join("models");
+    
+    if embedding_source.exists() && !embedding_dest.exists() {
+        log::info!("[BundleSetup] Copiando modelos de embeddings do bundle...");
+        if let Some(w) = window {
+            let _ = w.emit("setup-progress", serde_json::json!({
+                "status": "copying",
+                "message": "Copiando modelos de embeddings..."
+            }));
+        }
+        
+        std::fs::create_dir_all(&embedding_dest)
+            .map_err(|e| format!("Failed to create models dir: {}", e))?;
+        
+        // Copiar arquivos individualmente
+        let files_to_copy = vec![
+            "all-MiniLM-L6-v2.onnx",
+            "tokenizer.json",
+            "onnxruntime.dll",
+        ];
+        
+        for file_name in files_to_copy {
+            let src = embedding_source.join(file_name);
+            let dest = embedding_dest.join(file_name);
+            
+            if src.exists() && !dest.exists() {
+                std::fs::copy(&src, &dest)
+                    .map_err(|e| format!("Failed to copy {}: {}", file_name, e))?;
+                log::info!("[BundleSetup] Copiado: {}", file_name);
+            }
+        }
+        
+        // Copiar diretório ort se existir
+        let ort_source = embedding_source.join("ort");
+        let ort_dest = embedding_dest.join("ort");
+        if ort_source.exists() && !ort_dest.exists() {
+            copy_dir_all(&ort_source, &ort_dest)?;
         }
     }
     
-    Ok(session_id)
+    // 2. Verificar status do Ollama (apenas logar, não instalar)
+    if !check_ollama_installed_async().await {
+        log::info!("[BundleSetup] Ollama não está instalado. A instalação deve ser solicitada pelo frontend.");
+    } else {
+        log::info!("[BundleSetup] Ollama já está instalado");
+    }
+    
+    // Nota: Instalação do Ollama e download de modelos agora são controlados pelo frontend
+    // através dos comandos Tauri: install_ollama_silently_command, install_ollama_choco_command, etc.
+    
+    Ok(())
+}
+
+/// Copia um diretório recursivamente
+fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dst)
+        .map_err(|e| format!("Failed to create destination dir: {}", e))?;
+    
+    for entry in std::fs::read_dir(src)
+        .map_err(|e| format!("Failed to read source dir: {}", e))? {
+        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+        let path = entry.path();
+        let file_name = entry.file_name();
+        let dst_path = dst.join(&file_name);
+        
+        if path.is_dir() {
+            copy_dir_all(&path, &dst_path)?;
+        } else {
+            std::fs::copy(&path, &dst_path)
+                .map_err(|e| format!("Failed to copy file {:?}: {}", path, e))?;
+        }
+    }
+    
+    Ok(())
+}
+
+/// Poda o contexto mantendo apenas os parágrafos mais relevantes
+#[command]
+fn prune_context(
+    app_handle: AppHandle,
+    query: String,
+    context: String,
+    max_tokens: Option<usize>,
+    min_score: Option<f32>,
+) -> Result<String, String> {
+    let max_tokens = max_tokens.unwrap_or(2000);
+    let min_score = min_score.unwrap_or(0.3);
+    
+    let app_data_dir = app_handle.path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    
+    // Tentar usar embeddings se modelo disponível
+    if embeddings::is_model_available(&app_data_dir) {
+        let model_arc = embeddings::get_or_init_model(&app_data_dir)
+            .map_err(|e| format!("Failed to load model: {}", e))?;
+        
+        let mut model = model_arc.lock()
+            .map_err(|e| format!("Failed to lock model: {}", e))?;
+        
+        embeddings::prune_context(&mut model, &query, &context, max_tokens, min_score)
+            .map_err(|e| format!("Failed to prune context: {}", e))
+    } else {
+        // Fallback para BM25-like
+        log::info!("[PruneContext] Using BM25 fallback (embedding model not available)");
+        Ok(embeddings::prune_context_bm25(&query, &context, max_tokens))
+    }
 }
 
 // ============== COMANDOS DE EMBEDDINGS ==============
@@ -3946,6 +5183,66 @@ fn prune_context(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   // Verificação de instância única usando lock file
+<<<<<<< HEAD
+  // Em modo de desenvolvimento, desabilitar para permitir múltiplas instâncias durante debug
+  #[cfg(not(debug_assertions))]
+  {
+    let lock_file_path = dirs::data_local_dir()
+      .map(|mut path| {
+        path.push("OllaHub");
+        std::fs::create_dir_all(&path).ok();
+        path.push("ollahub.lock");
+        path
+      });
+    
+    if let Some(lock_path) = lock_file_path {
+      // Tentar criar lock file exclusivo
+      // No Windows, isso falhará se o arquivo já existir e estiver em uso
+      // No Unix, podemos usar flock ou similar
+      #[cfg(unix)]
+      {
+        use std::fs::OpenOptions;
+        use std::os::unix::fs::OpenOptionsExt;
+        // Tentar remover lock file antigo se existir (pode ser de processo que não encerrou corretamente)
+        let _ = std::fs::remove_file(&lock_path);
+        
+        if let Ok(file) = OpenOptions::new()
+          .write(true)
+          .create_new(true)
+          .open(&lock_path)
+        {
+          // Lock file criado com sucesso - manter aberto durante a execução
+          std::mem::forget(file); // Manter arquivo aberto
+        } else {
+          eprintln!("OllaHub já está em execução. Encerrando...");
+          std::process::exit(1);
+        }
+      }
+      
+      #[cfg(windows)]
+      {
+        use std::fs::OpenOptions;
+        // Tentar remover lock file antigo se existir (pode ser de processo que não encerrou corretamente)
+        // No Windows, se o arquivo estiver em uso por outro processo, remove_file falhará silenciosamente
+        let _ = std::fs::remove_file(&lock_path);
+        
+        // Aguardar um pouco para garantir que o arquivo foi liberado
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        
+        if let Ok(_file) = OpenOptions::new()
+          .write(true)
+          .create_new(true)
+          .open(&lock_path)
+        {
+          // Lock file criado com sucesso
+        } else {
+          // Verificar se há processo realmente rodando antes de encerrar
+          // Se não conseguir criar o lock, pode ser que o arquivo ainda esteja sendo usado
+          // ou que haja outra instância rodando
+          eprintln!("OllaHub já está em execução. Encerrando...");
+          std::process::exit(1);
+        }
+=======
   let lock_file_path = dirs::data_local_dir()
     .map(|mut path| {
       path.push("OllaHub");
@@ -3987,6 +5284,7 @@ pub fn run() {
       } else {
         eprintln!("OllaHub já está em execução. Encerrando...");
         std::process::exit(1);
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
       }
     }
   }
@@ -4007,6 +5305,21 @@ pub fn run() {
       // Plugin de atualização automática
       app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
       
+<<<<<<< HEAD
+      // Copiar recursos do bundle para AppData no primeiro run
+      let app_handle_setup = app.handle().clone();
+      let window_setup = app.get_webview_window("main");
+      tauri::async_runtime::spawn(async move {
+        // Aguardar um pouco para o app inicializar completamente
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        
+        if let Err(e) = setup_bundle_resources(&app_handle_setup, window_setup.as_ref()).await {
+          log::warn!("Erro ao configurar recursos do bundle: {}", e);
+        }
+      });
+      
+=======
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
       // Modificar comportamento de fechar janela (ocultar ao invés de fechar)
       if let Some(window) = app.get_webview_window("main") {
         let window_clone = window.clone();
@@ -4079,24 +5392,50 @@ pub fn run() {
       // Inicializar System Monitor State
       let monitor_state: Arc<Mutex<SystemMonitorState>> = Arc::new(Mutex::new(SystemMonitorState::new()));
       app.manage(monitor_state.clone());
+<<<<<<< HEAD
+
+      // Inicializar ScraperState com AppData dir
+      let app_data_dir = app.path().app_data_dir()
+        .map_err(|e| {
+          let msg = format!("Failed to get app data dir: {}", e);
+          log::warn!("{}", msg);
+          msg
+        })?;
+      let scraper_state = scraper_state::ScraperState::new(app_data_dir);
+      app.manage(scraper_state);
+      
+      // Inicializar LlamaCppState
+      let llama_cpp_state = llama_cpp_state::LlamaCppState::new();
+      app.manage(llama_cpp_state);
+      
+      // Iniciar monitoramento de saúde do sistema
+      if let Err(e) = start_health_monitor(app.handle().clone()) {
+        log::warn!("Falha ao iniciar monitor de saúde: {}", e);
+=======
       
       // Iniciar monitoramento de saúde do sistema
       if let Err(e) = start_health_monitor(app.handle().clone()) {
           log::warn!("Falha ao iniciar monitor de saúde: {}", e);
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
       }
       
       Ok(())
     })
-    .manage(Arc::new(Mutex::new(None::<Arc<Browser>>)) as BrowserState)
     .manage(Arc::new(Mutex::new(HashMap::<String, Arc<Mutex<()>>>::new())) as FileLockMap)
+    .manage(DownloadState { current_task: AsyncMutex::new(None) })
+    .manage(ProcessingState::new())
     .invoke_handler(tauri::generate_handler![
         chat_stream,
-        check_ollama_installed, 
+        stop_processing,
+        get_processing_status,
+        check_ollama_installed_command, 
         check_ollama_running,
+        check_ollama_heartbeat,
         get_system_specs,
         get_operating_system,
-        check_if_model_installed,
+        check_if_model_installed_command,
         pull_model,
+        cancel_download,
         install_gguf_model,
         save_temp_file,
         open_gguf_file_dialog,
@@ -4105,6 +5444,7 @@ pub fn run() {
         start_health_monitor,
         get_gpu_stats,
         list_local_models,
+        list_local_gguf_models,
         delete_model,
         save_chat_session,
         load_chat_sessions,
@@ -4131,7 +5471,7 @@ pub fn run() {
         extract_url_content,
         search_web_metadata,
         scrape_urls,
-        reset_browser,
+        cancel_scraping,
         force_kill_browser,
         export_chat_sessions,
         export_all_data,
@@ -4155,14 +5495,210 @@ pub fn run() {
         check_ollama_full,
         auto_start_ollama,
         classify_intent,
+<<<<<<< HEAD
+        generate_completion,
+        generate_chat_completion,
+        get_ollama_tags,
+        get_ollama_model_info,
+=======
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
         // Embeddings commands
         download_embedding_model,
         is_embedding_model_available,
         calculate_relevance_scores,
         generate_embedding,
+<<<<<<< HEAD
+        prune_context,
+        // Setup commands
+        get_setup_state_command,
+        check_chocolatey_installed_command,
+        install_chocolatey_command,
+        install_ollama_choco_command,
+        install_ollama_silently_command,
+        download_default_model_command,
+        verify_ollama_integrity_command,
+        // Hugging Face commands
+        download_gguf_model,
+        list_huggingface_gguf_models,
+        // SearXNG commands
+        check_docker_available,
+        check_docker_running,
+        check_docker_requirements,
+        install_docker,
+        validate_docker_installation,
+        fix_docker_requirements,
+        install_searxng,
+        start_searxng,
+        stop_searxng,
+        check_searxng_status,
+        get_searxng_logs,
+        open_url
+=======
         prune_context
+>>>>>>> 593efd42e091a845dea82ee6646e027bce1e18c5
     ])
     .manage(Arc::new(Mutex::new(HashMap::<String, McpProcessHandle>::new())) as McpProcessMap)
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
+}
+// Download task state for cancellation
+pub struct DownloadState {
+    pub current_task: AsyncMutex<Option<TauriJoinHandle<()>>>,
+}
+#[command]
+async fn cancel_download(window: WebviewWindow, state: State<'_, DownloadState>) -> Result<(), String> {
+    if let Some(handle) = state.current_task.lock().await.take() {
+        handle.abort();
+        let _ = window.emit("download-progress", serde_json::json!({
+            "status": "cancelled",
+            "percent": null,
+            "downloaded": null,
+            "total": null,
+            "speed": null,
+            "raw": "cancelled"
+        }));
+    }
+    Ok(())
+}
+
+pub struct ProcessingState {
+    pub sessions: AsyncMutex<HashMap<String, TauriJoinHandle<()>>>,
+    pub status: AsyncMutex<HashMap<String, (String, DateTime<Utc>)>>, 
+}
+
+impl ProcessingState {
+    pub fn new() -> Self {
+        Self {
+            sessions: AsyncMutex::new(HashMap::new()),
+            status: AsyncMutex::new(HashMap::new()),
+        }
+    }
+}
+
+#[derive(serde::Serialize, Clone)]
+struct ProcessingStatusEvent {
+    session_id: String,
+    status: String,
+}
+
+#[command]
+async fn stop_processing(window: WebviewWindow, state: State<'_, ProcessingState>, session_id: String) -> Result<(), String> {
+    let mut map = state.sessions.lock().await;
+    if let Some(handle) = map.remove(&session_id) {
+        handle.abort();
+        {
+            let mut status = state.status.lock().await;
+            status.insert(session_id.clone(), ("stopped".to_string(), Utc::now()));
+        }
+        let _ = window.emit("processing-status", &ProcessingStatusEvent { session_id: session_id.clone(), status: "stopped".to_string() });
+        let _ = window.emit("chat-token", &ChatTokenEvent { session_id, content: String::new(), done: true });
+    }
+    Ok(())
+}
+
+#[command]
+fn check_docker_available() -> Result<bool, String> {
+    check_docker_available_impl().map_err(|e| e.to_string())
+}
+
+#[command]
+fn check_docker_running() -> Result<bool, String> {
+    check_docker_running_impl().map_err(|e| e.to_string())
+}
+
+#[command]
+fn check_docker_requirements() -> Result<docker_requirements::SystemRequirements, String> {
+    docker_requirements::check_system_requirements()
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+async fn install_docker(app_handle: AppHandle) -> Result<(), String> {
+    let os = get_operating_system();
+    docker_installer::install_docker(app_handle, &os).await
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+fn validate_docker_installation() -> Result<docker_validator::ValidationResult, String> {
+    docker_validator::validate_docker_installation()
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+async fn fix_docker_requirements(
+    app_handle: AppHandle,
+    os: String,
+    issues: Vec<String>,
+) -> Result<(), String> {
+    docker_fix::fix_system_requirements(app_handle, &os, &issues).await
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+async fn install_searxng(app_handle: AppHandle, url: String, port: u16) -> Result<(), String> {
+    searxng_manager::install_searxng_with_progress(Some(&app_handle), &url, port).await
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+async fn start_searxng() -> Result<(), String> {
+    start_searxng_impl().await.map_err(|e| e.to_string())
+}
+
+#[command]
+async fn stop_searxng() -> Result<(), String> {
+    stop_searxng_impl().await.map_err(|e| e.to_string())
+}
+
+#[command]
+async fn check_searxng_status(url: String) -> Result<bool, String> {
+    check_searxng_status_impl(&url).await.map_err(|e| e.to_string())
+}
+
+#[command]
+fn get_searxng_logs(lines: Option<usize>) -> Result<Vec<String>, String> {
+    get_searxng_logs_impl(lines.unwrap_or(50)).map_err(|e| e.to_string())
+}
+
+#[command]
+fn open_url(url: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(&["/C", "start", "", &url])
+            .spawn()
+            .map_err(|e| format!("Failed to open URL: {}", e))?;
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("Failed to open URL: {}", e))?;
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("Failed to open URL: {}", e))?;
+    }
+    
+    Ok(())
+}
+
+#[command]
+async fn get_processing_status(state: State<'_, ProcessingState>, session_id: Option<String>) -> Result<serde_json::Value, String> {
+    let status = state.status.lock().await;
+    if let Some(id) = session_id {
+        if let Some((s, ts)) = status.get(&id) {
+            return Ok(serde_json::json!({"session_id": id, "status": s, "timestamp": ts}));
+        }
+        return Ok(serde_json::json!({"session_id": id, "status": "unknown"}));
+    }
+    let list: Vec<serde_json::Value> = status.iter().map(|(id, (s, ts))| serde_json::json!({"session_id": id, "status": s, "timestamp": ts})).collect();
+    Ok(serde_json::json!(list))
 }

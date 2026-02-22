@@ -1,0 +1,67 @@
+# OllaHub Recommended SearXNG Configuration (2025)
+# Optimized for resilience against 403 Forbidden and Rate Limiting
+
+# General Settings
+use_default_settings: true
+general:
+  debug: false
+  instance_name: "OllaHub Search"
+
+# Search Engine Settings
+search:
+  safe_search: 0
+  autocomplete: ""
+  # CRITICAL: Adjust ban times to avoid long lockouts
+  ban_time_on_fail: 5
+  max_ban_time_on_fail: 120
+  suspended_times:
+    SearxEngineAccessDenied: 0  # Disable suspension on 403 (Access Denied)
+    SearxEngineCaptcha: 0       # Disable suspension on Captcha
+    SearxEngineTooManyRequests: 3600 # Keep suspension for 429
+
+# Rate Limiter (Disable for self-hosted single user)
+limiter:
+  enabled: false
+
+# Server Configuration
+server:
+  port: 8080
+  bind_address: "0.0.0.0"
+  secret_key: "ollahub-secret-key-change-me" # Change this!
+  # Proxy configuration (Crucial for proper IP forwarding)
+  method: "GET"
+  image_proxy: true
+
+# Engine Configuration
+engines:
+  - name: google
+    engine: google
+    shortcut: g
+    disabled: false
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: false
+  - name: bing
+    engine: bing
+    shortcut: b
+    disabled: false
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: w
+    disabled: false
+
+# Outgoing Requests
+outgoing:
+  # Request timeout
+  request_timeout: 10.0
+  # Max request timeout
+  max_request_timeout: 20.0
+  # User Agent (SearXNG default rotates, but we can enforce generic if needed)
+  # useragent_suffix: ""
+  
+# Proxy Support (Optional - Uncomment if using proxies)
+# proxies:
+#   all:
+#     - http://user:pass@proxy_ip:port
+#     - http://user:pass@proxy_ip2:port

@@ -80,8 +80,12 @@ export function TitleBar() {
 
   return (
     <div 
-      className="h-8 bg-sidebar border-b border-sidebar-border flex items-center justify-between select-none z-50 shrink-0"
+      className="h-8 bg-sidebar border-b border-sidebar-border flex items-center justify-between select-none z-[9999] shrink-0 fixed top-0 left-0 right-0"
       data-tauri-drag-region
+      style={{ 
+        pointerEvents: 'auto',
+        WebkitAppRegion: 'drag'
+      } as React.CSSProperties & { WebkitAppRegion?: string }}
     >
       {/* Área de arrasto com logo/título */}
       <div 

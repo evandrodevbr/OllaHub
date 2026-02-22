@@ -37,24 +37,17 @@ export function useBatchVerify() {
 
   const callLLM = async (model: string, prompt: string, json = false) => {
     try {
-      const response = await fetch('http://localhost:11434/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          prompt,
-          stream: false,
+      const { invoke } = await import('@tauri-apps/api/core');
+      const response = await invoke<string>('generate_completion', {
+        model,
+        prompt,
+        options: {
+          temperature: 0.3,
+          num_predict: 1024,
           format: json ? 'json' : undefined,
-          options: {
-            temperature: 0.3,
-            num_predict: 1024,
-          },
-        }),
+        },
       });
-
-      if (!response.ok) throw new Error('Failed to call LLM');
-      const data = await response.json();
-      return data.response;
+      return response;
     } catch (e) {
       console.error('LLM Call Error:', e);
       throw e;

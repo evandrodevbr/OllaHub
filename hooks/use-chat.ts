@@ -26,6 +26,8 @@ export interface ThinkingMessageMetadata {
   error?: string;
   timestamp: number;
   duration?: number;
+  activeQueries?: Array<{ query: string; source: string; round?: number; startedAt: number }>;
+  activeUrls?: Array<{ url: string; title?: string; status: string; source?: string; startedAt: number; duration?: number }>;
 }
 
 export interface Message {
@@ -528,10 +530,21 @@ export function useChat() {
     }
   };
 
-  const stop = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
+  const stop = async () => {
+    try {
+      // Cancelar processamento de scraping (prioridade alta)
+      try {
+        await invoke('cancel_scraping');
+      } catch (e) {
+        console.error('Erro ao cancelar scraping:', e);
+      }
+
+      if (currentSessionIdRef.current) {
+        await invoke('stop_processing', { sessionId: currentSessionIdRef.current });
+      }
+    } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
     }
   };
 

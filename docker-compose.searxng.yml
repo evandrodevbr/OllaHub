@@ -1,0 +1,31 @@
+version: "3.7"
+
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: ollaHub_searxng
+    ports:
+      - "8080:8080"
+    volumes:
+      - searxng_data:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8080/
+    restart: unless-stopped
+    networks:
+      - searxng_network
+
+  redis:
+    image: redis:alpine
+    container_name: ollaHub_searxng_redis
+    command: redis-server --save "" --appendonly "no"
+    networks:
+      - searxng_network
+    tmpfs:
+      - /var/lib/redis
+
+volumes:
+  searxng_data:
+
+networks:
+  searxng_network:
+    driver: bridge

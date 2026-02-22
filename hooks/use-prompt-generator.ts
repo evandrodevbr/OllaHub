@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 
 // Hardcoded for now to avoid FS complexity in v1, but ideally read from file
 const PROMPT_GEN_SYSTEM = `Você é um Especialista em Engenharia de Prompts com raciocínio sequencial e acesso a fontes técnicas de primeira qualidade.
@@ -40,23 +41,16 @@ export function usePromptGenerator() {
   const generatePrompt = async (userGoal: string, model: string): Promise<string> => {
     setIsGenerating(true);
     try {
-      const response = await fetch('http://localhost:11434/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: 'system', content: PROMPT_GEN_SYSTEM },
-            { role: 'user', content: userGoal }
-          ],
-          stream: false, // We want the full prompt at once for this utility
-        }),
+      const response = await invoke<string>('generate_chat_completion', {
+        model,
+        messages: [
+          { role: 'system', content: PROMPT_GEN_SYSTEM },
+          { role: 'user', content: userGoal }
+        ],
+        options: undefined,
       });
-
-      if (!response.ok) throw new Error('Failed to generate prompt');
       
-      const data = await response.json();
-      return data.message?.content || "";
+      return response || "";
     } catch (error) {
       console.error("Prompt generation failed:", error);
       throw error;
