@@ -200,7 +200,7 @@ For commercial licensing inquiries, please contact me via [evandro.dev.br](https
 ---
 
 <div align="center">
-<p>Built with ❤️ by <a href="https://github.com/evandrodevbr">Evandro Fonseca Junior</a></p>
+<p>Built by <a href="https://github.com/evandrodevbr">Evandro Fonseca Junior</a></p>
 </div>
 
 ```
